@@ -21,12 +21,14 @@ import (
 
 	"github.com/freezxp/proxui/internal/app/command"
 	"github.com/freezxp/proxui/internal/app/ports"
+	appsync "github.com/freezxp/proxui/internal/app/sync"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/infra/config"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 	"github.com/freezxp/proxui/internal/infra/logging"
 	"github.com/freezxp/proxui/internal/infra/postgres"
 	redisinfra "github.com/freezxp/proxui/internal/infra/redis"
+	"github.com/freezxp/proxui/internal/jobs"
 	httpapi "github.com/freezxp/proxui/internal/transport/http"
 )
 
@@ -109,6 +111,32 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		clock      = ports.SystemClock{}
 	)
 
+	masterKey, err := crypto.LoadMasterKey(cfg.MasterKeyFile)
+	if err != nil {
+		return err
+	}
+	vault, err := crypto.NewVault(masterKey, 1)
+	if err != nil {
+		return err
+	}
+
+	var (
+		platforms = postgres.NewPlatformRepository(pool)
+		assets    = postgres.NewAssetRepository(pool)
+		syncRepo  = postgres.NewSyncRepository(pool)
+	)
+
+	reconciler := &appsync.Reconciler{
+		Platforms: platforms, Assets: assets, Runs: syncRepo,
+		Clock: clock, Log: log,
+	}
+	syncService := &appsync.Service{
+		Platforms: platforms, Runs: syncRepo, Reconciler: reconciler,
+		Vault: vault, Clock: clock, Log: log,
+	}
+	queue := jobs.NewClient(rdb.Client, log)
+	defer queue.Close()
+
 	signingKey, err := crypto.LoadOrCreateRSAKey(cfg.JWTKeyFile)
 	if err != nil {
 		return err
@@ -132,6 +160,15 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		ManageAccess:  &command.ManageAccess{Access: accessRepo, Audit: audit, Clock: clock},
 		Users:         users,
 		Access:        accessRepo,
+	}
+
+	platformDeps := httpapi.PlatformDeps{
+		Manage: &command.ManagePlatforms{
+			Platforms: platforms, Vault: vault, Audit: audit, Clock: clock,
+		},
+		Platforms: platforms,
+		Runs:      syncRepo,
+		Sync:      queue,
 	}
 
 	// Migrations run on API startup under an advisory lock; worker-only
@@ -171,6 +208,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Readiness:     readiness,
 			Auth:          authDeps,
 			Admin:         adminDeps,
+			Platforms:     platformDeps,
 			SecureCookies: cfg.SecureCookies,
 			Clock:         clock.Now,
 		})
@@ -208,10 +246,19 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	// (sprint 6). Until then these roles idle so deployment wiring can be
 	// exercised end to end.
 	if cfg.Role.RunsWorker() {
-		log.Warn().Str("component", "worker").Msg("no job handlers registered yet")
+		relay := &jobs.Relay{Store: syncRepo, Redis: rdb.Client, Log: log, Clock: clock}
+		worker := jobs.NewWorker(rdb.Client, &jobs.SyncHandler{Service: syncService, Log: log}, relay, log)
+		if err := worker.Start(); err != nil {
+			return err
+		}
+		relay.Start(ctx)
+		defer worker.Shutdown()
 	}
+
 	if cfg.Role.RunsScheduler() {
-		log.Warn().Str("component", "scheduler").Msg("no periodic jobs registered yet")
+		scheduler := jobs.NewScheduler(queue, platforms, log)
+		scheduler.Start(ctx)
+		defer scheduler.Stop()
 	}
 
 	select {

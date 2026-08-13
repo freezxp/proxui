@@ -59,6 +59,9 @@ type Config struct {
 	// JWTKeyFile holds the RSA signing key for access tokens. It is generated
 	// on first start if absent.
 	JWTKeyFile string
+	// MasterKeyFile holds the key that seals every platform credential. Losing
+	// it means re-entering platform tokens; leaking it means they are readable.
+	MasterKeyFile string
 	// SecureCookies marks the refresh cookie Secure; disable only for local
 	// HTTP development.
 	SecureCookies bool
@@ -90,6 +93,7 @@ func Load() (Config, error) {
 		ShutdownTimeout:  envDuration("PROXUI_SHUTDOWN_TIMEOUT", 15*time.Second),
 		ReadinessTimeout: envDuration("PROXUI_READINESS_TIMEOUT", 2*time.Second),
 		JWTKeyFile:       env("PROXUI_JWT_KEY_FILE", "secrets/jwt-signing-key.pem"),
+		MasterKeyFile:    env("PROXUI_MASTER_KEY_FILE", "secrets/master.key"),
 		SecureCookies:    envBool("PROXUI_SECURE_COOKIES", true),
 		AdminUsername:    env("PROXUI_ADMIN_USERNAME", ""),
 		AdminEmail:       env("PROXUI_ADMIN_EMAIL", ""),

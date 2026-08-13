@@ -131,7 +131,7 @@ func requestFor(t *testing.T, key string) *http.Request {
 	method, pattern, _ := strings.Cut(key, " ")
 
 	path := pattern
-	for _, param := range []string{"{userID}", "{groupID}", "{grantID}"} {
+	for _, param := range []string{"{userID}", "{groupID}", "{grantID}", "{platformID}"} {
 		path = strings.ReplaceAll(path, param, uuid.NewString())
 	}
 

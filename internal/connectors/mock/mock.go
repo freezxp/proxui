@@ -167,12 +167,29 @@ func (c *Connector) seedLocked() {
 			MemoryBytes: int64(2+i%8) << 30,
 			DiskBytes:   int64(32+i%64) << 30,
 			UptimeS:     int64(3600 * (i + 1)),
-			IPAddresses: []string{fmt.Sprintf("10.10.%d.%d", i/250, 10+i%240)},
-			Tags:        []string{"env:mock"},
+			// Every third guest has neither tags nor a reported address, which
+			// is what real fleets look like and what the NOT NULL columns must
+			// tolerate.
+			IPAddresses: ipsFor(i),
+			Tags:        tagsFor(i),
 			Pool:        []string{"prod", "staging", "lab"}[i%3],
 			Attrs:       map[string]any{"os": "linux", "agent": true},
 		})
 	}
+}
+
+func ipsFor(i int) []string {
+	if i%3 == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("10.10.%d.%d", i/250, 10+i%240)}
+}
+
+func tagsFor(i int) []string {
+	if i%3 == 0 {
+		return nil
+	}
+	return []string{"env:mock"}
 }
 
 // Info implements connector.Connector.

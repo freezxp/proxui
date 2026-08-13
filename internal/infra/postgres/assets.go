@@ -66,7 +66,11 @@ func (r *AssetRepository) LoadVMIndex(ctx context.Context, platformID uuid.UUID)
 func (r *AssetRepository) UpsertVM(ctx context.Context, tx ports.Querier, platformID uuid.UUID, hostID *uuid.UUID,
 	rec connector.VMRecord, existing *ports.StoredAsset, now time.Time) (uuid.UUID, []inventory.FieldChange, error) {
 
-	ips, err := json.Marshal(rec.IPAddresses)
+	// Real platforms routinely return no tags and no addresses. A nil slice
+	// would violate the NOT NULL columns, so it is normalized to empty here
+	// rather than requiring every connector to remember.
+	tags := nonNilStrings(rec.Tags)
+	ips, err := json.Marshal(nonNilStrings(rec.IPAddresses))
 	if err != nil {
 		return uuid.Nil, nil, fmt.Errorf("encode ip addresses: %w", err)
 	}
@@ -85,7 +89,7 @@ func (r *AssetRepository) UpsertVM(ctx context.Context, tx ports.Querier, platfo
 				first_seen_at, last_seen_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'active',0,$16,$17,$17)`,
 			id, platformID, hostID, rec.ExternalID, rec.Name, rec.Type, rec.State,
-			rec.CPUCores, rec.MemoryBytes, rec.DiskBytes, rec.UptimeS, ips, rec.Tags,
+			rec.CPUCores, rec.MemoryBytes, rec.DiskBytes, rec.UptimeS, ips, tags,
 			rec.Pool, fingerprint, attrs, now)
 		if err != nil {
 			return uuid.Nil, nil, fmt.Errorf("insert vm: %w", err)
@@ -113,7 +117,7 @@ func (r *AssetRepository) UpsertVM(ctx context.Context, tx ports.Querier, platfo
 			deleted_at=NULL
 		WHERE id=$1`,
 		existing.ID, hostID, rec.Name, rec.Type, rec.State, rec.CPUCores,
-		rec.MemoryBytes, rec.DiskBytes, rec.UptimeS, ips, rec.Tags, rec.Pool,
+		rec.MemoryBytes, rec.DiskBytes, rec.UptimeS, ips, tags, rec.Pool,
 		fingerprint, attrs, now)
 	if err != nil {
 		return uuid.Nil, nil, fmt.Errorf("update vm: %w", err)
@@ -294,6 +298,15 @@ func (r *AssetRepository) RecordHistory(ctx context.Context, tx ports.Querier, a
 		}
 	}
 	return nil
+}
+
+// nonNilStrings returns an empty slice for nil, so JSON encodes [] rather than
+// null and array columns receive a value.
+func nonNilStrings(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }
 
 func intPtrString(v *int) string {

@@ -36,6 +36,7 @@ type ServerConfig struct {
 	Readiness *Readiness
 	Auth      AuthDeps
 	Admin     AdminDeps
+	Platforms PlatformDeps
 
 	// SecureCookies marks the refresh cookie Secure. It is off only for local
 	// HTTP development; production terminates TLS at the reverse proxy.
@@ -53,6 +54,7 @@ type Server struct {
 	readiness     *Readiness
 	auth          AuthDeps
 	admin         AdminDeps
+	platforms     PlatformDeps
 	secureCookies bool
 	nowFn         func() time.Time
 }
@@ -71,6 +73,7 @@ func NewServer(cfg ServerConfig) *Server {
 		readiness:     cfg.Readiness,
 		auth:          cfg.Auth,
 		admin:         cfg.Admin,
+		platforms:     cfg.Platforms,
 		secureCookies: cfg.SecureCookies,
 		nowFn:         cfg.Clock,
 	}
@@ -137,6 +140,26 @@ func (s *Server) Routes() http.Handler {
 				r.With(RequireRole(identity.RoleAdmin)).Post("/", s.handleCreateVMGroup)
 				r.With(RequireRole(identity.RoleAdmin)).Delete("/{groupID}", s.handleDeleteVMGroup)
 			})
+
+			r.Route("/platforms", func(r chi.Router) {
+				// Every role may see which platforms exist and whether they
+				// are healthy; only admins may configure or trigger them.
+				r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor)).
+					Get("/", s.handleListPlatforms)
+
+				r.Group(func(r chi.Router) {
+					r.Use(RequireRole(identity.RoleAdmin))
+					r.Post("/", s.handleCreatePlatform)
+					r.Post("/test", s.handleTestPlatform)
+					r.Get("/{platformID}", s.handleGetPlatform)
+					r.Put("/{platformID}", s.handleUpdatePlatform)
+					r.Delete("/{platformID}", s.handleDeletePlatform)
+					r.Post("/{platformID}/sync", s.handleSyncPlatform)
+					r.Get("/{platformID}/sync-runs", s.handleListSyncRuns)
+				})
+			})
+
+			r.With(RequireRole(identity.RoleAdmin)).Get("/connectors", s.handleListConnectors)
 
 			r.Route("/grants", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))

@@ -24,6 +24,8 @@ import (
 const (
 	TaskSyncInventory = "sync:inventory"
 	TaskSyncHealth    = "sync:health"
+	TaskSyncMetrics   = "sync:metrics"
+	TaskSyncBackfill  = "sync:backfill"
 	TaskOutboxRelay   = "outbox:relay"
 )
 
@@ -91,6 +93,35 @@ func NewSyncHealthTask(platformID uuid.UUID) (*asynq.Task, error) {
 	), nil
 }
 
+// NewSyncMetricsTask builds a metrics collection task.
+func NewSyncMetricsTask(platformID uuid.UUID) (*asynq.Task, error) {
+	payload, err := json.Marshal(PlatformPayload{PlatformID: platformID, Trigger: "schedule"})
+	if err != nil {
+		return nil, fmt.Errorf("encode metrics payload: %w", err)
+	}
+	return asynq.NewTask(TaskSyncMetrics, payload,
+		asynq.Queue(QueueSync),
+		asynq.Unique(SyncUniqueWindow),
+		asynq.MaxRetry(2),
+		asynq.Timeout(2*time.Minute),
+	), nil
+}
+
+// NewBackfillTask builds a history import task. It is slow and runs once per
+// registration, so it gets a generous timeout and no retries: a failed
+// backfill costs history, not correctness.
+func NewBackfillTask(platformID uuid.UUID) (*asynq.Task, error) {
+	payload, err := json.Marshal(PlatformPayload{PlatformID: platformID, Trigger: "registration"})
+	if err != nil {
+		return nil, fmt.Errorf("encode backfill payload: %w", err)
+	}
+	return asynq.NewTask(TaskSyncBackfill, payload,
+		asynq.Queue(QueueDefault),
+		asynq.MaxRetry(1),
+		asynq.Timeout(15*time.Minute),
+	), nil
+}
+
 // SyncHandler runs synchronization tasks.
 type SyncHandler struct {
 	Service *appsync.Service
@@ -130,6 +161,45 @@ func (h *SyncHandler) HandleInventory(ctx context.Context, t *asynq.Task) error 
 		Msg("inventory sync complete")
 	return nil
 }
+
+// HandleMetrics processes a metrics collection task.
+func (h *SyncHandler) HandleMetrics(ctx context.Context, t *asynq.Task) error {
+	var payload PlatformPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return fmt.Errorf("%w: %v", asynq.SkipRetry, err)
+	}
+	stats, err := h.Service.SyncMetrics(ctx, payload.PlatformID)
+	if err != nil {
+		h.Log.Warn().Err(err).Str("platform_id", payload.PlatformID.String()).Msg("metrics collection failed")
+		return err
+	}
+	h.Log.Debug().Str("component", "metrics").
+		Int("vm_samples", stats.VMSamples).Int("host_samples", stats.HostSamples).
+		Int("dropped", stats.Dropped).Msg("metrics collected")
+	return nil
+}
+
+// HandleBackfill imports historical metrics for a newly registered platform.
+func (h *SyncHandler) HandleBackfill(ctx context.Context, t *asynq.Task) error {
+	var payload PlatformPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return fmt.Errorf("%w: %v", asynq.SkipRetry, err)
+	}
+	from := time.Now().Add(-BackfillWindow)
+	written, err := h.Service.BackfillMetrics(ctx, payload.PlatformID, from)
+	if err != nil {
+		h.Log.Warn().Err(err).Msg("metrics backfill failed")
+		return err
+	}
+	h.Log.Info().Int("samples", written).Str("platform_id", payload.PlatformID.String()).
+		Msg("historical metrics imported")
+	return nil
+}
+
+// BackfillWindow is how much history to import on registration. A month gives
+// immediately useful charts without a long first import; the platform's own
+// retention decides how much actually comes back.
+const BackfillWindow = 30 * 24 * time.Hour
 
 // HandleHealth processes a health probe task.
 func (h *SyncHandler) HandleHealth(ctx context.Context, t *asynq.Task) error {

@@ -75,6 +75,10 @@ type Connector struct {
 	// tick advances only when the fleet actually mutates, so repeated listings
 	// are stable — the conformance suite requires that.
 	tick int64
+	// counters accumulate like the cumulative disk and network counters real
+	// platforms expose, so the collector's rate conversion is exercised
+	// without a hypervisor.
+	counters map[string]float64
 }
 
 // New builds a mock connector. It satisfies connector.Factory.
@@ -83,7 +87,11 @@ func New(cfg connector.Config, _ connector.Credentials, _ connector.Options) (co
 	if err := applyExtra(&opts, cfg.Extra); err != nil {
 		return nil, err
 	}
-	c := &Connector{opts: opts, cfg: cfg, rnd: rand.New(rand.NewSource(opts.Seed))}
+	c := &Connector{
+		opts: opts, cfg: cfg,
+		rnd:      rand.New(rand.NewSource(opts.Seed)),
+		counters: map[string]float64{},
+	}
 	c.seed()
 	return c, nil
 }
@@ -339,7 +347,13 @@ func (c *Connector) CollectMetrics(ctx context.Context, scope connector.MetricSc
 			sample(now, connector.SubjectVM, vm.ExternalID, connector.MetricCPUPct, cpu),
 			sample(now, connector.SubjectVM, vm.ExternalID, connector.MetricMemUsedBytes, float64(vm.MemoryBytes)*0.6),
 			sample(now, connector.SubjectVM, vm.ExternalID, connector.MetricMemTotalBytes, float64(vm.MemoryBytes)),
-			sample(now, connector.SubjectVM, vm.ExternalID, connector.MetricNetRxBps, 1e6+float64(i)*1e4),
+			// Real platforms report traffic as an ever-growing byte count, not
+			// a rate. Modelling that here is what lets the collector's counter
+			// handling be tested with no hypervisor present.
+			counterSample(now, vm.ExternalID, connector.MetricNetRxBps, c.advanceCounter(vm.ExternalID+":rx", 1e6+float64(i)*1e4)),
+			counterSample(now, vm.ExternalID, connector.MetricNetTxBps, c.advanceCounter(vm.ExternalID+":tx", 5e5+float64(i)*1e3)),
+			counterSample(now, vm.ExternalID, connector.MetricDiskReadBps, c.advanceCounter(vm.ExternalID+":rd", 2e5)),
+			counterSample(now, vm.ExternalID, connector.MetricDiskWriteBps, c.advanceCounter(vm.ExternalID+":wr", 1e5)),
 		)
 	}
 	for _, host := range hosts {
@@ -492,6 +506,30 @@ func (c *Connector) mutateLocked() {
 
 func sample(ts time.Time, subject connector.SubjectKind, id string, kind connector.MetricKind, value float64) connector.Sample {
 	return connector.Sample{Time: ts, Subject: subject, SubjectID: id, Kind: kind, Value: value}
+}
+
+func counterSample(ts time.Time, id string, kind connector.MetricKind, value float64) connector.Sample {
+	return connector.Sample{
+		Time: ts, Subject: connector.SubjectVM, SubjectID: id,
+		Kind: kind, Value: value, Cumulative: true,
+	}
+}
+
+// advanceCounter grows a monotonic counter by the given amount and returns the
+// new total, mirroring how platforms report cumulative traffic.
+func (c *Connector) advanceCounter(key string, delta float64) float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.counters[key] += delta
+	return c.counters[key]
+}
+
+// ResetCounters simulates a guest reboot, where counters restart from zero.
+// The collector must drop that sample rather than draw an enormous spike.
+func (c *Connector) ResetCounters() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.counters = map[string]float64{}
 }
 
 // echoEndpoint is a loopback console: whatever the client writes comes back.

@@ -17,6 +17,7 @@ import (
 // SyncEnqueuer triggers an immediate synchronization.
 type SyncEnqueuer interface {
 	EnqueueInventorySync(ctx context.Context, platformID uuid.UUID, trigger string) error
+	EnqueueBackfill(ctx context.Context, platformID uuid.UUID) error
 }
 
 // SyncRunLister reads a platform's synchronization history.
@@ -122,6 +123,11 @@ func (s *Server) handleCreatePlatform(w http.ResponseWriter, r *http.Request) {
 	// works would make registration feel broken.
 	if err := s.platforms.Sync.EnqueueInventorySync(r.Context(), p.ID, "registration"); err != nil {
 		s.log.Error().Err(err).Msg("could not queue initial sync")
+	}
+	// History import trails the first inventory run: it needs the VMs to exist
+	// before it has anything to attach samples to.
+	if err := s.platforms.Sync.EnqueueBackfill(r.Context(), p.ID); err != nil {
+		s.log.Error().Err(err).Msg("could not queue history import")
 	}
 	WriteJSON(w, http.StatusCreated, toPlatformResponse(p, s.clock))
 }

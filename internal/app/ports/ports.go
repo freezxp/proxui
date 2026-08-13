@@ -226,3 +226,72 @@ type SweptAsset struct {
 	SyncState    inventory.SyncState
 	MissingCount int
 }
+
+// VMSample is one row of VM telemetry ready for storage.
+type VMSample struct {
+	Time          time.Time
+	VMID          uuid.UUID
+	CPUPct        *float64
+	MemUsedBytes  *int64
+	MemTotalBytes *int64
+	DiskReadBps   *int64
+	DiskWriteBps  *int64
+	NetRxBps      *int64
+	NetTxBps      *int64
+	DiskUsedBytes *int64
+}
+
+// HostSample is one row of host telemetry.
+type HostSample struct {
+	Time          time.Time
+	HostID        uuid.UUID
+	CPUPct        *float64
+	MemUsedBytes  *int64
+	MemTotalBytes *int64
+}
+
+// CounterKey identifies a cumulative counter for one VM.
+type CounterKey struct {
+	VMID   uuid.UUID
+	Metric string
+}
+
+// CounterValue is the last reading of a cumulative counter.
+type CounterValue struct {
+	Value float64
+	Time  time.Time
+}
+
+// MetricPoint is one point on a chart.
+type MetricPoint struct {
+	Time          time.Time `json:"t"`
+	CPUPct        float64   `json:"cpu_pct"`
+	MemUsedBytes  int64     `json:"mem_used_bytes"`
+	MemTotalBytes int64     `json:"mem_total_bytes"`
+	DiskReadBps   int64     `json:"disk_read_bps"`
+	DiskWriteBps  int64     `json:"disk_write_bps"`
+	NetRxBps      int64     `json:"net_rx_bps"`
+	NetTxBps      int64     `json:"net_tx_bps"`
+	DiskUsedBytes int64     `json:"disk_used_bytes"`
+}
+
+// MetricSeries is a chart's worth of points plus the resolution they came from,
+// so a client can label the granularity it is looking at.
+type MetricSeries struct {
+	Resolution string        `json:"resolution"`
+	BucketS    int           `json:"bucket_seconds"`
+	Points     []MetricPoint `json:"points"`
+}
+
+// MetricsRepository stores and reads telemetry.
+type MetricsRepository interface {
+	WriteVMSamples(ctx context.Context, rows []VMSample) (int64, error)
+	WriteHostSamples(ctx context.Context, rows []HostSample) (int64, error)
+	CounterState(ctx context.Context, vmIDs []uuid.UUID) (map[CounterKey]CounterValue, error)
+	SaveCounterState(ctx context.Context, state map[CounterKey]CounterValue) error
+	VMSeries(ctx context.Context, vmID uuid.UUID, from, to, now time.Time) (MetricSeries, error)
+	LatestVMMetrics(ctx context.Context, since time.Time) (map[uuid.UUID]MetricPoint, error)
+	LastSampleTime(ctx context.Context, platformID uuid.UUID) (time.Time, error)
+	VMIDsByExternalID(ctx context.Context, platformID uuid.UUID) (map[string]uuid.UUID, error)
+	HostIDsByExternalID(ctx context.Context, platformID uuid.UUID) (map[string]uuid.UUID, error)
+}

@@ -103,6 +103,7 @@ func matrixServer(role identity.Role) *Server {
 			Tokens:   roleTokenParser{role: role, userID: uuid.New()},
 			Sessions: &fakeSessionChecker{active: true},
 		},
+		Metrics: MetricsDeps{Metrics: stubMetrics{}},
 		Admin: AdminDeps{
 			CreateUser:    &command.CreateUser{Users: users, Access: accessRepo, Hasher: noopHasher{}, Audit: audit, Clock: clock},
 			UpdateUser:    &command.UpdateUser{Users: users, Sessions: sessions, Audit: audit, Clock: clock},
@@ -113,6 +114,36 @@ func matrixServer(role identity.Role) *Server {
 			Access:        accessRepo,
 		},
 	})
+}
+
+// stubMetrics answers metrics reads with nothing, so the matrix measures
+// authorization rather than data.
+type stubMetrics struct{}
+
+func (stubMetrics) WriteVMSamples(context.Context, []ports.VMSample) (int64, error) { return 0, nil }
+func (stubMetrics) WriteHostSamples(context.Context, []ports.HostSample) (int64, error) {
+	return 0, nil
+}
+func (stubMetrics) CounterState(context.Context, []uuid.UUID) (map[ports.CounterKey]ports.CounterValue, error) {
+	return nil, nil
+}
+func (stubMetrics) SaveCounterState(context.Context, map[ports.CounterKey]ports.CounterValue) error {
+	return nil
+}
+func (stubMetrics) VMSeries(context.Context, uuid.UUID, time.Time, time.Time, time.Time) (ports.MetricSeries, error) {
+	return ports.MetricSeries{}, nil
+}
+func (stubMetrics) LatestVMMetrics(context.Context, time.Time) (map[uuid.UUID]ports.MetricPoint, error) {
+	return nil, nil
+}
+func (stubMetrics) LastSampleTime(context.Context, uuid.UUID) (time.Time, error) {
+	return time.Time{}, nil
+}
+func (stubMetrics) VMIDsByExternalID(context.Context, uuid.UUID) (map[string]uuid.UUID, error) {
+	return nil, nil
+}
+func (stubMetrics) HostIDsByExternalID(context.Context, uuid.UUID) (map[string]uuid.UUID, error) {
+	return nil, nil
 }
 
 type noopAudit struct{}
@@ -131,7 +162,7 @@ func requestFor(t *testing.T, key string) *http.Request {
 	method, pattern, _ := strings.Cut(key, " ")
 
 	path := pattern
-	for _, param := range []string{"{userID}", "{groupID}", "{grantID}", "{platformID}"} {
+	for _, param := range []string{"{userID}", "{groupID}", "{grantID}", "{platformID}", "{vmID}"} {
 		path = strings.ReplaceAll(path, param, uuid.NewString())
 	}
 

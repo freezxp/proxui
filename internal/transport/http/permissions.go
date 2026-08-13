@@ -84,6 +84,7 @@ var permissionMap = map[string]Permission{
 	"POST /api/v1/platforms/{platformID}/sync":     roles(identity.RoleAdmin),
 	"GET /api/v1/platforms/{platformID}/sync-runs": roles(identity.RoleAdmin),
 	"GET /api/v1/connectors":                       roles(identity.RoleAdmin),
+	"GET /api/v1/vms/{vmID}/metrics":               roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
 
 	"GET /api/v1/grants":              roles(identity.RoleAdmin),
 	"POST /api/v1/grants":             roles(identity.RoleAdmin),

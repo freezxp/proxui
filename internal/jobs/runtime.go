@@ -41,6 +41,18 @@ func NewClient(rdb *redis.Client, log zerolog.Logger) *Client {
 // Close releases the client.
 func (c *Client) Close() error { return c.inner.Close() }
 
+// EnqueueBackfill queues a history import.
+func (c *Client) EnqueueBackfill(ctx context.Context, platformID uuid.UUID) error {
+	task, err := NewBackfillTask(platformID)
+	if err != nil {
+		return err
+	}
+	if _, err := c.inner.EnqueueContext(ctx, task); err != nil && !isDuplicate(err) {
+		return fmt.Errorf("enqueue backfill: %w", err)
+	}
+	return nil
+}
+
 // EnqueueInventorySync queues an immediate sync. A duplicate while one is
 // already pending is not an error: the existing task will do the work.
 func (c *Client) EnqueueInventorySync(ctx context.Context, platformID uuid.UUID, trigger string) error {
@@ -84,6 +96,8 @@ func NewWorker(rdb *redis.Client, handler *SyncHandler, relay *Relay, log zerolo
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(TaskSyncInventory, handler.HandleInventory)
 	mux.HandleFunc(TaskSyncHealth, handler.HandleHealth)
+	mux.HandleFunc(TaskSyncMetrics, handler.HandleMetrics)
+	mux.HandleFunc(TaskSyncBackfill, handler.HandleBackfill)
 	mux.HandleFunc(TaskOutboxRelay, relay.Handle)
 
 	return &Worker{server: server, mux: mux, log: log}
@@ -139,6 +153,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 		lastInventory := map[uuid.UUID]time.Time{}
 		lastHealth := map[uuid.UUID]time.Time{}
+		lastMetrics := map[uuid.UUID]time.Time{}
 
 		for {
 			select {
@@ -147,7 +162,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 			case <-s.stop:
 				return
 			case now := <-ticker.C:
-				s.tick(ctx, now.UTC(), lastInventory, lastHealth)
+				s.tick(ctx, now.UTC(), lastInventory, lastHealth, lastMetrics)
 			}
 		}
 	}()
@@ -157,7 +172,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 // Stop ends scheduling.
 func (s *Scheduler) Stop() { close(s.stop) }
 
-func (s *Scheduler) tick(ctx context.Context, now time.Time, lastInventory, lastHealth map[uuid.UUID]time.Time) {
+func (s *Scheduler) tick(ctx context.Context, now time.Time, lastInventory, lastHealth, lastMetrics map[uuid.UUID]time.Time) {
 	platforms, err := s.platforms.List(ctx, false)
 	if err != nil {
 		s.log.Error().Err(err).Msg("scheduler could not list platforms")
@@ -179,6 +194,16 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time, lastInventory, last
 				s.log.Error().Err(err).Str("platform", p.Name).Msg("could not enqueue inventory sync")
 			} else {
 				lastInventory[p.ID] = now
+			}
+		}
+
+		if due(lastMetrics[p.ID], now, intervals.Metrics) {
+			if task, err := NewSyncMetricsTask(p.ID); err == nil {
+				if _, err := s.client.inner.EnqueueContext(ctx, task); err != nil && !isDuplicate(err) {
+					s.log.Error().Err(err).Str("platform", p.Name).Msg("could not enqueue metrics collection")
+				} else {
+					lastMetrics[p.ID] = now
+				}
 			}
 		}
 

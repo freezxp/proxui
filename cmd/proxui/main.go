@@ -124,6 +124,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		platforms = postgres.NewPlatformRepository(pool)
 		assets    = postgres.NewAssetRepository(pool)
 		syncRepo  = postgres.NewSyncRepository(pool)
+		metrics   = postgres.NewMetricsRepository(pool)
 	)
 
 	reconciler := &appsync.Reconciler{
@@ -132,7 +133,8 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	}
 	syncService := &appsync.Service{
 		Platforms: platforms, Runs: syncRepo, Reconciler: reconciler,
-		Vault: vault, Clock: clock, Log: log,
+		Metrics: &appsync.MetricsCollector{Metrics: metrics, Clock: clock, Log: log},
+		Vault:   vault, Clock: clock, Log: log,
 	}
 	queue := jobs.NewClient(rdb.Client, log)
 	defer queue.Close()
@@ -209,6 +211,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Auth:          authDeps,
 			Admin:         adminDeps,
 			Platforms:     platformDeps,
+			Metrics:       httpapi.MetricsDeps{Metrics: metrics},
 			SecureCookies: cfg.SecureCookies,
 			Clock:         clock.Now,
 		})

@@ -37,6 +37,7 @@ type ServerConfig struct {
 	Auth      AuthDeps
 	Admin     AdminDeps
 	Platforms PlatformDeps
+	Metrics   MetricsDeps
 
 	// SecureCookies marks the refresh cookie Secure. It is off only for local
 	// HTTP development; production terminates TLS at the reverse proxy.
@@ -55,6 +56,7 @@ type Server struct {
 	auth          AuthDeps
 	admin         AdminDeps
 	platforms     PlatformDeps
+	metrics       MetricsDeps
 	secureCookies bool
 	nowFn         func() time.Time
 }
@@ -74,6 +76,7 @@ func NewServer(cfg ServerConfig) *Server {
 		auth:          cfg.Auth,
 		admin:         cfg.Admin,
 		platforms:     cfg.Platforms,
+		metrics:       cfg.Metrics,
 		secureCookies: cfg.SecureCookies,
 		nowFn:         cfg.Clock,
 	}
@@ -160,6 +163,12 @@ func (s *Server) Routes() http.Handler {
 			})
 
 			r.With(RequireRole(identity.RoleAdmin)).Get("/connectors", s.handleListConnectors)
+
+			// Metrics are readable by every role: seeing performance is the
+			// point of the portal. Per-VM scoping arrives with the inventory
+			// query layer.
+			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor)).
+				Get("/vms/{vmID}/metrics", s.handleVMMetrics)
 
 			r.Route("/grants", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))

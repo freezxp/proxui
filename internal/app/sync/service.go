@@ -23,6 +23,7 @@ type Service struct {
 	Platforms  ports.PlatformRepository
 	Runs       RunStore
 	Reconciler *Reconciler
+	Metrics    *MetricsCollector
 	Vault      *crypto.Vault
 	Clock      ports.Clock
 	Log        zerolog.Logger
@@ -104,6 +105,44 @@ func (s *Service) SyncInventory(ctx context.Context, platformID uuid.UUID, trigg
 
 	s.recordSuccess(ctx, p, conn)
 	return result, nil
+}
+
+// SyncMetrics samples a platform once. It is separate from inventory because it
+// runs on its own cadence and must keep working even while inventory is slow.
+func (s *Service) SyncMetrics(ctx context.Context, platformID uuid.UUID) (MetricsStats, error) {
+	now := s.Clock.Now()
+
+	p, err := s.Platforms.Get(ctx, platformID)
+	if err != nil {
+		return MetricsStats{}, err
+	}
+	if !p.ShouldSync(now) {
+		return MetricsStats{}, nil
+	}
+
+	conn, err := s.Connect(ctx, p)
+	if err != nil {
+		return MetricsStats{}, err
+	}
+	defer conn.Close()
+
+	return s.Metrics.Collect(ctx, p.ID, conn)
+}
+
+// BackfillMetrics imports a platform's history, normally right after it is
+// registered.
+func (s *Service) BackfillMetrics(ctx context.Context, platformID uuid.UUID, from time.Time) (int, error) {
+	p, err := s.Platforms.Get(ctx, platformID)
+	if err != nil {
+		return 0, err
+	}
+	conn, err := s.Connect(ctx, p)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+
+	return s.Metrics.Backfill(ctx, p.ID, conn, from)
 }
 
 // CheckHealth probes a platform cheaply and updates its health. This is what

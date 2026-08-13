@@ -12,7 +12,7 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | Scale target | 1–3 Proxmox clusters, < 500 VMs, tens of users |
 | Console access | Backend WebSocket proxy (noVNC/xterm.js) |
 | Authentication | Built-in (argon2id + JWT, optional TOTP) |
-| Platform auth | Proxmox API tokens, PVE 8.x |
+| Platform auth | Proxmox API tokens, PVE 8.x–9.x (verified against 9.2) |
 | Metrics retention | 1 year+ (TimescaleDB) |
 | Notifications | Sync failures, VM state changes, perf thresholds, security events |
 | Deployment | Docker Compose on VMs (Kubernetes documented as future option) |

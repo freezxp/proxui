@@ -36,7 +36,7 @@ func newFakePVE(t *testing.T) *fakePVE {
 	f := &fakePVE{
 		status: map[string]int{},
 		permissions: map[string]map[string]int{
-			"/": {"VM.Audit": 1, "Sys.Audit": 1, "Datastore.Audit": 1, "VM.Console": 1, "VM.PowerMgmt": 1},
+			"/": {"VM.Audit": 1, "Sys.Audit": 1, "Datastore.Audit": 1, "VM.Console": 1, "VM.PowerMgmt": 1, "VM.GuestAgent.Audit": 1},
 		},
 	}
 	mux := http.NewServeMux()

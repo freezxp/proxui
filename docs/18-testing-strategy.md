@@ -6,7 +6,7 @@
 |---|---|---|---|
 | Unit (domain + app) | `go test`, table-driven; in-memory fakes for all ports | invariants (lockout, missing×3, rollup selection, alert cooldown), command/query handlers | ≥ 85% coverage of `domain/` + `app/`; fast (<10 s) |
 | Repository/integration | testcontainers-go: Postgres+Timescale, Redis | every sqlc query, migrations up from zero, hypertable policies, outbox relay, rate limiter | all repos covered; runs in CI on every PR |
-| Connector conformance | `connectortest.Run` suite | contract rules per capability, run against **mock** always and **proxmox against a recorded HTTP fixture server** (go-vcr cassettes from a real PVE 8 lab) | every connector, every capability |
+| Connector conformance | `connectortest.Run` suite | contract rules per capability, run against **mock** always and **proxmox against an in-tree fixture API server**, plus opt-in live tests against a real cluster (`PROXUI_LIVE_PVE_*`, verified on PVE 9.2) | every connector, every capability |
 | API/e2e (backend) | spawned binary (`--role=all`) + testcontainers + mock connector; requests via generated client | auth flows incl. refresh rotation/reuse, RBAC matrix (every endpoint × every role — generated from the permission map), sync lifecycle, console ticket flow (fake VNC echo endpoint), rate limits | the RBAC matrix test is the security backbone; must be exhaustive |
 | Frontend unit/component | Vitest + Testing Library | permission-aware rendering, formatters, ws cache patching | key components |
 | Frontend e2e | Playwright vs. the real binary + mock connector | login→dashboard→filter→VM detail→console (echo)→admin flows; light/dark screenshots; responsive breakpoints | the 8 golden paths, on every PR |

@@ -143,6 +143,10 @@ var requiredPrivileges = []struct {
 	{"Datastore.Audit", "listing storage pools"},
 	{"VM.Console", "opening consoles"},
 	{"VM.PowerMgmt", "power actions"},
+	// PVE 9 gates guest-agent queries behind their own privilege (PVE 8 used
+	// VM.Monitor). Without it the inventory simply has no IP addresses, which
+	// looks like a broken agent unless the report says otherwise.
+	{"VM.GuestAgent.Audit", "reading VM IP addresses from the guest agent"},
 }
 
 // missingPrivileges reports which required privileges are absent at the root

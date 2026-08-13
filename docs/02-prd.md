@@ -61,7 +61,7 @@ One portal, all VMs: a permission-scoped window onto the organization's virtuali
 ## 6. Constraints & assumptions
 
 - Portal server can reach every Proxmox cluster's API (TCP 8006) and node VNC websockets; users only need to reach the portal.
-- Proxmox VE 8.x with API tokens available; token granted `PVEAuditor` minimum, plus `VM.Console` (and `VM.PowerMgmt` for power actions).
+- Proxmox VE 8.x or 9.x with API tokens available. Least-privilege role: `VM.Audit`, `Sys.Audit`, `Datastore.Audit` for inventory; `VM.Console` for consoles; `VM.PowerMgmt` for power actions; `VM.GuestAgent.Audit` (PVE 9; `VM.Monitor` on PVE 8) for guest IP addresses. Missing privileges degrade specific features rather than failing the platform, and `TestConnection` names each one.
 - Scale ceiling for design: 3 clusters, ~30 nodes, 500 VMs, 50 users, 10 concurrent console sessions.
 - Browsers: current Chrome/Edge/Firefox; no IE/legacy support.
 

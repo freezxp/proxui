@@ -9,9 +9,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/freezxp/proxui/internal/domain/access"
 	"github.com/freezxp/proxui/internal/domain/identity"
+	"github.com/freezxp/proxui/internal/domain/inventory"
+	"github.com/freezxp/proxui/internal/infra/crypto"
 )
 
 // ErrNotFound is returned by repositories when a record does not exist.
@@ -124,4 +128,101 @@ const (
 // primary work from succeeding, but must never be silently dropped either.
 type AuditWriter interface {
 	Write(ctx context.Context, e AuditEntry) error
+}
+
+// SealedCredential is an encrypted platform secret ready for storage.
+type SealedCredential struct {
+	Kind    string
+	TokenID string
+	Sealed  crypto.SealedSecret
+}
+
+// PlainCredential is a decrypted secret, scoped to one call. It is never
+// cached, logged or returned by the API.
+type PlainCredential struct {
+	Kind    string
+	TokenID string
+	Secret  string
+}
+
+// PlatformRepository persists platforms and their credentials.
+type PlatformRepository interface {
+	Create(ctx context.Context, p *inventory.Platform, cred SealedCredential) error
+	Get(ctx context.Context, id uuid.UUID) (*inventory.Platform, error)
+	List(ctx context.Context, includeDisabled bool) ([]*inventory.Platform, error)
+	Update(ctx context.Context, p *inventory.Platform) error
+	UpdateHealth(ctx context.Context, p *inventory.Platform) error
+	SoftDelete(ctx context.Context, id uuid.UUID, at time.Time) error
+	Credential(ctx context.Context, platformID uuid.UUID, vault *crypto.Vault) (PlainCredential, error)
+	ReplaceCredential(ctx context.Context, platformID uuid.UUID, cred SealedCredential) error
+}
+
+// DomainEvent is something that happened, queued for reliable publication.
+type DomainEvent struct {
+	ID         int64
+	OccurredAt time.Time
+	Category   string
+	Type       string
+	Severity   string
+	Payload    map[string]any
+}
+
+// Event categories and types (docs/12-domain-model.md §12.2).
+const (
+	EventCategorySyncFailure   = "sync_failure"
+	EventCategoryVMStateChange = "vm_state_change"
+
+	EventVMCreated      = "vm.created"
+	EventVMStateChanged = "vm.state_changed"
+	EventVMDeleted      = "vm.deleted"
+	EventSyncFailed     = "sync.failed"
+	EventSyncRecovered  = "sync.recovered"
+
+	SeverityInfo     = "info"
+	SeverityWarning  = "warning"
+	SeverityCritical = "critical"
+)
+
+// SyncRunSummary describes one completed synchronization attempt.
+type SyncRunSummary struct {
+	ID         int64
+	Kind       string
+	Status     string
+	Trigger    string
+	StartedAt  time.Time
+	FinishedAt time.Time
+	DurationMS int64
+	Stats      map[string]any
+	Error      string
+}
+
+// Querier is the subset of a database handle repositories need. It is declared
+// here so the application layer can describe transactional work without
+// importing a driver.
+type Querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// StoredAsset is the subset of a persisted asset the reconciler compares
+// against a fresh snapshot.
+type StoredAsset struct {
+	ID           uuid.UUID
+	ContentHash  []byte
+	SyncState    inventory.SyncState
+	MissingCount int
+	Name         string
+	State        string
+	HostID       string
+	Extra        map[string]string
+}
+
+// SweptAsset is an asset the platform stopped reporting.
+type SweptAsset struct {
+	ID           uuid.UUID
+	ExternalID   string
+	Name         string
+	SyncState    inventory.SyncState
+	MissingCount int
 }

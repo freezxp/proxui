@@ -135,6 +135,10 @@ func applyExtra(opts *Options, extra map[string]any) error {
 }
 
 func (c *Connector) seed() {
+	c.seedLocked()
+}
+
+func (c *Connector) seedLocked() {
 	states := []string{"running", "running", "running", "stopped", "paused"}
 
 	c.hosts = make([]connector.HostRecord, 0, c.opts.HostCount)
@@ -401,6 +405,14 @@ func (c *Connector) RemoveVM(externalID string) {
 			return
 		}
 	}
+}
+
+// RestoreVMs puts the full simulated fleet back, so tests can exercise an
+// asset reappearing after being reported missing.
+func (c *Connector) RestoreVMs() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.seedLocked()
 }
 
 // gate applies latency, context rules and the injected fault to every call.

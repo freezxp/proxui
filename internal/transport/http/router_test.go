@@ -17,7 +17,7 @@ func newTestServer(t *testing.T, checkers map[string]Checker, migrated bool) *Se
 	t.Helper()
 	rd := &Readiness{Checkers: checkers}
 	rd.MigrationsApplied.Store(migrated)
-	return NewServer(zerolog.New(io.Discard), "test", rd)
+	return NewServer(ServerConfig{Log: zerolog.New(io.Discard), Version: "test", Readiness: rd})
 }
 
 func do(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {

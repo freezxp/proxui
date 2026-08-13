@@ -18,12 +18,19 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 
+	"github.com/freezxp/proxui/internal/app/command"
+	"github.com/freezxp/proxui/internal/app/ports"
+	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/infra/config"
+	"github.com/freezxp/proxui/internal/infra/crypto"
 	"github.com/freezxp/proxui/internal/infra/logging"
 	"github.com/freezxp/proxui/internal/infra/postgres"
 	redisinfra "github.com/freezxp/proxui/internal/infra/redis"
 	httpapi "github.com/freezxp/proxui/internal/transport/http"
 )
+
+// tokenIssuerName is the `iss` claim on access tokens.
+const tokenIssuerName = "proxui"
 
 // Build metadata, injected via -ldflags at release time.
 var (
@@ -90,6 +97,31 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Timeout:  cfg.ReadinessTimeout,
 	}
 
+	// Dependency graph, wired by hand: explicit beats a DI framework for a
+	// graph this size (docs/05-system-architecture.md §5.3).
+	var (
+		users    = postgres.NewUserRepository(pool)
+		sessions = postgres.NewSessionRepository(pool)
+		audit    = postgres.NewAuditRepository(pool)
+		hasher   = crypto.NewPasswordHasher()
+		clock    = ports.SystemClock{}
+	)
+
+	signingKey, err := crypto.LoadOrCreateRSAKey(cfg.JWTKeyFile)
+	if err != nil {
+		return err
+	}
+	tokens := crypto.NewTokenIssuer(signingKey, tokenIssuerName, identity.AccessTokenTTL)
+
+	authDeps := httpapi.AuthDeps{
+		Login:    &command.Login{Users: users, Sessions: sessions, Hasher: hasher, Tokens: tokens, Audit: audit, Clock: clock},
+		Refresh:  &command.Refresh{Users: users, Sessions: sessions, Tokens: tokens, Audit: audit, Clock: clock},
+		Logout:   &command.Logout{Sessions: sessions, Audit: audit, Clock: clock},
+		Users:    users,
+		Tokens:   tokens,
+		Sessions: sessions,
+	}
+
 	// Migrations run on API startup under an advisory lock; worker-only
 	// processes trust that an API instance has already applied them.
 	if cfg.MigrateOnStart && cfg.Role.RunsAPI() {
@@ -99,14 +131,39 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	}
 	readiness.MigrationsApplied.Store(true)
 
+	if cfg.Role.RunsAPI() && cfg.HasBootstrapAdmin() {
+		bootstrap := &command.BootstrapAdmin{Users: users, Hasher: hasher, Audit: audit, Clock: clock}
+		created, err := bootstrap.Handle(ctx, command.BootstrapAdminInput{
+			Username:    cfg.AdminUsername,
+			Email:       cfg.AdminEmail,
+			DisplayName: cfg.AdminDisplayName,
+			Password:    cfg.AdminPassword,
+		})
+		if err != nil {
+			return err
+		}
+		if created {
+			log.Info().Str("username", cfg.AdminUsername).
+				Msg("bootstrap administrator created; password change is required at first login")
+		}
+	}
+
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 	shutdown := make([]func(context.Context) error, 0, 2)
 
 	if cfg.Role.RunsAPI() {
+		apiServer := httpapi.NewServer(httpapi.ServerConfig{
+			Log:           log,
+			Version:       version,
+			Readiness:     readiness,
+			Auth:          authDeps,
+			SecureCookies: cfg.SecureCookies,
+			Clock:         clock.Now,
+		})
 		api := &http.Server{
 			Addr:              cfg.HTTPAddr,
-			Handler:           httpapi.NewServer(log, version, readiness).Routes(),
+			Handler:           apiServer.Routes(),
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       120 * time.Second,
 		}

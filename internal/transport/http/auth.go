@@ -1,0 +1,243 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/freezxp/proxui/internal/app/command"
+	"github.com/freezxp/proxui/internal/app/ports"
+	"github.com/freezxp/proxui/internal/domain/identity"
+)
+
+// refreshCookieName is scoped to the auth path so it never rides along on
+// ordinary API calls (docs/15-security-design.md §15.6).
+const refreshCookieName = "proxui_rt"
+const refreshCookiePath = "/api/v1/auth"
+
+// LoginHandler, RefreshHandler and LogoutHandler are the application commands
+// this transport exposes. They are interfaces so tests can substitute fakes.
+type LoginHandler interface {
+	Handle(ctx context.Context, in command.LoginInput) (command.LoginOutput, error)
+}
+
+// RefreshHandler exchanges a refresh token for a new pair.
+type RefreshHandler interface {
+	Handle(ctx context.Context, in command.RefreshInput) (command.LoginOutput, error)
+}
+
+// LogoutHandler revokes sessions.
+type LogoutHandler interface {
+	Handle(ctx context.Context, in command.LogoutInput) error
+}
+
+type loginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type tokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+type meResponse struct {
+	ID                 string `json:"id"`
+	Username           string `json:"username"`
+	Email              string `json:"email"`
+	DisplayName        string `json:"display_name"`
+	Role               string `json:"role"`
+	TOTPEnabled        bool   `json:"totp_enabled"`
+	MustChangePassword bool   `json:"must_change_password"`
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		return
+	}
+	if req.Username == "" || req.Password == "" {
+		WriteProblemFields(w, r, http.StatusUnprocessableEntity, "validation", "Username and password are required.",
+			map[string]string{"username": "required", "password": "required"})
+		return
+	}
+
+	out, err := s.auth.Login.Handle(r.Context(), command.LoginInput{
+		Username:  req.Username,
+		Password:  req.Password,
+		IP:        r.RemoteAddr,
+		UserAgent: r.UserAgent(),
+		RequestID: middleware.GetReqID(r.Context()),
+	})
+	if err != nil {
+		s.writeAuthError(w, r, err)
+		return
+	}
+
+	s.setRefreshCookie(w, out.RefreshToken, out.User.ID.String())
+	WriteJSON(w, http.StatusOK, tokenResponse{
+		AccessToken: out.AccessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   int(out.ExpiresIn / time.Second),
+	})
+}
+
+func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(refreshCookieName)
+	if err != nil || cookie.Value == "" {
+		WriteProblem(w, r, http.StatusUnauthorized, "auth.missing_refresh_token", "No refresh token was presented.")
+		return
+	}
+
+	out, err := s.auth.Refresh.Handle(r.Context(), command.RefreshInput{
+		RefreshToken: cookie.Value,
+		IP:           r.RemoteAddr,
+		UserAgent:    r.UserAgent(),
+		RequestID:    middleware.GetReqID(r.Context()),
+	})
+	if err != nil {
+		// Any refresh failure clears the cookie: the client must re-login
+		// rather than retry with a token we have already rejected.
+		s.clearRefreshCookie(w)
+		s.writeAuthError(w, r, err)
+		return
+	}
+
+	s.setRefreshCookie(w, out.RefreshToken, out.User.ID.String())
+	WriteJSON(w, http.StatusOK, tokenResponse{
+		AccessToken: out.AccessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   int(out.ExpiresIn / time.Second),
+	})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	in := command.LogoutInput{
+		IP:        r.RemoteAddr,
+		UserAgent: r.UserAgent(),
+		RequestID: middleware.GetReqID(r.Context()),
+	}
+	if cookie, err := r.Cookie(refreshCookieName); err == nil {
+		in.RefreshToken = cookie.Value
+	}
+	if p, ok := PrincipalFrom(r.Context()); ok {
+		in.UserID = p.UserID
+	}
+
+	if err := s.auth.Logout.Handle(r.Context(), in); err != nil {
+		s.log.Error().Err(err).Msg("logout failed")
+		WriteProblem(w, r, http.StatusInternalServerError, "internal", "Could not complete logout.")
+		return
+	}
+	s.clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleLogoutAll(w http.ResponseWriter, r *http.Request) {
+	p, ok := PrincipalFrom(r.Context())
+	if !ok {
+		WriteProblem(w, r, http.StatusUnauthorized, "auth.missing_token", "Authentication is required.")
+		return
+	}
+	err := s.auth.Logout.Handle(r.Context(), command.LogoutInput{
+		UserID:      p.UserID,
+		AllSessions: true,
+		IP:          r.RemoteAddr,
+		UserAgent:   r.UserAgent(),
+		RequestID:   middleware.GetReqID(r.Context()),
+	})
+	if err != nil {
+		s.log.Error().Err(err).Msg("logout-all failed")
+		WriteProblem(w, r, http.StatusInternalServerError, "internal", "Could not complete logout.")
+		return
+	}
+	s.clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	p, ok := PrincipalFrom(r.Context())
+	if !ok {
+		WriteProblem(w, r, http.StatusUnauthorized, "auth.missing_token", "Authentication is required.")
+		return
+	}
+	user, err := s.auth.Users.GetByID(r.Context(), p.UserID)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			WriteProblem(w, r, http.StatusUnauthorized, "auth.unknown_user", "This account no longer exists.")
+			return
+		}
+		WriteProblem(w, r, http.StatusInternalServerError, "internal", "Could not load the account.")
+		return
+	}
+	WriteJSON(w, http.StatusOK, meResponse{
+		ID:                 user.ID.String(),
+		Username:           user.Username,
+		Email:              user.Email,
+		DisplayName:        user.DisplayName,
+		Role:               string(user.Role),
+		TOTPEnabled:        user.TOTPEnabled,
+		MustChangePassword: user.MustChangePassword,
+	})
+}
+
+// writeAuthError maps identity errors to responses. Credential problems are
+// deliberately indistinguishable to the client; the audit log holds the detail.
+func (s *Server) writeAuthError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, identity.ErrAccountLocked):
+		WriteProblem(w, r, http.StatusLocked, "auth.account_locked",
+			"Too many failed attempts. Try again later or contact an administrator.")
+	case errors.Is(err, identity.ErrInvalidCredentials),
+		errors.Is(err, identity.ErrAccountInactive),
+		errors.Is(err, identity.ErrSessionExpired),
+		errors.Is(err, identity.ErrSessionRevoked),
+		errors.Is(err, identity.ErrRefreshTokenReuse):
+		WriteProblem(w, r, http.StatusUnauthorized, "auth.invalid_credentials", "Invalid credentials.")
+	default:
+		s.log.Error().Err(err).Msg("authentication failed")
+		WriteProblem(w, r, http.StatusInternalServerError, "internal", "Authentication could not be completed.")
+	}
+}
+
+func (s *Server) setRefreshCookie(w http.ResponseWriter, token, _ string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    token,
+		Path:     refreshCookiePath,
+		HttpOnly: true,
+		Secure:   s.secureCookies,
+		SameSite: http.SameSiteStrictMode,
+		Expires:  s.clock().Add(identity.RefreshTokenTTL),
+		MaxAge:   int(identity.RefreshTokenTTL / time.Second),
+	})
+}
+
+func (s *Server) clearRefreshCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    "",
+		Path:     refreshCookiePath,
+		HttpOnly: true,
+		Secure:   s.secureCookies,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
+}
+
+// decodeJSON reads a JSON body, rejecting unknown fields and oversized payloads.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		WriteProblem(w, r, http.StatusBadRequest, "malformed_json", "The request body could not be parsed.")
+		return err
+	}
+	return nil
+}

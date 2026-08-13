@@ -45,9 +45,23 @@ build: ## Build the binary into bin/
 	@mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/proxui
 
+# Integration tests run against their own database so they never disturb dev
+# data (a polluted users table silently disables first-run bootstrap).
+TEST_DATABASE_URL ?= postgres://proxui:proxui@127.0.0.1:5432/proxui_test?sslmode=disable
+
 .PHONY: test
-test: ## Run all tests with the race detector
+test: ## Run unit tests with the race detector
 	$(GO) test -race -count=1 ./...
+
+.PHONY: test-integration
+test-integration: up test-db ## Run every test including database integration tests
+	PROXUI_TEST_DATABASE_URL='$(TEST_DATABASE_URL)' $(GO) test -race -count=1 ./...
+
+.PHONY: test-db
+test-db: ## Create the integration test database if it is missing
+	@$(COMPOSE) exec -T db psql -U proxui -d proxui -tc \
+		"SELECT 1 FROM pg_database WHERE datname='proxui_test'" | grep -q 1 || \
+		$(COMPOSE) exec -T db psql -U proxui -d proxui -c 'CREATE DATABASE proxui_test OWNER proxui'
 
 .PHONY: cover
 cover: ## Run tests and report coverage

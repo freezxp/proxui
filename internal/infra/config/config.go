@@ -55,6 +55,24 @@ type Config struct {
 	MigrateOnStart   bool
 	ShutdownTimeout  time.Duration
 	ReadinessTimeout time.Duration
+
+	// JWTKeyFile holds the RSA signing key for access tokens. It is generated
+	// on first start if absent.
+	JWTKeyFile string
+	// SecureCookies marks the refresh cookie Secure; disable only for local
+	// HTTP development.
+	SecureCookies bool
+
+	// First-run administrator (ADM-03). Ignored once any account exists.
+	AdminUsername    string
+	AdminEmail       string
+	AdminDisplayName string
+	AdminPassword    string
+}
+
+// HasBootstrapAdmin reports whether first-run admin credentials were supplied.
+func (c Config) HasBootstrapAdmin() bool {
+	return c.AdminUsername != "" && c.AdminPassword != "" && c.AdminEmail != ""
 }
 
 // Load reads configuration from the environment, applying defaults.
@@ -71,6 +89,12 @@ func Load() (Config, error) {
 		MigrateOnStart:   envBool("PROXUI_MIGRATE_ON_START", true),
 		ShutdownTimeout:  envDuration("PROXUI_SHUTDOWN_TIMEOUT", 15*time.Second),
 		ReadinessTimeout: envDuration("PROXUI_READINESS_TIMEOUT", 2*time.Second),
+		JWTKeyFile:       env("PROXUI_JWT_KEY_FILE", "secrets/jwt-signing-key.pem"),
+		SecureCookies:    envBool("PROXUI_SECURE_COOKIES", true),
+		AdminUsername:    env("PROXUI_ADMIN_USERNAME", ""),
+		AdminEmail:       env("PROXUI_ADMIN_EMAIL", ""),
+		AdminDisplayName: env("PROXUI_ADMIN_DISPLAY_NAME", ""),
+		AdminPassword:    env("PROXUI_ADMIN_PASSWORD", ""),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

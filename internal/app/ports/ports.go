@@ -159,13 +159,17 @@ type PlatformRepository interface {
 }
 
 // DomainEvent is something that happened, queued for reliable publication.
+//
+// The tags matter: this type is serialized onto the live event socket, so it is
+// part of the public API and follows the same snake_case shape as every REST
+// response rather than exposing Go field names.
 type DomainEvent struct {
-	ID         int64
-	OccurredAt time.Time
-	Category   string
-	Type       string
-	Severity   string
-	Payload    map[string]any
+	ID         int64          `json:"id"`
+	OccurredAt time.Time      `json:"occurred_at"`
+	Category   string         `json:"category"`
+	Type       string         `json:"type"`
+	Severity   string         `json:"severity"`
+	Payload    map[string]any `json:"payload"`
 }
 
 // Event categories and types (docs/12-domain-model.md §12.2).
@@ -186,15 +190,15 @@ const (
 
 // SyncRunSummary describes one completed synchronization attempt.
 type SyncRunSummary struct {
-	ID         int64
-	Kind       string
-	Status     string
-	Trigger    string
-	StartedAt  time.Time
-	FinishedAt time.Time
-	DurationMS int64
-	Stats      map[string]any
-	Error      string
+	ID         int64          `json:"id"`
+	Kind       string         `json:"kind"`
+	Status     string         `json:"status"`
+	Trigger    string         `json:"trigger"`
+	StartedAt  time.Time      `json:"started_at"`
+	FinishedAt time.Time      `json:"finished_at,omitempty"`
+	DurationMS int64          `json:"duration_ms"`
+	Stats      map[string]any `json:"stats"`
+	Error      string         `json:"error,omitempty"`
 }
 
 // Querier is the subset of a database handle repositories need. It is declared

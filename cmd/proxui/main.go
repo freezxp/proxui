@@ -33,6 +33,14 @@ import (
 	"github.com/freezxp/proxui/internal/transport/ws"
 )
 
+// limiterFunc adapts a rate-limiting function to the transport's interface,
+// so the HTTP layer depends on a behaviour rather than on Redis.
+type limiterFunc func(ctx context.Context, bucket string, limit int, window time.Duration) (bool, time.Duration, error)
+
+func (f limiterFunc) Allow(ctx context.Context, bucket string, limit int, window time.Duration) (bool, time.Duration, error) {
+	return f(ctx, bucket, limit, window)
+}
+
 // tokenIssuerName is the `iss` claim on access tokens.
 const tokenIssuerName = "proxui"
 
@@ -130,6 +138,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		auditLog  = postgres.NewAuditQuery(pool)
 		consoles  = postgres.NewConsoleRepository(pool)
 		tickets   = redisinfra.NewTicketStore(rdb)
+		limiter   = redisinfra.NewRateLimiter(rdb)
 	)
 
 	reconciler := &appsync.Reconciler{
@@ -209,7 +218,11 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	errCh := make(chan error, 3)
 	shutdown := make([]func(context.Context) error, 0, 2)
 
+	// The event hub fans outbox events out to browsers, scoped per subscriber.
+	eventHub := ws.NewEventHub(rdb.Client, inventory, log)
+
 	if cfg.Role.RunsAPI() {
+		eventHub.Start(ctx)
 		apiServer := httpapi.NewServer(httpapi.ServerConfig{
 			Log:       log,
 			Version:   version,
@@ -221,6 +234,14 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Inventory: httpapi.InventoryDeps{
 				Inventory: inventory, Audit: auditLog, Metrics: metrics,
 			},
+			Power: httpapi.PowerDeps{
+				Power: &command.Power{
+					Inventory: inventory, Platforms: platforms, Sync: syncService,
+					Audit: audit, Clock: clock,
+				},
+			},
+			Events:  eventHub,
+			Limiter: limiterFunc(limiter.AllowRequest),
 			Console: httpapi.ConsoleDeps{
 				Open: &command.OpenConsole{
 					Inventory: inventory, Sessions: consoles, Tickets: tickets,

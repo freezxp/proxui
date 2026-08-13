@@ -13,6 +13,12 @@ import (
 	"github.com/freezxp/proxui/internal/domain/identity"
 )
 
+// EventStreamer serves the live event socket.
+type EventStreamer interface {
+	ServeHTTP(w http.ResponseWriter, r *http.Request, userID uuid.UUID, role identity.Role)
+	Subscribers() int
+}
+
 // UserLoader loads the current user for /auth/me.
 type UserLoader interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*identity.User, error)
@@ -40,6 +46,12 @@ type ServerConfig struct {
 	Metrics   MetricsDeps
 	Inventory InventoryDeps
 	Console   ConsoleDeps
+	Power     PowerDeps
+
+	// Events streams live updates; nil disables the endpoint.
+	Events EventStreamer
+	// Limiter enforces request rate limits; nil disables them.
+	Limiter Limiter
 
 	// SecureCookies marks the refresh cookie Secure. It is off only for local
 	// HTTP development; production terminates TLS at the reverse proxy.
@@ -61,6 +73,10 @@ type Server struct {
 	metrics       MetricsDeps
 	inventory     InventoryDeps
 	console       ConsoleDeps
+	power         PowerDeps
+	events        EventStreamer
+	limiter       Limiter
+	startedAt     time.Time
 	secureCookies bool
 	nowFn         func() time.Time
 }
@@ -83,6 +99,10 @@ func NewServer(cfg ServerConfig) *Server {
 		metrics:       cfg.Metrics,
 		inventory:     cfg.Inventory,
 		console:       cfg.Console,
+		power:         cfg.Power,
+		events:        cfg.Events,
+		limiter:       cfg.Limiter,
+		startedAt:     time.Now(),
 		secureCookies: cfg.SecureCookies,
 		nowFn:         cfg.Clock,
 	}
@@ -111,7 +131,9 @@ func (s *Server) Routes() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {
 			// Unauthenticated: these establish a session.
-			r.Post("/login", s.handleLogin)
+			// Login is the one endpoint reachable without an account, so it
+			// carries the strictest limit.
+			r.With(s.loginRateLimit()).Post("/login", s.handleLogin)
 			r.Post("/refresh", s.handleRefresh)
 			r.Post("/logout", s.handleLogout)
 
@@ -127,6 +149,7 @@ func (s *Server) Routes() http.Handler {
 		// covers every wired route.
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth())
+			r.Use(s.rateLimit("api", apiLimit, apiWindow))
 
 			r.Route("/users", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))
@@ -187,8 +210,11 @@ func (s *Server) Routes() http.Handler {
 
 			// Consoles: operators and admins only, and scoped per VM inside the
 			// command rather than by the role gate alone.
-			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator)).
+			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator),
+				s.rateLimit("console", consoleLimit, consoleWindow)).
 				Post("/vms/{vmID}/console", s.handleOpenConsole)
+			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator)).
+				Post("/vms/{vmID}/power", s.handlePower)
 			r.With(RequireRole(identity.RoleAdmin)).
 				Get("/console-sessions", s.handleListConsoleSessions)
 
@@ -198,6 +224,13 @@ func (s *Server) Routes() http.Handler {
 				r.Put("/vms/{vmID}/tags", s.handleSetVMTags)
 				r.Put("/vms/{vmID}/notes", s.handleSetVMNotes)
 			})
+
+			r.With(RequireRole(identity.RoleAdmin)).Get("/system/info", s.handleSystemInfo)
+
+			// Live updates are scoped per subscriber inside the hub, so every
+			// role may subscribe and each sees only their own estate.
+			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor)).
+				Get("/events", s.handleEvents)
 
 			r.Route("/audit-logs", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin, identity.RoleAuditor))

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh --version)",
+      "Bash(sudo mkdir -p -m 755 /etc/apt/keyrings)",
+      "Bash(wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg)",
+      "Bash(sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg)",
+      "Bash(sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg)",
+      "Bash(dpkg --print-architecture)",
+      "Bash(echo \"deb [arch=$\\(dpkg --print-architecture\\) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\")",
+      "Bash(sudo tee /etc/apt/sources.list.d/github-cli.list)",
+      "Bash(sudo apt-get update -qq)",
+      "Bash(sudo apt-get install -y -qq gh)",
+      "Bash(gh auth *)",
+      "Bash(timeout 15 sh -c 'tail -f /tmp/claude-1000/-home-ubuntu-proxui/1aae7bb9-3f1f-4050-9f4d-1ef28ff30b2f/scratchpad/gh-login.log | grep -m1 \"one-time code\"')",
+      "Bash(git config *)",
+      "Bash(git --version)",
+      "Bash(gh api *)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'Add technical design package for ProxUI VM access portal *)"
+    ]
+  }
+}

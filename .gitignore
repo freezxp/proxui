@@ -1,0 +1,22 @@
+# Secrets — never commit (see docs/15-security-design.md)
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem
+
+# Go
+/bin/
+/proxui
+coverage.out
+
+# Frontend
+node_modules/
+web/dist/
+
+# Tooling
+.DS_Store
+*.log
+.idea/
+.vscode/

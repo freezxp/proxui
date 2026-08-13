@@ -73,6 +73,12 @@ lint: ## Run formatting and vet checks
 	@test -z "$$(gofmt -l cmd internal)" || { echo "gofmt needed:"; gofmt -l cmd internal; exit 1; }
 	$(GO) vet ./...
 
+.PHONY: tidy-check
+tidy-check: ## Fail if go.mod/go.sum are not tidy (same gate as CI)
+	@$(GO) mod tidy
+	@git diff --exit-code go.mod go.sum || { \
+		echo "go.mod/go.sum were not tidy; the tidied files are now in your working tree"; exit 1; }
+
 .PHONY: fmt
 fmt: ## Format the Go sources
 	gofmt -w cmd internal
@@ -91,4 +97,8 @@ docker-build: ## Build the runtime container image
 	docker build -t proxui:$(VERSION) --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) .
 
 .PHONY: ci
-ci: lint test build ## Everything CI enforces
+ci: tidy-check lint test build ## Everything CI enforces
+
+# ci must stay identical to .github/workflows/ci.yml: a local gate that is
+# weaker than the pipeline is worse than no local gate, because it reports
+# success for work the pipeline will reject.

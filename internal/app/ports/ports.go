@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/freezxp/proxui/internal/domain/access"
 	"github.com/freezxp/proxui/internal/domain/identity"
 )
 
@@ -31,6 +32,13 @@ type SystemClock struct{}
 // Now returns the current UTC time.
 func (SystemClock) Now() time.Time { return time.Now().UTC() }
 
+// UserFilter narrows a user listing.
+type UserFilter struct {
+	Query  string // substring match on username, email or display name
+	Role   string
+	Active *bool
+}
+
 // UserRepository persists user accounts.
 type UserRepository interface {
 	Create(ctx context.Context, u *identity.User) error
@@ -38,6 +46,27 @@ type UserRepository interface {
 	GetByUsername(ctx context.Context, username string) (*identity.User, error)
 	Update(ctx context.Context, u *identity.User) error
 	CountAll(ctx context.Context) (int, error)
+	List(ctx context.Context, f UserFilter) ([]*identity.User, error)
+}
+
+// AccessRepository persists the grouping and grant model.
+type AccessRepository interface {
+	CreateUserGroup(ctx context.Context, g *access.UserGroup) error
+	ListUserGroups(ctx context.Context) ([]access.UserGroup, error)
+	DeleteUserGroup(ctx context.Context, id uuid.UUID) error
+	SetUserGroups(ctx context.Context, userID uuid.UUID, groupIDs []uuid.UUID) error
+	UserGroupNames(ctx context.Context, userID uuid.UUID) ([]string, error)
+
+	CreateVMGroup(ctx context.Context, g *access.VMGroup) error
+	ListVMGroups(ctx context.Context) ([]access.VMGroup, error)
+	DeleteVMGroup(ctx context.Context, id uuid.UUID) error
+
+	CreateGrant(ctx context.Context, g *access.Grant) error
+	ListGrants(ctx context.Context) ([]access.Grant, error)
+	DeleteGrant(ctx context.Context, id uuid.UUID) error
+
+	// VisibleVMGroupIDs resolves which VM groups a user reaches via grants.
+	VisibleVMGroupIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 }
 
 // SessionRepository persists refresh-token sessions.

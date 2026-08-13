@@ -35,6 +35,7 @@ type ServerConfig struct {
 	Version   string
 	Readiness *Readiness
 	Auth      AuthDeps
+	Admin     AdminDeps
 
 	// SecureCookies marks the refresh cookie Secure. It is off only for local
 	// HTTP development; production terminates TLS at the reverse proxy.
@@ -51,6 +52,7 @@ type Server struct {
 	version       string
 	readiness     *Readiness
 	auth          AuthDeps
+	admin         AdminDeps
 	secureCookies bool
 	nowFn         func() time.Time
 }
@@ -68,6 +70,7 @@ func NewServer(cfg ServerConfig) *Server {
 		version:       cfg.Version,
 		readiness:     cfg.Readiness,
 		auth:          cfg.Auth,
+		admin:         cfg.Admin,
 		secureCookies: cfg.SecureCookies,
 		nowFn:         cfg.Clock,
 	}
@@ -103,8 +106,46 @@ func (s *Server) Routes() http.Handler {
 			})
 		})
 
-		// Feature routes mount here from sprint 3 onward. Every route added
-		// must carry a permission-map entry (docs/03-frs.md §3.2).
+		// Everything below requires a session. Role gates come from the
+		// permission map (permissions.go), which the boot check verifies
+		// covers every wired route.
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireAuth())
+
+			r.Route("/users", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/", s.handleListUsers)
+				r.Post("/", s.handleCreateUser)
+				r.Get("/{userID}", s.handleGetUser)
+				r.Put("/{userID}", s.handleUpdateUser)
+				r.Post("/{userID}/password", s.handleResetPassword)
+				r.Put("/{userID}/groups", s.handleSetUserGroups)
+			})
+
+			r.Route("/user-groups", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/", s.handleListUserGroups)
+				r.Post("/", s.handleCreateUserGroup)
+				r.Delete("/{groupID}", s.handleDeleteUserGroup)
+			})
+
+			r.Route("/vm-groups", func(r chi.Router) {
+				// Every role may see which VM groups exist: the inventory
+				// filters need them. Only admins may change them.
+				r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor)).
+					Get("/", s.handleListVMGroups)
+				r.With(RequireRole(identity.RoleAdmin)).Post("/", s.handleCreateVMGroup)
+				r.With(RequireRole(identity.RoleAdmin)).Delete("/{groupID}", s.handleDeleteVMGroup)
+			})
+
+			r.Route("/grants", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/", s.handleListGrants)
+				r.Post("/", s.handleCreateGrant)
+				r.Delete("/{grantID}", s.handleDeleteGrant)
+			})
+		})
+
 		r.NotFound(s.handleNotFound)
 	})
 

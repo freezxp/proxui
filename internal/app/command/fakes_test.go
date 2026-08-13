@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/freezxp/proxui/internal/app/ports"
+	"github.com/freezxp/proxui/internal/domain/access"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 )
@@ -83,6 +84,183 @@ func (f *fakeUsers) CountAll(context.Context) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.byID), nil
+}
+
+func (f *fakeUsers) List(_ context.Context, filter ports.UserFilter) ([]*identity.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*identity.User
+	for _, u := range f.byID {
+		if filter.Query != "" && !strings.Contains(strings.ToLower(u.Username), strings.ToLower(filter.Query)) {
+			continue
+		}
+		if filter.Role != "" && string(u.Role) != filter.Role {
+			continue
+		}
+		if filter.Active != nil && u.IsActive != *filter.Active {
+			continue
+		}
+		out = append(out, u)
+	}
+	return out, nil
+}
+
+// fakeAccess implements ports.AccessRepository in memory.
+type fakeAccess struct {
+	mu         sync.Mutex
+	userGroups map[uuid.UUID]*access.UserGroup
+	vmGroups   map[uuid.UUID]*access.VMGroup
+	grants     map[uuid.UUID]*access.Grant
+	membership map[uuid.UUID][]uuid.UUID // user -> user groups
+}
+
+func newFakeAccess() *fakeAccess {
+	return &fakeAccess{
+		userGroups: map[uuid.UUID]*access.UserGroup{},
+		vmGroups:   map[uuid.UUID]*access.VMGroup{},
+		grants:     map[uuid.UUID]*access.Grant{},
+		membership: map[uuid.UUID][]uuid.UUID{},
+	}
+}
+
+func (f *fakeAccess) CreateUserGroup(_ context.Context, g *access.UserGroup) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, existing := range f.userGroups {
+		if strings.EqualFold(existing.Name, g.Name) {
+			return ports.ErrConflict
+		}
+	}
+	f.userGroups[g.ID] = g
+	return nil
+}
+
+func (f *fakeAccess) ListUserGroups(context.Context) ([]access.UserGroup, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]access.UserGroup, 0, len(f.userGroups))
+	for _, g := range f.userGroups {
+		out = append(out, *g)
+	}
+	return out, nil
+}
+
+func (f *fakeAccess) DeleteUserGroup(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.userGroups[id]; !ok {
+		return ports.ErrNotFound
+	}
+	delete(f.userGroups, id)
+	for gid, g := range f.grants {
+		if g.UserGroupID == id {
+			delete(f.grants, gid)
+		}
+	}
+	return nil
+}
+
+func (f *fakeAccess) SetUserGroups(_ context.Context, userID uuid.UUID, groupIDs []uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, gid := range groupIDs {
+		if _, ok := f.userGroups[gid]; !ok {
+			return ports.ErrNotFound
+		}
+	}
+	f.membership[userID] = groupIDs
+	return nil
+}
+
+func (f *fakeAccess) UserGroupNames(_ context.Context, userID uuid.UUID) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, gid := range f.membership[userID] {
+		if g, ok := f.userGroups[gid]; ok {
+			out = append(out, g.Name)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeAccess) CreateVMGroup(_ context.Context, g *access.VMGroup) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, existing := range f.vmGroups {
+		if strings.EqualFold(existing.Name, g.Name) {
+			return ports.ErrConflict
+		}
+	}
+	f.vmGroups[g.ID] = g
+	return nil
+}
+
+func (f *fakeAccess) ListVMGroups(context.Context) ([]access.VMGroup, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]access.VMGroup, 0, len(f.vmGroups))
+	for _, g := range f.vmGroups {
+		out = append(out, *g)
+	}
+	return out, nil
+}
+
+func (f *fakeAccess) DeleteVMGroup(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.vmGroups[id]; !ok {
+		return ports.ErrNotFound
+	}
+	delete(f.vmGroups, id)
+	return nil
+}
+
+func (f *fakeAccess) CreateGrant(_ context.Context, g *access.Grant) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.userGroups[g.UserGroupID]; !ok {
+		return ports.ErrNotFound
+	}
+	if _, ok := f.vmGroups[g.VMGroupID]; !ok {
+		return ports.ErrNotFound
+	}
+	f.grants[g.ID] = g
+	return nil
+}
+
+func (f *fakeAccess) ListGrants(context.Context) ([]access.Grant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]access.Grant, 0, len(f.grants))
+	for _, g := range f.grants {
+		out = append(out, *g)
+	}
+	return out, nil
+}
+
+func (f *fakeAccess) DeleteGrant(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.grants[id]; !ok {
+		return ports.ErrNotFound
+	}
+	delete(f.grants, id)
+	return nil
+}
+
+func (f *fakeAccess) VisibleVMGroupIDs(_ context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []uuid.UUID
+	for _, ugID := range f.membership[userID] {
+		for _, g := range f.grants {
+			if g.UserGroupID == ugID {
+				out = append(out, g.VMGroupID)
+			}
+		}
+	}
+	return out, nil
 }
 
 type fakeSessions struct {
@@ -234,10 +412,5 @@ func mustUser(t interface{ Fatalf(string, ...any) }, username, password string, 
 	}
 }
 
-func newRefreshToken() (string, []byte) {
-	token, hash, err := crypto.NewOpaqueToken()
-	if err != nil {
-		panic(err)
-	}
-	return token, hash
-}
+// hashOf mirrors how the session repository keys refresh tokens.
+func hashOf(token string) []byte { return crypto.HashToken(token) }

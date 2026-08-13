@@ -82,6 +82,53 @@ func (r *UserRepository) CountAll(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// List returns users matching the filter, newest accounts last.
+func (r *UserRepository) List(ctx context.Context, f ports.UserFilter) ([]*identity.User, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT `+userColumns+` FROM users
+		WHERE ($1 = '' OR username ILIKE '%'||$1||'%' OR email ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%')
+		  AND ($2 = '' OR role::text = $2)
+		  AND ($3::boolean IS NULL OR is_active = $3)
+		ORDER BY username`, f.Query, f.Role, f.Active)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*identity.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// scanner is satisfied by both pgx.Row and pgx.Rows.
+type scanner interface{ Scan(dest ...any) error }
+
+func scanUser(s scanner) (*identity.User, error) {
+	var (
+		u                                  identity.User
+		role                               string
+		lastFailed, lockedUntil, lastLogin *time.Time
+	)
+	err := s.Scan(
+		&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.PasswordHash, &role, &u.IsActive,
+		&u.MustChangePassword, &u.TOTPEnabled, &u.FailedLoginCount, &lastFailed,
+		&lockedUntil, &lastLogin, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	u.Role = identity.Role(role)
+	u.LastFailedAt = derefTime(lastFailed)
+	u.LockedUntil = derefTime(lockedUntil)
+	u.LastLoginAt = derefTime(lastLogin)
+	return &u, nil
+}
+
 func (r *UserRepository) scanOne(ctx context.Context, query string, args ...any) (*identity.User, error) {
 	var (
 		u                                  identity.User

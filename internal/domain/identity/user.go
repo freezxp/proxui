@@ -105,10 +105,16 @@ func (u *User) RegisterFailedLogin(now time.Time) (lockedNow bool) {
 
 // RegisterSuccessfulLogin clears failure state after a valid authentication.
 func (u *User) RegisterSuccessfulLogin(now time.Time) {
+	u.ClearLockout()
+	u.LastLoginAt = now
+}
+
+// ClearLockout resets failure state without recording a login. An administrator
+// resetting a password should unlock the account, not fake a sign-in.
+func (u *User) ClearLockout() {
 	u.FailedLoginCount = 0
 	u.LastFailedAt = time.Time{}
 	u.LockedUntil = time.Time{}
-	u.LastLoginAt = now
 }
 
 // Deactivate disables the account. Callers must also revoke its sessions

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 
@@ -100,11 +101,12 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	// Dependency graph, wired by hand: explicit beats a DI framework for a
 	// graph this size (docs/05-system-architecture.md §5.3).
 	var (
-		users    = postgres.NewUserRepository(pool)
-		sessions = postgres.NewSessionRepository(pool)
-		audit    = postgres.NewAuditRepository(pool)
-		hasher   = crypto.NewPasswordHasher()
-		clock    = ports.SystemClock{}
+		users      = postgres.NewUserRepository(pool)
+		sessions   = postgres.NewSessionRepository(pool)
+		audit      = postgres.NewAuditRepository(pool)
+		accessRepo = postgres.NewAccessRepository(pool)
+		hasher     = crypto.NewPasswordHasher()
+		clock      = ports.SystemClock{}
 	)
 
 	signingKey, err := crypto.LoadOrCreateRSAKey(cfg.JWTKeyFile)
@@ -120,6 +122,16 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Users:    users,
 		Tokens:   tokens,
 		Sessions: sessions,
+	}
+
+	adminDeps := httpapi.AdminDeps{
+		CreateUser:    &command.CreateUser{Users: users, Access: accessRepo, Hasher: hasher, Audit: audit, Clock: clock},
+		UpdateUser:    &command.UpdateUser{Users: users, Sessions: sessions, Audit: audit, Clock: clock},
+		ResetPassword: &command.ResetPassword{Users: users, Sessions: sessions, Hasher: hasher, Audit: audit, Clock: clock},
+		SetUserGroups: &command.SetUserGroups{Users: users, Access: accessRepo, Audit: audit, Clock: clock},
+		ManageAccess:  &command.ManageAccess{Access: accessRepo, Audit: audit, Clock: clock},
+		Users:         users,
+		Access:        accessRepo,
 	}
 
 	// Migrations run on API startup under an advisory lock; worker-only
@@ -158,12 +170,25 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Version:       version,
 			Readiness:     readiness,
 			Auth:          authDeps,
+			Admin:         adminDeps,
 			SecureCookies: cfg.SecureCookies,
 			Clock:         clock.Now,
 		})
+		handler := apiServer.Routes()
+
+		// Deny by default: refuse to start if any route lacks a permission-map
+		// entry, so an unprotected endpoint can never reach production.
+		routes, ok := handler.(chi.Routes)
+		if !ok {
+			return errors.New("router does not expose chi.Routes; cannot verify permissions")
+		}
+		if err := httpapi.ValidatePermissions(routes); err != nil {
+			return err
+		}
+
 		api := &http.Server{
 			Addr:              cfg.HTTPAddr,
-			Handler:           apiServer.Routes(),
+			Handler:           handler,
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       120 * time.Second,
 		}

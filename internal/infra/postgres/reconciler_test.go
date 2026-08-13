@@ -216,7 +216,9 @@ func TestStateChangeIsRecordedAndPublished(t *testing.T) {
 	var events int
 	err = f.pool.QueryRow(ctx, `
 		SELECT count(*) FROM events_outbox
-		WHERE event_type='vm.state_changed' AND payload->>'external_id'=$1`, target.ExternalID).Scan(&events)
+		WHERE event_type='vm.state_changed'
+		  AND payload->>'external_id'=$1 AND payload->>'platform_id'=$2`,
+		target.ExternalID, f.platform.ID.String()).Scan(&events)
 	if err != nil {
 		t.Fatalf("count events: %v", err)
 	}
@@ -259,7 +261,9 @@ func TestDeletedVMNeedsThreeMisses(t *testing.T) {
 	var events int
 	err := f.pool.QueryRow(ctx, `
 		SELECT count(*) FROM events_outbox
-		WHERE event_type='vm.deleted' AND payload->>'external_id'=$1`, gone.ExternalID).Scan(&events)
+		WHERE event_type='vm.deleted'
+		  AND payload->>'external_id'=$1 AND payload->>'platform_id'=$2`,
+		gone.ExternalID, f.platform.ID.String()).Scan(&events)
 	if err != nil {
 		t.Fatalf("count events: %v", err)
 	}

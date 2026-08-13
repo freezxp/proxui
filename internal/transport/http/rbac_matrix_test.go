@@ -17,6 +17,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/command"
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/domain/access"
+	"github.com/freezxp/proxui/internal/domain/console"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 )
@@ -104,6 +105,13 @@ func matrixServer(role identity.Role) *Server {
 			Sessions: &fakeSessionChecker{active: true},
 		},
 		Metrics: MetricsDeps{Metrics: stubMetrics{}},
+		Console: ConsoleDeps{
+			Open: &command.OpenConsole{
+				Inventory: stubInventory{}, Sessions: stubConsole{},
+				Tickets: stubTickets{}, Audit: audit, Clock: clock,
+			},
+			Sessions: stubConsole{},
+		},
 		Inventory: InventoryDeps{
 			Inventory: stubInventory{}, Audit: stubAudit{}, Metrics: stubMetrics{},
 		},
@@ -181,6 +189,27 @@ func (stubAudit) Stream(context.Context, ports.AuditFilter, func(ports.AuditReco
 }
 func (stubAudit) Categories(context.Context) (map[string][]string, error) { return nil, nil }
 
+type stubConsole struct{}
+
+func (stubConsole) Create(context.Context, *console.Session) error            { return nil }
+func (stubConsole) MarkConnected(context.Context, uuid.UUID, time.Time) error { return nil }
+func (stubConsole) Close(context.Context, uuid.UUID, string, int64, int64, time.Time) error {
+	return nil
+}
+func (stubConsole) Get(context.Context, uuid.UUID) (*console.Session, error) {
+	return &console.Session{}, nil
+}
+func (stubConsole) List(context.Context, bool, int) ([]ports.ConsoleSessionRecord, error) {
+	return nil, nil
+}
+
+type stubTickets struct{}
+
+func (stubTickets) Issue(context.Context, console.Ticket) error { return nil }
+func (stubTickets) Redeem(context.Context, string) (console.Ticket, error) {
+	return console.Ticket{}, console.ErrTicketNotFound
+}
+
 type noopAudit struct{}
 
 func (noopAudit) Write(context.Context, ports.AuditEntry) error { return nil }
@@ -197,7 +226,7 @@ func requestFor(t *testing.T, key string) *http.Request {
 	method, pattern, _ := strings.Cut(key, " ")
 
 	path := pattern
-	for _, param := range []string{"{userID}", "{groupID}", "{grantID}", "{platformID}", "{vmID}"} {
+	for _, param := range []string{"{userID}", "{groupID}", "{grantID}", "{platformID}", "{vmID}", "{ticketID}"} {
 		path = strings.ReplaceAll(path, param, uuid.NewString())
 	}
 

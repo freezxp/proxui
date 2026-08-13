@@ -3,9 +3,10 @@ package mock_test
 import (
 	"context"
 	"errors"
-	"io"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/connector/connectortest"
@@ -227,7 +228,9 @@ func TestPowerActionsChangeState(t *testing.T) {
 }
 
 // TestConsoleEndpointPipesBytes proves the console contract the WebSocket proxy
-// relies on: dial the endpoint, exchange bytes, protocol-agnostically.
+// relies on: connect to the endpoint and exchange frames, protocol-agnostically.
+// The mock speaks WebSocket because that is what real platforms expose, which
+// is what lets the bridge be tested with no hypervisor present.
 func TestConsoleEndpointPipesBytes(t *testing.T) {
 	c := newMock(t, nil)
 	defer c.Close()
@@ -242,21 +245,24 @@ func TestConsoleEndpointPipesBytes(t *testing.T) {
 		t.Error("console endpoint is already expired")
 	}
 
-	conn, err := endpoint.DialContext(ctx)
+	wsEndpoint, ok := endpoint.(connector.WebsocketConsole)
+	if !ok {
+		t.Fatal("console endpoint does not implement WebsocketConsole; the bridge could not use it")
+	}
+
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsEndpoint.WebsocketURL(), wsEndpoint.RequestHeader())
 	if err != nil {
-		t.Fatalf("DialContext: %v", err)
+		t.Fatalf("dial console: %v", err)
 	}
 	defer conn.Close()
 
 	want := []byte("RFB 003.008\n")
-	if _, err := conn.Write(want); err != nil {
+	if err := conn.WriteMessage(websocket.BinaryMessage, want); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	got := make([]byte, len(want))
-	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		t.Fatalf("set deadline: %v", err)
-	}
-	if _, err := io.ReadFull(conn, got); err != nil {
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, got, err := conn.ReadMessage()
+	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	if string(got) != string(want) {

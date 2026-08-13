@@ -10,12 +10,18 @@ package mock
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"math"
 	"math/rand"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/freezxp/proxui/internal/connector"
 )
@@ -532,46 +538,43 @@ func (c *Connector) ResetCounters() {
 	c.counters = map[string]float64{}
 }
 
-// echoEndpoint is a loopback console: whatever the client writes comes back.
+// echoEndpoint is a loopback console served over WebSocket, mirroring how real
+// platforms expose one. Speaking the same protocol as Proxmox is what lets the
+// console bridge be tested end to end with no hypervisor present.
 type echoEndpoint struct {
-	listener net.Listener
-	expires  time.Time
+	server  *httptest.Server
+	expires time.Time
+}
+
+var echoUpgrader = websocket.Upgrader{
+	CheckOrigin: func(*http.Request) bool { return true },
 }
 
 func newEchoEndpoint() (connector.ConsoleEndpoint, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, connector.Wrap(connector.ErrUnreachable, "console", err)
-	}
-	go func() {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := echoUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
 		for {
-			conn, err := ln.Accept()
+			kind, data, err := conn.ReadMessage()
 			if err != nil {
 				return
 			}
-			go func() {
-				defer conn.Close()
-				buf := make([]byte, 4096)
-				for {
-					n, err := conn.Read(buf)
-					if n > 0 {
-						if _, werr := conn.Write(buf[:n]); werr != nil {
-							return
-						}
-					}
-					if err != nil {
-						return
-					}
-				}
-			}()
+			if err := conn.WriteMessage(kind, data); err != nil {
+				return
+			}
 		}
-	}()
-	return &echoEndpoint{listener: ln, expires: time.Now().Add(60 * time.Second)}, nil
+	}))
+	return &echoEndpoint{server: srv, expires: time.Now().Add(60 * time.Second)}, nil
 }
 
+// DialContext opens a raw connection, for callers that want bytes rather than
+// frames.
 func (e *echoEndpoint) DialContext(ctx context.Context) (net.Conn, error) {
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", e.listener.Addr().String())
+	conn, err := d.DialContext(ctx, "tcp", strings.TrimPrefix(e.server.URL, "http://"))
 	if err != nil {
 		return nil, connector.Wrap(connector.ErrUnreachable, "console_dial", err)
 	}
@@ -579,6 +582,21 @@ func (e *echoEndpoint) DialContext(ctx context.Context) (net.Conn, error) {
 }
 
 func (e *echoEndpoint) ExpiresAt() time.Time { return e.expires }
+
+// WebsocketURL implements connector.WebsocketConsole.
+func (e *echoEndpoint) WebsocketURL() string {
+	return "ws://" + strings.TrimPrefix(e.server.URL, "http://")
+}
+
+// TLSClientConfig implements connector.WebsocketConsole; the echo server is
+// plain HTTP, so no trust policy applies.
+func (e *echoEndpoint) TLSClientConfig() *tls.Config { return nil }
+
+// RequestHeader implements connector.WebsocketConsole.
+func (e *echoEndpoint) RequestHeader() http.Header { return http.Header{} }
+
+// Close shuts down the echo server.
+func (e *echoEndpoint) Close() { e.server.Close() }
 
 func toInt(v any) (int, bool) {
 	switch n := v.(type) {

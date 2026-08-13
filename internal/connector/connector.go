@@ -10,7 +10,9 @@ package connector
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
+	"net/http"
 	"time"
 )
 
@@ -154,6 +156,20 @@ type ConsoleEndpoint interface {
 	DialContext(ctx context.Context) (net.Conn, error)
 	// ExpiresAt is when the upstream ticket stops being usable.
 	ExpiresAt() time.Time
+}
+
+// WebsocketConsole is a console reached over WebSocket, which is how Proxmox
+// and most modern platforms expose one. The bridge relays frames between the
+// browser and this endpoint without reading them, so it stays protocol-neutral.
+type WebsocketConsole interface {
+	ConsoleEndpoint
+	// WebsocketURL is the full upstream URL including any ticket parameters.
+	WebsocketURL() string
+	// TLSClientConfig is the trust policy for the upstream connection, so a
+	// pinned or self-signed cluster is honoured on the console path too.
+	TLSClientConfig() *tls.Config
+	// RequestHeader carries any headers the upstream handshake needs.
+	RequestHeader() http.Header
 }
 
 // PowerAction is a lifecycle operation on a VM.

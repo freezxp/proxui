@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/freezxp/proxui/internal/domain/access"
+	"github.com/freezxp/proxui/internal/domain/console"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/domain/inventory"
 	"github.com/freezxp/proxui/internal/infra/crypto"
@@ -450,4 +451,37 @@ type AuditReader interface {
 	Search(ctx context.Context, f AuditFilter) (AuditPage, error)
 	Stream(ctx context.Context, f AuditFilter, fn func(AuditRecord) error) error
 	Categories(ctx context.Context) (map[string][]string, error)
+}
+
+// ConsoleSessionRecord is a console session as shown to an administrator.
+type ConsoleSessionRecord struct {
+	ID          uuid.UUID `json:"id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Username    string    `json:"username"`
+	VMID        uuid.UUID `json:"vm_id"`
+	VMName      string    `json:"vm_name"`
+	Kind        string    `json:"kind"`
+	ClientIP    string    `json:"client_ip,omitempty"`
+	StartedAt   time.Time `json:"started_at"`
+	ConnectedAt time.Time `json:"connected_at,omitempty"`
+	EndedAt     time.Time `json:"ended_at,omitempty"`
+	CloseReason string    `json:"close_reason,omitempty"`
+	BytesTx     int64     `json:"bytes_tx"`
+	BytesRx     int64     `json:"bytes_rx"`
+	Active      bool      `json:"active"`
+}
+
+// ConsoleRepository records console sessions.
+type ConsoleRepository interface {
+	Create(ctx context.Context, s *console.Session) error
+	MarkConnected(ctx context.Context, id uuid.UUID, at time.Time) error
+	Close(ctx context.Context, id uuid.UUID, reason string, tx, rx int64, at time.Time) error
+	Get(ctx context.Context, id uuid.UUID) (*console.Session, error)
+	List(ctx context.Context, activeOnly bool, limit int) ([]ConsoleSessionRecord, error)
+}
+
+// TicketStore holds one-time console tickets.
+type TicketStore interface {
+	Issue(ctx context.Context, t console.Ticket) error
+	Redeem(ctx context.Context, id string) (console.Ticket, error)
 }

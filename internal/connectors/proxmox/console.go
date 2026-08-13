@@ -80,11 +80,17 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 	target := *c.client.base
 	target.Path = ""
 	return &consoleEndpoint{
-		host:      target.Host,
-		scheme:    target.Scheme,
-		path:      wsPath,
-		tlsConfig: c.client.http.Transport.(*http.Transport).TLSClientConfig,
-		expires:   time.Now().Add(consoleTicketTTL),
+		host:   target.Host,
+		scheme: target.Scheme,
+		path:   wsPath,
+		// The websocket upgrade is an authenticated API call in its own right:
+		// Proxmox answers "401 No ticket" without the token header, even though
+		// the URL already carries a VNC ticket. This is also precisely why the
+		// browser cannot be allowed to connect directly - doing so would mean
+		// handing it the platform credential.
+		authHeader: c.client.authHeader,
+		tlsConfig:  c.client.http.Transport.(*http.Transport).TLSClientConfig,
+		expires:    time.Now().Add(consoleTicketTTL),
 	}, nil
 }
 
@@ -92,11 +98,12 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 // not speak RFB or the websocket framing itself: the portal's bridge pipes raw
 // bytes, which keeps this independent of VNC and serial specifics.
 type consoleEndpoint struct {
-	host      string
-	scheme    string
-	path      string
-	tlsConfig *tls.Config
-	expires   time.Time
+	host       string
+	scheme     string
+	path       string
+	authHeader string
+	tlsConfig  *tls.Config
+	expires    time.Time
 }
 
 // DialContext opens a TCP/TLS connection to the node hosting the console.
@@ -119,9 +126,25 @@ func (e *consoleEndpoint) DialContext(ctx context.Context) (net.Conn, error) {
 // ExpiresAt is when the upstream ticket stops being accepted.
 func (e *consoleEndpoint) ExpiresAt() time.Time { return e.expires }
 
-// WebsocketPath is the upstream request path the bridge must use when it
-// performs the websocket handshake.
-func (e *consoleEndpoint) WebsocketPath() string { return e.path }
+// WebsocketURL is the upstream console URL, ticket included.
+func (e *consoleEndpoint) WebsocketURL() string {
+	scheme := "wss"
+	if e.scheme == "http" {
+		scheme = "ws"
+	}
+	return scheme + "://" + e.host + e.path
+}
 
-// Host is the upstream authority for the websocket handshake.
-func (e *consoleEndpoint) Host() string { return e.host }
+// TLSClientConfig carries the platform's trust policy onto the console path:
+// a pinned fingerprint must be honoured here exactly as it is for the API.
+func (e *consoleEndpoint) TLSClientConfig() *tls.Config { return e.tlsConfig }
+
+// RequestHeader carries the API token onto the websocket handshake, which
+// Proxmox requires in addition to the VNC ticket in the URL.
+func (e *consoleEndpoint) RequestHeader() http.Header {
+	h := http.Header{}
+	if e.authHeader != "" {
+		h.Set("Authorization", e.authHeader)
+	}
+	return h
+}

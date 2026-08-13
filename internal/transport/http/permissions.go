@@ -53,7 +53,10 @@ func roles(rs ...identity.Role) Permission { return Permission{Access: AccessRol
 // without adding an entry here fails startup (deny by default, RBAC-07).
 var permissionMap = map[string]Permission{
 	"GET /healthz": {Access: AccessPublic},
-	"GET /readyz":  {Access: AccessPublic},
+	// The console socket carries its own single-use ticket; the permission
+	// check happened when that ticket was issued.
+	"GET /ws/console/{ticketID}": {Access: AccessPublic},
+	"GET /readyz":                {Access: AccessPublic},
 
 	"POST /api/v1/auth/login":   {Access: AccessPublic},
 	"POST /api/v1/auth/refresh": {Access: AccessPublic},
@@ -89,6 +92,8 @@ var permissionMap = map[string]Permission{
 	"GET /api/v1/vms/{vmID}":                       roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
 	"GET /api/v1/vms/{vmID}/metrics":               roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
 	"GET /api/v1/vms/{vmID}/history":               roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"POST /api/v1/vms/{vmID}/console":              roles(identity.RoleAdmin, identity.RoleOperator),
+	"GET /api/v1/console-sessions":                 roles(identity.RoleAdmin),
 	"PUT /api/v1/vms/{vmID}/tags":                  roles(identity.RoleAdmin, identity.RoleOperator),
 	"PUT /api/v1/vms/{vmID}/notes":                 roles(identity.RoleAdmin, identity.RoleOperator),
 

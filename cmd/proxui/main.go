@@ -30,6 +30,7 @@ import (
 	redisinfra "github.com/freezxp/proxui/internal/infra/redis"
 	"github.com/freezxp/proxui/internal/jobs"
 	httpapi "github.com/freezxp/proxui/internal/transport/http"
+	"github.com/freezxp/proxui/internal/transport/ws"
 )
 
 // tokenIssuerName is the `iss` claim on access tokens.
@@ -127,6 +128,8 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		metrics   = postgres.NewMetricsRepository(pool)
 		inventory = postgres.NewInventoryQuery(pool)
 		auditLog  = postgres.NewAuditQuery(pool)
+		consoles  = postgres.NewConsoleRepository(pool)
+		tickets   = redisinfra.NewTicketStore(rdb)
 	)
 
 	reconciler := &appsync.Reconciler{
@@ -217,6 +220,22 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Metrics:   httpapi.MetricsDeps{Metrics: metrics},
 			Inventory: httpapi.InventoryDeps{
 				Inventory: inventory, Audit: auditLog, Metrics: metrics,
+			},
+			Console: httpapi.ConsoleDeps{
+				Open: &command.OpenConsole{
+					Inventory: inventory, Sessions: consoles, Tickets: tickets,
+					Audit: audit, Clock: clock,
+				},
+				Sessions: consoles,
+				Bridge: &ws.ConsoleBridge{
+					Tickets:  tickets,
+					Sessions: consoles,
+					Resolver: &command.ConsoleEndpointResolver{
+						Inventory: inventory, Platforms: platforms,
+						Sync: syncService, Clock: clock,
+					},
+					Audit: audit, Clock: clock, Log: log,
+				},
 			},
 			SecureCookies: cfg.SecureCookies,
 			Clock:         clock.Now,

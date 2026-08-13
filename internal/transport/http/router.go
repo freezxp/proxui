@@ -39,6 +39,7 @@ type ServerConfig struct {
 	Platforms PlatformDeps
 	Metrics   MetricsDeps
 	Inventory InventoryDeps
+	Console   ConsoleDeps
 
 	// SecureCookies marks the refresh cookie Secure. It is off only for local
 	// HTTP development; production terminates TLS at the reverse proxy.
@@ -59,6 +60,7 @@ type Server struct {
 	platforms     PlatformDeps
 	metrics       MetricsDeps
 	inventory     InventoryDeps
+	console       ConsoleDeps
 	secureCookies bool
 	nowFn         func() time.Time
 }
@@ -80,6 +82,7 @@ func NewServer(cfg ServerConfig) *Server {
 		platforms:     cfg.Platforms,
 		metrics:       cfg.Metrics,
 		inventory:     cfg.Inventory,
+		console:       cfg.Console,
 		secureCookies: cfg.SecureCookies,
 		nowFn:         cfg.Clock,
 	}
@@ -97,6 +100,10 @@ func (s *Server) Routes() http.Handler {
 	r.Use(requestLogger(s.log))
 	r.Use(recoverPanic(s.log))
 	r.Use(middleware.Timeout(30 * time.Second))
+
+	// The console WebSocket authenticates with its single-use ticket rather
+	// than a bearer token: a browser cannot set headers on a WebSocket.
+	r.Get("/ws/console/{ticketID}", s.handleConsoleWS)
 
 	r.Get("/healthz", s.handleLive)
 	r.Get("/readyz", s.handleReady)
@@ -177,6 +184,13 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/vms/{vmID}/metrics", s.handleVMMetrics)
 				r.Get("/vms/{vmID}/history", s.handleVMHistory)
 			})
+
+			// Consoles: operators and admins only, and scoped per VM inside the
+			// command rather than by the role gate alone.
+			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator)).
+				Post("/vms/{vmID}/console", s.handleOpenConsole)
+			r.With(RequireRole(identity.RoleAdmin)).
+				Get("/console-sessions", s.handleListConsoleSessions)
 
 			// Portal-owned annotations: operators may edit what they can see.
 			r.Group(func(r chi.Router) {

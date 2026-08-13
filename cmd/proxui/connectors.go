@@ -9,5 +9,5 @@ import (
 	// the test suite and the load-test fixture, and it is what proves the core
 	// works without any real hypervisor.
 	_ "github.com/freezxp/proxui/internal/connectors/mock"
-	// _ "github.com/freezxp/proxui/internal/connectors/proxmox" // sprint 5
+	_ "github.com/freezxp/proxui/internal/connectors/proxmox"
 )

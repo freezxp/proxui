@@ -14,6 +14,7 @@ import (
 // Principal is the authenticated caller derived from an access token.
 type Principal struct {
 	UserID    uuid.UUID
+	Username  string
 	Role      identity.Role
 	SessionID uuid.UUID
 }
@@ -80,6 +81,7 @@ func RequireAuth(tokens TokenParser, sessions SessionChecker) func(http.Handler)
 
 			ctx := WithPrincipal(r.Context(), Principal{
 				UserID:    userID,
+				Username:  claims.Username,
 				Role:      identity.Role(claims.Role),
 				SessionID: sessionID,
 			})

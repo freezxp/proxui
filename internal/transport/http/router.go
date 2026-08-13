@@ -38,6 +38,7 @@ type ServerConfig struct {
 	Admin     AdminDeps
 	Platforms PlatformDeps
 	Metrics   MetricsDeps
+	Inventory InventoryDeps
 
 	// SecureCookies marks the refresh cookie Secure. It is off only for local
 	// HTTP development; production terminates TLS at the reverse proxy.
@@ -57,6 +58,7 @@ type Server struct {
 	admin         AdminDeps
 	platforms     PlatformDeps
 	metrics       MetricsDeps
+	inventory     InventoryDeps
 	secureCookies bool
 	nowFn         func() time.Time
 }
@@ -77,6 +79,7 @@ func NewServer(cfg ServerConfig) *Server {
 		admin:         cfg.Admin,
 		platforms:     cfg.Platforms,
 		metrics:       cfg.Metrics,
+		inventory:     cfg.Inventory,
 		secureCookies: cfg.SecureCookies,
 		nowFn:         cfg.Clock,
 	}
@@ -164,11 +167,30 @@ func (s *Server) Routes() http.Handler {
 
 			r.With(RequireRole(identity.RoleAdmin)).Get("/connectors", s.handleListConnectors)
 
-			// Metrics are readable by every role: seeing performance is the
-			// point of the portal. Per-VM scoping arrives with the inventory
-			// query layer.
-			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor)).
-				Get("/vms/{vmID}/metrics", s.handleVMMetrics)
+			// Inventory is readable by every role; which VMs appear is decided
+			// per query by the caller's grants, not by the role gate.
+			r.Group(func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor))
+				r.Get("/dashboard", s.handleDashboard)
+				r.Get("/vms", s.handleListVMs)
+				r.Get("/vms/{vmID}", s.handleGetVM)
+				r.Get("/vms/{vmID}/metrics", s.handleVMMetrics)
+				r.Get("/vms/{vmID}/history", s.handleVMHistory)
+			})
+
+			// Portal-owned annotations: operators may edit what they can see.
+			r.Group(func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin, identity.RoleOperator))
+				r.Put("/vms/{vmID}/tags", s.handleSetVMTags)
+				r.Put("/vms/{vmID}/notes", s.handleSetVMNotes)
+			})
+
+			r.Route("/audit-logs", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin, identity.RoleAuditor))
+				r.Get("/", s.handleSearchAudit)
+				r.Get("/export", s.handleExportAudit)
+				r.Get("/categories", s.handleAuditCategories)
+			})
 
 			r.Route("/grants", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))

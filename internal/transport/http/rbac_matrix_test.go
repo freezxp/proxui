@@ -104,6 +104,9 @@ func matrixServer(role identity.Role) *Server {
 			Sessions: &fakeSessionChecker{active: true},
 		},
 		Metrics: MetricsDeps{Metrics: stubMetrics{}},
+		Inventory: InventoryDeps{
+			Inventory: stubInventory{}, Audit: stubAudit{}, Metrics: stubMetrics{},
+		},
 		Admin: AdminDeps{
 			CreateUser:    &command.CreateUser{Users: users, Access: accessRepo, Hasher: noopHasher{}, Audit: audit, Clock: clock},
 			UpdateUser:    &command.UpdateUser{Users: users, Sessions: sessions, Audit: audit, Clock: clock},
@@ -145,6 +148,38 @@ func (stubMetrics) VMIDsByExternalID(context.Context, uuid.UUID) (map[string]uui
 func (stubMetrics) HostIDsByExternalID(context.Context, uuid.UUID) (map[string]uuid.UUID, error) {
 	return nil, nil
 }
+
+// stubInventory and stubAudit answer read-model calls with nothing, so the
+// matrix measures authorization rather than data.
+type stubInventory struct{}
+
+func (stubInventory) ListVMs(context.Context, ports.VMFilter) (ports.VMPage, error) {
+	return ports.VMPage{}, nil
+}
+func (stubInventory) GetVM(context.Context, uuid.UUID, identity.Role, uuid.UUID) (ports.VMDetail, error) {
+	return ports.VMDetail{}, nil
+}
+func (stubInventory) CanAccessVM(context.Context, uuid.UUID, identity.Role, uuid.UUID) (bool, error) {
+	return true, nil
+}
+func (stubInventory) VMHistory(context.Context, uuid.UUID, int) ([]ports.HistoryEntry, error) {
+	return nil, nil
+}
+func (stubInventory) SetPortalTags(context.Context, uuid.UUID, []string) error { return nil }
+func (stubInventory) SetNotes(context.Context, uuid.UUID, string) error        { return nil }
+func (stubInventory) Dashboard(context.Context, identity.Role, uuid.UUID) (ports.DashboardSummary, error) {
+	return ports.DashboardSummary{}, nil
+}
+
+type stubAudit struct{}
+
+func (stubAudit) Search(context.Context, ports.AuditFilter) (ports.AuditPage, error) {
+	return ports.AuditPage{}, nil
+}
+func (stubAudit) Stream(context.Context, ports.AuditFilter, func(ports.AuditRecord) error) error {
+	return nil
+}
+func (stubAudit) Categories(context.Context) (map[string][]string, error) { return nil, nil }
 
 type noopAudit struct{}
 

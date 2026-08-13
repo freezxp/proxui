@@ -84,7 +84,17 @@ var permissionMap = map[string]Permission{
 	"POST /api/v1/platforms/{platformID}/sync":     roles(identity.RoleAdmin),
 	"GET /api/v1/platforms/{platformID}/sync-runs": roles(identity.RoleAdmin),
 	"GET /api/v1/connectors":                       roles(identity.RoleAdmin),
+	"GET /api/v1/dashboard":                        roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/vms":                              roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/vms/{vmID}":                       roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
 	"GET /api/v1/vms/{vmID}/metrics":               roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/vms/{vmID}/history":               roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"PUT /api/v1/vms/{vmID}/tags":                  roles(identity.RoleAdmin, identity.RoleOperator),
+	"PUT /api/v1/vms/{vmID}/notes":                 roles(identity.RoleAdmin, identity.RoleOperator),
+
+	"GET /api/v1/audit-logs":            roles(identity.RoleAdmin, identity.RoleAuditor),
+	"GET /api/v1/audit-logs/export":     roles(identity.RoleAdmin, identity.RoleAuditor),
+	"GET /api/v1/audit-logs/categories": roles(identity.RoleAdmin, identity.RoleAuditor),
 
 	"GET /api/v1/grants":              roles(identity.RoleAdmin),
 	"POST /api/v1/grants":             roles(identity.RoleAdmin),

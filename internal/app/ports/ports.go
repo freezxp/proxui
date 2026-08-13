@@ -93,7 +93,7 @@ type PasswordHasher interface {
 
 // TokenIssuer mints and validates access tokens.
 type TokenIssuer interface {
-	Issue(userID uuid.UUID, role string, sessionID uuid.UUID, now time.Time) (string, time.Duration, error)
+	Issue(userID uuid.UUID, role, username string, sessionID uuid.UUID, now time.Time) (string, time.Duration, error)
 }
 
 // AuditEntry is one append-only audit record (docs/03-frs.md §3.8).
@@ -294,4 +294,160 @@ type MetricsRepository interface {
 	LastSampleTime(ctx context.Context, platformID uuid.UUID) (time.Time, error)
 	VMIDsByExternalID(ctx context.Context, platformID uuid.UUID) (map[string]uuid.UUID, error)
 	HostIDsByExternalID(ctx context.Context, platformID uuid.UUID) (map[string]uuid.UUID, error)
+}
+
+// VMFilter narrows an inventory listing. Role and UserID decide visibility.
+type VMFilter struct {
+	Role       identity.Role
+	UserID     uuid.UUID
+	Query      string
+	State      string
+	PlatformID uuid.UUID
+	HostID     uuid.UUID
+	GroupID    uuid.UUID
+	Tag        string
+	Sort       string
+	Limit      int
+	Offset     int
+}
+
+// VMListItem is a row in the inventory table.
+type VMListItem struct {
+	ID           uuid.UUID  `json:"id"`
+	ExternalID   string     `json:"external_id"`
+	Name         string     `json:"name"`
+	VMType       string     `json:"vm_type"`
+	State        string     `json:"state"`
+	CPUCores     int        `json:"cpu_cores"`
+	MemoryBytes  int64      `json:"memory_bytes"`
+	DiskBytes    int64      `json:"disk_bytes"`
+	UptimeS      int64      `json:"uptime_s"`
+	IPAddresses  []string   `json:"ip_addresses"`
+	PlatformTags []string   `json:"platform_tags"`
+	PortalTags   []string   `json:"portal_tags"`
+	Pool         string     `json:"platform_pool,omitempty"`
+	SyncState    string     `json:"sync_state"`
+	LastSeenAt   time.Time  `json:"last_seen_at"`
+	PlatformID   uuid.UUID  `json:"platform_id"`
+	PlatformName string     `json:"platform_name"`
+	Datacenter   string     `json:"datacenter"`
+	HostID       *uuid.UUID `json:"host_id,omitempty"`
+	HostName     string     `json:"host_name,omitempty"`
+	CPUPct       float64    `json:"cpu_pct"`
+	MemPct       float64    `json:"mem_pct"`
+}
+
+// VMDetail is the VM detail page's read model.
+type VMDetail struct {
+	VMListItem
+	Notes       string         `json:"notes"`
+	Groups      []string       `json:"groups"`
+	Attrs       map[string]any `json:"attrs,omitempty"`
+	FirstSeenAt time.Time      `json:"first_seen_at"`
+}
+
+// VMPage is a page of inventory.
+type VMPage struct {
+	Items  []VMListItem
+	Total  int
+	Limit  int
+	Offset int
+}
+
+// HistoryEntry is one recorded field change.
+type HistoryEntry struct {
+	ChangedAt time.Time `json:"changed_at"`
+	Field     string    `json:"field"`
+	OldValue  string    `json:"old_value"`
+	NewValue  string    `json:"new_value"`
+}
+
+// PlatformHealth summarizes a platform for the dashboard.
+type PlatformHealth struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	Datacenter  string    `json:"datacenter"`
+	Health      string    `json:"health"`
+	Version     string    `json:"version,omitempty"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
+	BreakerOpen bool      `json:"breaker_open"`
+	VMCount     int       `json:"vm_count"`
+}
+
+// TopConsumer is one entry in a busiest-VMs list.
+type TopConsumer struct {
+	VMID         uuid.UUID `json:"vm_id"`
+	Name         string    `json:"name"`
+	PlatformName string    `json:"platform_name"`
+	Value        float64   `json:"value"`
+}
+
+// DashboardSummary is the dashboard's read model.
+type DashboardSummary struct {
+	TotalVMs   int              `json:"total_vms"`
+	RunningVMs int              `json:"running_vms"`
+	StoppedVMs int              `json:"stopped_vms"`
+	OtherVMs   int              `json:"other_vms"`
+	MissingVMs int              `json:"missing_vms"`
+	Platforms  []PlatformHealth `json:"platforms"`
+	TopCPU     []TopConsumer    `json:"top_cpu"`
+	TopMemory  []TopConsumer    `json:"top_memory"`
+}
+
+// InventoryReader serves the inventory read model.
+type InventoryReader interface {
+	ListVMs(ctx context.Context, f VMFilter) (VMPage, error)
+	GetVM(ctx context.Context, id uuid.UUID, role identity.Role, userID uuid.UUID) (VMDetail, error)
+	CanAccessVM(ctx context.Context, id uuid.UUID, role identity.Role, userID uuid.UUID) (bool, error)
+	VMHistory(ctx context.Context, id uuid.UUID, limit int) ([]HistoryEntry, error)
+	SetPortalTags(ctx context.Context, id uuid.UUID, tags []string) error
+	SetNotes(ctx context.Context, id uuid.UUID, notes string) error
+	Dashboard(ctx context.Context, role identity.Role, userID uuid.UUID) (DashboardSummary, error)
+}
+
+// AuditFilter narrows an audit search.
+type AuditFilter struct {
+	From       time.Time
+	To         time.Time
+	ActorID    uuid.UUID
+	Category   string
+	Action     string
+	Outcome    string
+	TargetType string
+	TargetID   string
+	Query      string
+	Limit      int
+	Offset     int
+}
+
+// AuditRecord is one audit entry as returned to an auditor.
+type AuditRecord struct {
+	ID         int64          `json:"id"`
+	Time       time.Time      `json:"ts"`
+	ActorID    *uuid.UUID     `json:"actor_user_id,omitempty"`
+	ActorName  string         `json:"actor_name"`
+	Category   string         `json:"category"`
+	Action     string         `json:"action"`
+	TargetType string         `json:"target_type,omitempty"`
+	TargetID   string         `json:"target_id,omitempty"`
+	TargetName string         `json:"target_name,omitempty"`
+	SourceIP   string         `json:"source_ip,omitempty"`
+	Outcome    string         `json:"outcome"`
+	RequestID  string         `json:"request_id,omitempty"`
+	Details    map[string]any `json:"details,omitempty"`
+}
+
+// AuditPage is a page of audit records.
+type AuditPage struct {
+	Items  []AuditRecord
+	Total  int
+	Limit  int
+	Offset int
+}
+
+// AuditReader searches the audit log.
+type AuditReader interface {
+	Search(ctx context.Context, f AuditFilter) (AuditPage, error)
+	Stream(ctx context.Context, f AuditFilter, fn func(AuditRecord) error) error
+	Categories(ctx context.Context) (map[string][]string, error)
 }

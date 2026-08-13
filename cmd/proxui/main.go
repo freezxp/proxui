@@ -125,6 +125,8 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		assets    = postgres.NewAssetRepository(pool)
 		syncRepo  = postgres.NewSyncRepository(pool)
 		metrics   = postgres.NewMetricsRepository(pool)
+		inventory = postgres.NewInventoryQuery(pool)
+		auditLog  = postgres.NewAuditQuery(pool)
 	)
 
 	reconciler := &appsync.Reconciler{
@@ -162,6 +164,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		ManageAccess:  &command.ManageAccess{Access: accessRepo, Audit: audit, Clock: clock},
 		Users:         users,
 		Access:        accessRepo,
+		Audit:         audit,
 	}
 
 	platformDeps := httpapi.PlatformDeps{
@@ -205,13 +208,16 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 
 	if cfg.Role.RunsAPI() {
 		apiServer := httpapi.NewServer(httpapi.ServerConfig{
-			Log:           log,
-			Version:       version,
-			Readiness:     readiness,
-			Auth:          authDeps,
-			Admin:         adminDeps,
-			Platforms:     platformDeps,
-			Metrics:       httpapi.MetricsDeps{Metrics: metrics},
+			Log:       log,
+			Version:   version,
+			Readiness: readiness,
+			Auth:      authDeps,
+			Admin:     adminDeps,
+			Platforms: platformDeps,
+			Metrics:   httpapi.MetricsDeps{Metrics: metrics},
+			Inventory: httpapi.InventoryDeps{
+				Inventory: inventory, Audit: auditLog, Metrics: metrics,
+			},
 			SecureCookies: cfg.SecureCookies,
 			Clock:         clock.Now,
 		})

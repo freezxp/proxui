@@ -375,7 +375,7 @@ func (f *fakeAudit) has(action string) bool {
 
 type fakeTokens struct{ issued int }
 
-func (f *fakeTokens) Issue(userID uuid.UUID, role string, sessionID uuid.UUID, _ time.Time) (string, time.Duration, error) {
+func (f *fakeTokens) Issue(userID uuid.UUID, role, username string, sessionID uuid.UUID, _ time.Time) (string, time.Duration, error) {
 	f.issued++
 	return "access-token-" + sessionID.String(), 15 * time.Minute, nil
 }

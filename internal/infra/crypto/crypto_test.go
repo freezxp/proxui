@@ -83,7 +83,7 @@ func TestAccessTokenRoundTrip(t *testing.T) {
 	issuer := newTestIssuer(t)
 	userID, sessionID := uuid.New(), uuid.New()
 
-	token, ttl, err := issuer.Issue(userID, "operator", sessionID, time.Now())
+	token, ttl, err := issuer.Issue(userID, "operator", "jsmith", sessionID, time.Now())
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
 	}
@@ -104,11 +104,16 @@ func TestAccessTokenRoundTrip(t *testing.T) {
 	if claims.SessionID != sessionID.String() {
 		t.Errorf("sid = %q, want %q", claims.SessionID, sessionID)
 	}
+	// The username travels in the token so audit entries can name the actor
+	// without a database lookup on every write.
+	if claims.Username != "jsmith" {
+		t.Errorf("username = %q, want jsmith", claims.Username)
+	}
 }
 
 func TestParseRejectsExpiredToken(t *testing.T) {
 	issuer := newTestIssuer(t)
-	token, _, err := issuer.Issue(uuid.New(), "admin", uuid.New(), time.Now().Add(-time.Hour))
+	token, _, err := issuer.Issue(uuid.New(), "admin", "root", uuid.New(), time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
 	}
@@ -121,7 +126,7 @@ func TestParseRejectsForeignSignature(t *testing.T) {
 	attacker := newTestIssuer(t)
 	victim := newTestIssuer(t)
 
-	token, _, _ := attacker.Issue(uuid.New(), "admin", uuid.New(), time.Now())
+	token, _, _ := attacker.Issue(uuid.New(), "admin", "root", uuid.New(), time.Now())
 	if _, err := victim.Parse(token); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("Parse(foreign signature) error = %v, want ErrInvalidToken", err)
 	}

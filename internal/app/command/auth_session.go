@@ -81,7 +81,7 @@ func (h *Refresh) Handle(ctx context.Context, in RefreshInput) (LoginOutput, err
 		return LoginOutput{}, fmt.Errorf("refresh: %w", err)
 	}
 
-	accessToken, ttl, err := h.Tokens.Issue(user.ID, string(user.Role), next.ID, now)
+	accessToken, ttl, err := h.Tokens.Issue(user.ID, string(user.Role), user.Username, next.ID, now)
 	if err != nil {
 		return LoginOutput{}, fmt.Errorf("refresh: %w", err)
 	}

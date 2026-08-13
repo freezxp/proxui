@@ -32,6 +32,21 @@ func (s *Server) handleVMMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Metrics are as sensitive as the VM they describe: a role gate alone
+	// would let any operator read load for machines nobody granted them.
+	p, _ := PrincipalFrom(r.Context())
+	if s.inventory.Inventory != nil {
+		allowed, err := s.inventory.Inventory.CanAccessVM(r.Context(), id, p.Role, p.UserID)
+		if err != nil {
+			s.serverError(w, r, err, "Could not verify access.")
+			return
+		}
+		if !allowed {
+			WriteProblem(w, r, http.StatusNotFound, "not_found", "The requested resource does not exist.")
+			return
+		}
+	}
+
 	now := s.clock()
 	from, to := now.Add(-time.Hour), now
 

@@ -22,7 +22,10 @@ var ErrInvalidToken = errors.New("crypto: invalid access token")
 // no database round trip, while SessionID lets us revoke immediately by
 // checking a small Redis set.
 type Claims struct {
-	Role      string `json:"role"`
+	Role     string `json:"role"`
+	Username string `json:"preferred_username"`
+	// SessionID lets a token be revoked immediately by checking a small set,
+	// rather than waiting for it to expire.
 	SessionID string `json:"sid"`
 	jwt.RegisteredClaims
 }
@@ -79,9 +82,10 @@ func LoadOrCreateRSAKey(path string) (*rsa.PrivateKey, error) {
 }
 
 // Issue signs an access token for a user session.
-func (t *TokenIssuer) Issue(userID uuid.UUID, role string, sessionID uuid.UUID, now time.Time) (string, time.Duration, error) {
+func (t *TokenIssuer) Issue(userID uuid.UUID, role, username string, sessionID uuid.UUID, now time.Time) (string, time.Duration, error) {
 	claims := Claims{
 		Role:      role,
+		Username:  username,
 		SessionID: sessionID.String(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),

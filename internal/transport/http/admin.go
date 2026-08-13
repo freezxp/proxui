@@ -23,6 +23,7 @@ type AdminDeps struct {
 	ManageAccess  *command.ManageAccess
 	Users         ports.UserRepository
 	Access        ports.AccessRepository
+	Audit         ports.AuditWriter
 }
 
 // --- payloads ----------------------------------------------------------
@@ -350,6 +351,7 @@ func (s *Server) actor(r *http.Request) command.Actor {
 	}
 	if p, ok := PrincipalFrom(r.Context()); ok {
 		a.UserID = p.UserID
+		a.Username = p.Username
 	}
 	return a
 }

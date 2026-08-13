@@ -118,7 +118,7 @@ func (h *Login) Handle(ctx context.Context, in LoginInput) (LoginOutput, error) 
 		return LoginOutput{}, fmt.Errorf("login: create session: %w", err)
 	}
 
-	accessToken, ttl, err := h.Tokens.Issue(user.ID, string(user.Role), session.ID, now)
+	accessToken, ttl, err := h.Tokens.Issue(user.ID, string(user.Role), user.Username, session.ID, now)
 	if err != nil {
 		return LoginOutput{}, fmt.Errorf("login: %w", err)
 	}

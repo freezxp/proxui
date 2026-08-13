@@ -1,0 +1,197 @@
+// Command proxui is the single ProxUI binary. One artifact runs every role
+// (api, worker, scheduler, or all) so deployment splits are a compose change,
+// not a rebuild. See docs/05-system-architecture.md.
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog"
+
+	"github.com/freezxp/proxui/internal/infra/config"
+	"github.com/freezxp/proxui/internal/infra/logging"
+	"github.com/freezxp/proxui/internal/infra/postgres"
+	redisinfra "github.com/freezxp/proxui/internal/infra/redis"
+	httpapi "github.com/freezxp/proxui/internal/transport/http"
+)
+
+// Build metadata, injected via -ldflags at release time.
+var (
+	version   = "dev"
+	commit    = "none"
+	buildTime = "unknown"
+)
+
+func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "healthcheck":
+			os.Exit(healthcheck())
+		case "version":
+			fmt.Printf("proxui %s (commit %s, built %s)\n", version, commit, buildTime)
+			return
+		}
+	}
+
+	role := flag.String("role", "", "process role: all|api|worker|scheduler (overrides PROXUI_ROLE)")
+	flag.Parse()
+	if *role != "" {
+		_ = os.Setenv("PROXUI_ROLE", *role)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration error:\n%v\n", err)
+		os.Exit(2)
+	}
+
+	log := logging.New(cfg.LogLevel, cfg.LogFormat, version)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, cfg, log); err != nil {
+		log.Error().Err(err).Msg("shutting down after fatal error")
+		os.Exit(1)
+	}
+	log.Info().Msg("shutdown complete")
+}
+
+func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
+	log.Info().
+		Str("role", string(cfg.Role)).
+		Str("env", cfg.Environment).
+		Str("commit", commit).
+		Msg("starting proxui")
+
+	pool, err := postgres.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	rdb, err := redisinfra.Connect(ctx, cfg.RedisURL)
+	if err != nil {
+		return err
+	}
+	defer rdb.Close()
+
+	readiness := &httpapi.Readiness{
+		Checkers: map[string]httpapi.Checker{"database": pool, "redis": rdb},
+		Timeout:  cfg.ReadinessTimeout,
+	}
+
+	// Migrations run on API startup under an advisory lock; worker-only
+	// processes trust that an API instance has already applied them.
+	if cfg.MigrateOnStart && cfg.Role.RunsAPI() {
+		if err := postgres.Migrate(ctx, cfg.DatabaseURL, log); err != nil {
+			return err
+		}
+	}
+	readiness.MigrationsApplied.Store(true)
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 3)
+	shutdown := make([]func(context.Context) error, 0, 2)
+
+	if cfg.Role.RunsAPI() {
+		api := &http.Server{
+			Addr:              cfg.HTTPAddr,
+			Handler:           httpapi.NewServer(log, version, readiness).Routes(),
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
+		shutdown = append(shutdown, api.Shutdown)
+		serve(&wg, errCh, log, "api", cfg.HTTPAddr, api)
+
+		metrics := &http.Server{
+			Addr:              cfg.MetricsAddr,
+			Handler:           metricsMux(),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		shutdown = append(shutdown, metrics.Shutdown)
+		serve(&wg, errCh, log, "metrics", cfg.MetricsAddr, metrics)
+	}
+
+	// Job consumers and the periodic scheduler arrive with the sync engine
+	// (sprint 6). Until then these roles idle so deployment wiring can be
+	// exercised end to end.
+	if cfg.Role.RunsWorker() {
+		log.Warn().Str("component", "worker").Msg("no job handlers registered yet")
+	}
+	if cfg.Role.RunsScheduler() {
+		log.Warn().Str("component", "scheduler").Msg("no periodic jobs registered yet")
+	}
+
+	select {
+	case <-ctx.Done():
+		log.Info().Msg("signal received, draining")
+	case err := <-errCh:
+		return err
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
+	defer cancel()
+	for _, fn := range shutdown {
+		if err := fn(shutdownCtx); err != nil {
+			log.Error().Err(err).Msg("graceful shutdown failed")
+		}
+	}
+	wg.Wait()
+	return nil
+}
+
+// serve starts srv in the background, reporting unexpected exits on errCh.
+func serve(wg *sync.WaitGroup, errCh chan<- error, log zerolog.Logger, name, addr string, srv *http.Server) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Info().Str("component", name).Str("addr", addr).Msg("listening")
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("%s server: %w", name, err)
+		}
+	}()
+}
+
+func metricsMux() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	return mux
+}
+
+// healthcheck backs the container HEALTHCHECK: it probes the local liveness
+// endpoint and maps the result to an exit code.
+func healthcheck() int {
+	addr := os.Getenv("PROXUI_HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1"+addr+"/healthz", nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "healthz returned %d\n", resp.StatusCode)
+		return 1
+	}
+	return 0
+}

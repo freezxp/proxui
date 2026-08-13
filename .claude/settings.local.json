@@ -18,7 +18,11 @@
       "Bash(gh api *)",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git commit -q -m 'Add technical design package for ProxUI VM access portal *)"
+      "Bash(git commit -q -m 'Add technical design package for ProxUI VM access portal *)",
+      "Bash(gh repo *)",
+      "Bash(/usr/local/go/bin/go mod *)",
+      "Bash(sudo apt-get install -y -qq gcc)",
+      "Bash(gcc --version)"
     ]
   }
 }

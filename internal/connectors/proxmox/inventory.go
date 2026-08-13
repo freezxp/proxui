@@ -65,6 +65,19 @@ type networkIface struct {
 	Comments    string `json:"comments"`
 }
 
+// lxcInterfaces is the container equivalent of the guest agent. Containers
+// share the host kernel, so Proxmox can read their addresses directly — no
+// agent to install, and no VM.GuestAgent privilege needed.
+type lxcInterfaces []struct {
+	Name        string `json:"name"`
+	Inet        string `json:"inet"`
+	Inet6       string `json:"inet6"`
+	IPAddresses []struct {
+		Address string `json:"ip-address"`
+		Type    string `json:"ip-address-type"`
+	} `json:"ip-addresses"`
+}
+
 type agentInterfaces struct {
 	Result []struct {
 		Name        string `json:"name"`
@@ -133,15 +146,32 @@ func (c *Connector) enrichIPAddresses(ctx context.Context, records []connector.V
 		defer wg.Done()
 		for j := range jobs {
 			rec := records[j.idx]
-			if rec.Type != "qemu" || rec.State != "running" || rec.HostID == "" {
+			if rec.State != "running" || rec.HostID == "" {
 				continue
 			}
-			var ifaces agentInterfaces
-			path := fmt.Sprintf("/nodes/%s/qemu/%s/agent/network-get-interfaces", rec.HostID, rec.ExternalID)
-			if err := c.client.get(ctx, path, &ifaces); err != nil {
-				continue // no agent installed, or not permitted: not an error
+
+			switch rec.Type {
+			case "lxc":
+				var ifaces lxcInterfaces
+				path := fmt.Sprintf("/nodes/%s/lxc/%s/interfaces", rec.HostID, rec.ExternalID)
+				if err := c.client.get(ctx, path, &ifaces); err != nil {
+					continue
+				}
+				records[j.idx].IPAddresses = extractLXCIPs(ifaces)
+
+			case "qemu":
+				var ifaces agentInterfaces
+				path := fmt.Sprintf("/nodes/%s/qemu/%s/agent/network-get-interfaces", rec.HostID, rec.ExternalID)
+				if err := c.client.get(ctx, path, &ifaces); err != nil {
+					// A missing or unconfigured agent is normal, not a failure.
+					// Recording it lets the UI explain the empty IP column
+					// instead of leaving operators to guess.
+					records[j.idx].Attrs["guest_agent"] = "unavailable"
+					continue
+				}
+				records[j.idx].Attrs["guest_agent"] = "ok"
+				records[j.idx].IPAddresses = extractIPs(ifaces)
 			}
-			records[j.idx].IPAddresses = extractIPs(ifaces)
 		}
 	}
 
@@ -169,10 +199,27 @@ func extractIPs(ifaces agentInterfaces) []string {
 			continue
 		}
 		for _, addr := range iface.IPAddresses {
-			if addr.Address == "" || strings.HasPrefix(addr.Address, "fe80") || addr.Address == "127.0.0.1" {
-				continue
+			if isUsableIP(addr.Address) {
+				out = append(out, addr.Address)
 			}
-			out = append(out, addr.Address)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// extractLXCIPs pulls usable addresses out of a container's interface list,
+// applying the same filtering as the agent path.
+func extractLXCIPs(ifaces lxcInterfaces) []string {
+	var out []string
+	for _, iface := range ifaces {
+		if iface.Name == "lo" {
+			continue
+		}
+		for _, addr := range iface.IPAddresses {
+			if isUsableIP(addr.Address) {
+				out = append(out, addr.Address)
+			}
 		}
 	}
 	sort.Strings(out)
@@ -409,6 +456,18 @@ func cidrFrom(address, netmask string) string {
 		return ""
 	}
 	return address + "/" + netmask
+}
+
+// isUsableIP filters the addresses that are noise in an inventory: loopback,
+// link-local and empties.
+func isUsableIP(addr string) bool {
+	switch {
+	case addr == "", addr == "127.0.0.1", addr == "::1":
+		return false
+	case strings.HasPrefix(addr, "fe80"), strings.HasPrefix(addr, "127."):
+		return false
+	}
+	return true
 }
 
 func firstNonEmpty(values ...string) string {

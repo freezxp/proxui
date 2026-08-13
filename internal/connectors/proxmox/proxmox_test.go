@@ -79,6 +79,15 @@ func newFakePVE(t *testing.T) *fakePVE {
 				{"iface": "vmbr0", "type": "bridge", "cidr": "10.0.30.0/24", "active": 1, "bridge_ports": "eno1"},
 				{"iface": "eno1", "type": "eth", "active": 1},
 			})
+		case strings.HasSuffix(path, "/interfaces"):
+			// Containers report addresses directly, with no agent involved.
+			writeData(w, []map[string]any{
+				{"name": "lo", "ip-addresses": []map[string]any{{"ip-address": "127.0.0.1", "ip-address-type": "inet"}}},
+				{"name": "eth0", "inet": "10.0.30.60/24", "ip-addresses": []map[string]any{
+					{"ip-address": "10.0.30.60", "ip-address-type": "inet"},
+					{"ip-address": "fe80::abcd", "ip-address-type": "inet6"},
+				}},
+			})
 		case strings.HasSuffix(path, "/agent/network-get-interfaces"):
 			writeData(w, map[string]any{"result": []map[string]any{
 				{"name": "lo", "ip-addresses": []map[string]any{{"ip-address": "127.0.0.1", "ip-address-type": "ipv4"}}},
@@ -260,6 +269,61 @@ func TestListVMsMapsFixture(t *testing.T) {
 	}
 	if _, found := byID["900"]; found {
 		t.Error("template 900 was returned as a VM")
+	}
+}
+
+// Containers get their addresses from a different endpoint than VMs, and
+// crucially need no guest agent at all.
+func TestContainerIPsComeFromInterfacesEndpoint(t *testing.T) {
+	f := newFakePVE(t)
+	c := newConnector(t, f)
+
+	vms, err := c.(connector.VirtualMachineCollector).ListVMs(context.Background())
+	if err != nil {
+		t.Fatalf("ListVMs: %v", err)
+	}
+
+	var container connector.VMRecord
+	for _, vm := range vms {
+		if vm.ExternalID == "200" {
+			container = vm
+		}
+	}
+	if container.Type != "lxc" {
+		t.Fatalf("fixture container missing; got %+v", container)
+	}
+	if len(container.IPAddresses) != 1 || container.IPAddresses[0] != "10.0.30.60" {
+		t.Errorf("container IPs = %v, want only 10.0.30.60", container.IPAddresses)
+	}
+	if !f.sawRequest("GET /nodes/pve1/lxc/200/interfaces") {
+		t.Error("the container interfaces endpoint was not used")
+	}
+	if f.sawRequest("GET /nodes/pve1/lxc/200/agent") {
+		t.Error("a guest agent was queried for a container")
+	}
+}
+
+// An unconfigured agent is the normal case on many fleets. It must be recorded
+// rather than silently leaving an empty column.
+func TestMissingGuestAgentIsRecorded(t *testing.T) {
+	f := newFakePVE(t)
+	f.forceStatus("/nodes/pve1/qemu/100/agent/network-get-interfaces", http.StatusInternalServerError)
+	c := newConnector(t, f)
+
+	vms, err := c.(connector.VirtualMachineCollector).ListVMs(context.Background())
+	if err != nil {
+		t.Fatalf("ListVMs: %v", err)
+	}
+	for _, vm := range vms {
+		if vm.ExternalID != "100" {
+			continue
+		}
+		if len(vm.IPAddresses) != 0 {
+			t.Errorf("IPs = %v, want none when the agent is unavailable", vm.IPAddresses)
+		}
+		if vm.Attrs["guest_agent"] != "unavailable" {
+			t.Errorf("guest_agent attr = %v, want \"unavailable\" so the UI can explain the gap", vm.Attrs["guest_agent"])
+		}
 	}
 }
 

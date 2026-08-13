@@ -31,6 +31,7 @@ import (
 	"github.com/freezxp/proxui/internal/jobs"
 	httpapi "github.com/freezxp/proxui/internal/transport/http"
 	"github.com/freezxp/proxui/internal/transport/ws"
+	"github.com/freezxp/proxui/web"
 )
 
 // limiterFunc adapts a rate-limiting function to the transport's interface,
@@ -242,6 +243,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			},
 			Events:  eventHub,
 			Limiter: limiterFunc(limiter.AllowRequest),
+			SPA:     httpapi.NewSPA(web.Assets()),
 			Console: httpapi.ConsoleDeps{
 				Open: &command.OpenConsole{
 					Inventory: inventory, Sessions: consoles, Tickets: tickets,

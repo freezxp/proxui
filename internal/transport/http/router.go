@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -52,6 +53,9 @@ type ServerConfig struct {
 	Events EventStreamer
 	// Limiter enforces request rate limits; nil disables them.
 	Limiter Limiter
+	// SPA serves the built frontend; nil leaves the API bare, which is what
+	// the dev setup wants while Vite serves the UI.
+	SPA http.Handler
 
 	// SecureCookies marks the refresh cookie Secure. It is off only for local
 	// HTTP development; production terminates TLS at the reverse proxy.
@@ -76,6 +80,7 @@ type Server struct {
 	power         PowerDeps
 	events        EventStreamer
 	limiter       Limiter
+	spa           http.Handler
 	startedAt     time.Time
 	secureCookies bool
 	nowFn         func() time.Time
@@ -102,6 +107,7 @@ func NewServer(cfg ServerConfig) *Server {
 		power:         cfg.Power,
 		events:        cfg.Events,
 		limiter:       cfg.Limiter,
+		spa:           cfg.SPA,
 		startedAt:     time.Now(),
 		secureCookies: cfg.SecureCookies,
 		nowFn:         cfg.Clock,
@@ -250,7 +256,16 @@ func (s *Server) Routes() http.Handler {
 		r.NotFound(s.handleNotFound)
 	})
 
-	r.NotFound(s.handleNotFound)
+	// Anything not matched above is either a frontend route or a genuine 404.
+	// API paths must never fall through to the SPA: an unknown endpoint should
+	// answer with a problem document, not an HTML page.
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if s.spa != nil && !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/ws/") {
+			s.spa.ServeHTTP(w, r)
+			return
+		}
+		s.handleNotFound(w, r)
+	})
 	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
 		WriteProblem(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "This method is not supported for that resource.")
 	})

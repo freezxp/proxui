@@ -14,6 +14,7 @@ coverage.out
 # Frontend
 node_modules/
 web/dist/
+!web/dist/.gitkeep
 
 # Tooling
 .DS_Store

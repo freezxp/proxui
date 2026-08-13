@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Semantic tokens rather than raw colours, so a component says what a value
+   means ("surface", "danger") and both themes stay consistent by definition. */
+@layer base {
+  :root {
+    --surface: 250 250 250;
+    --surface-raised: 255 255 255;
+    --border: 226 232 240;
+    --content: 15 23 42;
+    --muted: 100 116 139;
+    --accent: 37 99 235;
+
+    --state-running: 22 163 74;
+    --state-stopped: 100 116 139;
+    --state-paused: 217 119 6;
+    --state-stale: 234 88 12;
+    --danger: 220 38 38;
+  }
+
+  .dark {
+    --surface: 15 23 42;
+    --surface-raised: 30 41 59;
+    --border: 51 65 85;
+    --content: 226 232 240;
+    --muted: 148 163 184;
+    --accent: 96 165 250;
+
+    /* Lightened for contrast against a dark surface: the same colours at
+       their light-theme values fail legibility here. */
+    --state-running: 74 222 128;
+    --state-stopped: 148 163 184;
+    --state-paused: 251 191 36;
+    --state-stale: 251 146 60;
+    --danger: 248 113 113;
+  }
+
+  body {
+    @apply bg-surface text-content antialiased;
+  }
+}

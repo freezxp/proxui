@@ -28,6 +28,10 @@ dev: up ## Start dependencies and run the API with live config
 	@test -f .env || cp .env.example .env
 	$(GO) run ./cmd/proxui --role=all
 
+.PHONY: dev-web
+dev-web: ## Run the frontend dev server (proxies /api to the Go binary)
+	cd web && npm run dev
+
 .PHONY: up
 up: ## Start dev dependencies (postgres+timescale, redis)
 	$(COMPOSE) up -d --wait
@@ -40,10 +44,17 @@ down: ## Stop dev dependencies (keeps volumes)
 clean-data: ## Stop dev dependencies and delete their volumes
 	$(COMPOSE) down -v
 
+.PHONY: web
+web: ## Build the frontend into web/dist
+	cd web && npm ci --silent && npm run build
+
 .PHONY: build
-build: ## Build the binary into bin/
+build: ## Build the binary into bin/ (embeds web/dist if present)
 	@mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/proxui
+
+.PHONY: build-all
+build-all: web build ## Build the frontend and the binary that serves it
 
 # Integration tests run against their own database so they never disturb dev
 # data (a polluted users table silently disables first-run bootstrap).

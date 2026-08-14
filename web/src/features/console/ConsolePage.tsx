@@ -39,6 +39,9 @@ export function ConsolePage() {
     let cancelled = false
     let rfb: RFB | null = null
     let socket: WebSocket | null = null
+    // Whether RFB ever reached a usable session. It separates "the console
+    // ended" from "the console never started", which need different messages.
+    let established = false
 
     async function connect() {
       setPhase('connecting')
@@ -66,7 +69,22 @@ export function ConsolePage() {
           if (known) {
             setMessage(known)
             setPhase(event.code === 4003 || event.code === 4004 ? 'error' : 'disconnected')
+            return
           }
+          // Every close has to end the spinner. A socket that dies before RFB
+          // starts — a proxy in the way, a failed subprotocol negotiation —
+          // produces no noVNC event at all, and a page that spins forever
+          // tells the operator nothing about what to fix.
+          if (established) {
+            setPhase('disconnected')
+            setMessage('The console session ended.')
+            return
+          }
+          setPhase('error')
+          setMessage(
+            `The console connection closed before it was established (code ${event.code}). ` +
+              'Check that nothing between this browser and the portal is filtering WebSocket traffic.',
+          )
         })
 
         rfb = new RFB(screenRef.current, socket, {
@@ -82,7 +100,11 @@ export function ConsolePage() {
         rfb.background = 'transparent'
         rfbRef.current = rfb
 
-        rfb.addEventListener('connect', () => !cancelled && setPhase('connected'))
+        rfb.addEventListener('connect', () => {
+          if (cancelled) return
+          established = true
+          setPhase('connected')
+        })
         rfb.addEventListener('disconnect', ((event: CustomEvent<{ clean: boolean }>) => {
           if (cancelled) return
           // A close code, if the bridge sent one, already produced a better

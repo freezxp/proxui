@@ -368,3 +368,26 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("condition was not met within the timeout")
 }
+
+// A browser that requests a subprotocol and does not get it back closes the
+// connection immediately, which reaches the user as a console that never
+// finishes connecting. The handshake here is what a browser actually sends.
+func TestConsoleNegotiatesTheBinarySubprotocol(t *testing.T) {
+	h := newHarness(t, &mockResolver{conn: mockConnector(t)})
+	ticket := h.issue(t)
+
+	url := "ws" + strings.TrimPrefix(h.server.URL, "http") + "/ws/console/" + ticket.ID.String()
+	dialer := websocket.Dialer{Subprotocols: []string{"binary"}}
+	conn, resp, err := dialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	if got := resp.Header.Get("Sec-WebSocket-Protocol"); got != "binary" {
+		t.Errorf("server answered with subprotocol %q; a browser would fail the connection", got)
+	}
+	if got := conn.Subprotocol(); got != "binary" {
+		t.Errorf("negotiated subprotocol = %q, want binary", got)
+	}
+}

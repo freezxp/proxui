@@ -55,6 +55,12 @@ func (b *ConsoleBridge) upgrader() *websocket.Upgrader {
 	return &websocket.Upgrader{
 		ReadBufferSize:  32 * 1024,
 		WriteBufferSize: 32 * 1024,
+		// noVNC asks for the "binary" subprotocol, and a browser fails the
+		// connection outright when it requests one and the server answers
+		// without it (RFC 6455 §4.1). Nothing here depends on the value: it
+		// has to be echoed, and a non-browser client that asks for nothing
+		// still gets a plain connection.
+		Subprotocols: []string{"binary"},
 		// A console is a cross-origin target worth protecting: a page on
 		// another site must not be able to open one using the visitor's
 		// cookies (docs/15-security-design.md §15.6).

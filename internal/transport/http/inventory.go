@@ -16,6 +16,10 @@ import (
 
 // InventoryDeps bundles the read models the inventory and audit endpoints use.
 type InventoryDeps struct {
+	// Infra serves hosts, storage and networks. They are unscoped by grants:
+	// a node's name and capacity are not tenant data, and hiding them would
+	// make a VM's location unexplainable.
+	Infra     InfraReader
 	Inventory ports.InventoryReader
 	Audit     ports.AuditReader
 	Metrics   ports.MetricsRepository

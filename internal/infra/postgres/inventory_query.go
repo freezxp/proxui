@@ -59,7 +59,7 @@ func (q *InventoryQuery) ListVMs(ctx context.Context, f ports.VMFilter) (ports.V
 	}
 
 	// Deleted assets stay in the database for history but are not inventory.
-	where = append(where, "v.sync_state <> 'deleted'")
+	where = append(where, "v.sync_state <> 'deleted'", "v.deleted_at IS NULL", "p.deleted_at IS NULL")
 
 	if f.Query != "" {
 		add("v.name ILIKE '%%' || $%d || '%%'", f.Query)
@@ -455,7 +455,10 @@ func derefInt(v *int) int {
 // evaluator is not acting for a user: it evaluates the whole estate and the
 // resulting notification is routed by rule, not by who can see the VM.
 func (q *InventoryQuery) AllVMNames(ctx context.Context) (map[uuid.UUID]string, error) {
-	rows, err := q.db.Query(ctx, `SELECT id, name FROM vms WHERE deleted_at IS NULL`)
+	rows, err := q.db.Query(ctx, `
+		SELECT v.id, v.name FROM vms v
+		  JOIN platforms p ON p.id = v.platform_id
+		 WHERE v.deleted_at IS NULL AND p.deleted_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("list vm names: %w", err)
 	}

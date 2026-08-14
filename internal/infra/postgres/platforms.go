@@ -159,14 +159,34 @@ func (r *PlatformRepository) UpdateHealth(ctx context.Context, p *inventory.Plat
 // SoftDelete marks a platform deleted, keeping its assets resolvable for
 // history and audit until the janitor purges them.
 func (r *PlatformRepository) SoftDelete(ctx context.Context, id uuid.UUID, at time.Time) error {
-	tag, err := r.db.Exec(ctx, `UPDATE platforms SET deleted_at=$2, is_enabled=false WHERE id=$1 AND deleted_at IS NULL`, id, at)
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("delete platform: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE platforms SET deleted_at=$2, is_enabled=false WHERE id=$1 AND deleted_at IS NULL`, id, at)
 	if err != nil {
 		return fmt.Errorf("delete platform: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ports.ErrNotFound
 	}
-	return nil
+
+	// The platform's inventory goes with it. Soft-deleting only the platform
+	// row leaves its VMs, hosts, storage and networks visible everywhere the
+	// portal looks, attributed to a platform the administrator can no longer
+	// see. Every one of these tables is synced data the platform owned, so
+	// none of it outlives its source.
+	for _, table := range []string{"vms", "hosts", "storage_pools", "networks"} {
+		if _, err := tx.Exec(ctx,
+			`UPDATE `+table+` SET deleted_at=$2 WHERE platform_id=$1 AND deleted_at IS NULL`,
+			id, at); err != nil {
+			return fmt.Errorf("delete platform %s: %w", table, err)
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // Credential loads and unseals a platform's secret. The plaintext is returned

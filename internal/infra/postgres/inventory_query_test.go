@@ -342,3 +342,109 @@ func TestVMHistoryIsReturned(t *testing.T) {
 		t.Error("history entry has no field name")
 	}
 }
+
+// Deleting a platform must take its inventory with it. Leaving the assets
+// behind showed VMs, hosts, storage and networks attributed to a platform the
+// administrator could no longer see — which is how this was found.
+func TestDeletingAPlatformHidesItsInventory(t *testing.T) {
+	f := newSyncFixture(t, map[string]any{"vm_count": 4})
+	f.reconcile(t)
+	ctx := context.Background()
+
+	query := postgres.NewInventoryQuery(f.pool)
+	// Scoped to this fixture's platform: the integration database accumulates
+	// rows across runs, so a global listing would not reliably contain them.
+	filter := ports.VMFilter{Role: identity.RoleAdmin, PlatformID: f.platform.ID, Limit: 200}
+
+	before, err := query.ListVMs(ctx, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countFromPlatform(before, f.platform.Name) == 0 {
+		t.Fatal("the fixture's VMs were not visible before deleting the platform")
+	}
+	hostsBefore, err := query.ListHosts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countHostsFrom(hostsBefore, f.platform.Name) == 0 {
+		t.Fatal("the fixture's hosts were not visible before deleting the platform")
+	}
+
+	if err := postgres.NewPlatformRepository(f.pool).
+		SoftDelete(ctx, f.platform.ID, time.Now().UTC()); err != nil {
+		t.Fatalf("delete platform: %v", err)
+	}
+
+	after, err := query.ListVMs(ctx, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countFromPlatform(after, f.platform.Name); n != 0 {
+		t.Errorf("%d VMs outlived the platform they were synced from", n)
+	}
+
+	hostsAfter, err := query.ListHosts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countHostsFrom(hostsAfter, f.platform.Name); n != 0 {
+		t.Errorf("%d hosts outlived the platform they belonged to", n)
+	}
+
+	storage, err := query.ListStoragePools(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pool := range storage {
+		if pool.PlatformName == f.platform.Name {
+			t.Error("a storage pool outlived its platform")
+		}
+	}
+
+	networks, err := query.ListNetworks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, net := range networks {
+		if net.PlatformName == f.platform.Name {
+			t.Error("a network outlived its platform")
+		}
+	}
+
+	// The alert evaluator reads names separately, and would otherwise keep
+	// firing rules against machines that are gone.
+	names, err := query.AllVMNames(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, vm := range before.Items {
+		if vm.PlatformName != f.platform.Name {
+			continue
+		}
+		if _, present := names[vm.ID]; present {
+			t.Error("the alert evaluator can still see a deleted platform's VM")
+			break
+		}
+	}
+}
+
+func countFromPlatform(page ports.VMPage, platform string) int {
+	n := 0
+	for _, vm := range page.Items {
+		if vm.PlatformName == platform {
+			n++
+		}
+	}
+	return n
+}
+
+func countHostsFrom(hosts []ports.HostRow, platform string) int {
+	n := 0
+	for _, host := range hosts {
+		if host.PlatformName == platform {
+			n++
+		}
+	}
+	return n
+}

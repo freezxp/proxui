@@ -259,9 +259,10 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Platforms: platformDeps,
 			Metrics:   httpapi.MetricsDeps{Metrics: metrics},
 			Inventory: httpapi.InventoryDeps{
-				Inventory: inventory, Audit: auditLog, Metrics: metrics,
+				Inventory: inventory, Audit: auditLog, Metrics: metrics, Infra: inventory,
 			},
-			Alerts: httpapi.AlertDeps{Alerts: alertRepo},
+			Alerts:   httpapi.AlertDeps{Alerts: alertRepo},
+			Settings: httpapi.SettingsDeps{Settings: postgres.NewSettingsRepository(pool)},
 			Notify: httpapi.NotifyDeps{
 				Repo: notifyRepo, Dispatcher: dispatcher, Vault: vault,
 			},

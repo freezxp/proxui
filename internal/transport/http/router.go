@@ -67,6 +67,9 @@ type ServerConfig struct {
 	// Alerts carries the threshold rules and their current state.
 	Alerts AlertDeps
 
+	// Settings carries the runtime configuration store.
+	Settings SettingsDeps
+
 	// Clock is injected so cookie expiry is testable.
 	Clock func() time.Time
 }
@@ -86,6 +89,7 @@ type Server struct {
 	power         PowerDeps
 	notify        NotifyDeps
 	alerts        AlertDeps
+	settings      SettingsDeps
 	events        EventStreamer
 	limiter       Limiter
 	spa           http.Handler
@@ -115,6 +119,7 @@ func NewServer(cfg ServerConfig) *Server {
 		power:         cfg.Power,
 		notify:        cfg.Notify,
 		alerts:        cfg.Alerts,
+		settings:      cfg.Settings,
 		events:        cfg.Events,
 		limiter:       cfg.Limiter,
 		spa:           cfg.SPA,
@@ -224,6 +229,9 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/vms/{vmID}", s.handleGetVM)
 				r.Get("/vms/{vmID}/metrics", s.handleVMMetrics)
 				r.Get("/vms/{vmID}/history", s.handleVMHistory)
+				r.Get("/hosts", s.handleListHosts)
+				r.Get("/storage", s.handleListStorage)
+				r.Get("/networks", s.handleListNetworks)
 			})
 
 			// Consoles: operators and admins only, and scoped per VM inside the
@@ -275,6 +283,12 @@ func (s *Server) Routes() http.Handler {
 
 			r.With(RequireRole(identity.RoleAdmin)).
 				Get("/notification-deliveries", s.handleListDeliveries)
+
+			r.Route("/settings", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/", s.handleListSettings)
+				r.Put("/{key}", s.handleUpdateSetting)
+			})
 
 			r.Route("/alert-rules", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))

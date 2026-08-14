@@ -222,3 +222,131 @@ export interface Grant {
   granted_by?: string
   created_at: string
 }
+
+export interface AuditEntry {
+  id: number
+  ts: string
+  actor_user_id?: string
+  actor_name: string
+  category: string
+  action: string
+  target_type?: string
+  target_id?: string
+  target_name?: string
+  source_ip?: string
+  user_agent?: string
+  outcome: string
+  request_id?: string
+  details?: Record<string, unknown>
+}
+
+export interface NotificationChannel {
+  id: string
+  name: string
+  kind: 'email' | 'slack' | 'webhook'
+  config: Record<string, unknown>
+  is_enabled: boolean
+  has_secret: boolean
+  created_at: string
+}
+
+export interface NotificationRule {
+  id: string
+  category: string
+  min_severity: string
+  platform_id?: string
+  vm_group_id?: string
+  channel_id: string
+  channel_name: string
+  is_enabled: boolean
+  created_at: string
+}
+
+export interface Delivery {
+  id: number
+  channel_id: string
+  channel_name: string
+  subject: string
+  status: string
+  attempts: number
+  last_error?: string
+  created_at: string
+  sent_at?: string
+}
+
+export interface AlertRule {
+  id: string
+  name: string
+  metric: string
+  op: string
+  threshold: number
+  duration_s: number
+  vm_group_id?: string
+  severity: string
+  cooldown_s: number
+  is_enabled: boolean
+  firing_count: number
+  created_at: string
+}
+
+export interface AlertStatus {
+  rule_id: string
+  rule_name: string
+  vm_id: string
+  vm_name: string
+  metric: string
+  severity: string
+  state: string
+  since: string
+  last_value: number
+  last_notified_at?: string
+}
+
+export interface HostRow {
+  id: string
+  name: string
+  platform_name: string
+  status: string
+  cpu_cores: number
+  memory_bytes: number
+  version: string
+  uptime_s: number
+  sync_state: string
+  vm_count: number
+}
+
+export interface StorageRow {
+  id: string
+  name: string
+  platform_name: string
+  host_name?: string
+  storage_type: string
+  total_bytes: number
+  used_bytes: number
+  is_shared: boolean
+  sync_state: string
+}
+
+export interface NetworkRow {
+  id: string
+  name: string
+  platform_name: string
+  host_name?: string
+  net_type: string
+  cidr: string
+  vlan_tag?: number
+  sync_state: string
+}
+
+export interface Setting {
+  key: string
+  group: string
+  label: string
+  help: string
+  kind: 'duration_s' | 'count' | 'days'
+  default: number
+  min: number
+  max: number
+  value: number
+  modified: boolean
+}

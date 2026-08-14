@@ -7,20 +7,11 @@ import { VMListPage } from '@/features/inventory/VMListPage'
 import { VMDetailPage } from '@/features/inventory/VMDetailPage'
 import { PlatformsPage } from '@/features/platforms/PlatformsPage'
 import { UsersPage } from '@/features/admin/UsersPage'
+import { AuditPage } from '@/features/audit/AuditPage'
+import { SettingsPage } from '@/features/admin/SettingsPage'
+import { NotificationsPage } from '@/features/notifications/NotificationsPage'
+import { HostsPage, NetworksPage, StoragePage } from '@/features/infrastructure/InfrastructurePage'
 import { useAuth } from '@/features/auth/useAuth'
-
-/** Placeholder for pages arriving in later sprints, so navigation is
- *  explorable now without pretending the features exist. */
-function ComingSoon({ title }: { title: string }) {
-  return (
-    <div className="space-y-2">
-      <h1 className="text-xl font-semibold">{title}</h1>
-      <p className="text-sm text-muted">
-        The API for this page is live; the interface arrives in a later sprint.
-      </p>
-    </div>
-  )
-}
 
 // noVNC is the single largest dependency in the app and only a console needs
 // it, so it is fetched when one is opened (NFR-P5).
@@ -53,9 +44,14 @@ const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: 'vms', element: <VMListPage /> },
       { path: 'vms/:vmId', element: <VMDetailPage /> },
-      { path: 'audit', element: <ComingSoon title="Audit log" /> },
+      { path: 'audit', element: <AuditPage /> },
+      { path: 'hosts', element: <HostsPage /> },
+      { path: 'storage', element: <StoragePage /> },
+      { path: 'networks', element: <NetworksPage /> },
+      { path: 'notifications', element: <NotificationsPage /> },
       { path: 'platforms', element: <PlatformsPage /> },
       { path: 'users', element: <UsersPage /> },
+      { path: 'settings', element: <SettingsPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

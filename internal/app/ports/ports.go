@@ -532,3 +532,42 @@ type NotifyRepository interface {
 	FinishDelivery(ctx context.Context, id int64, sendErr error, now time.Time) error
 	ListDeliveries(ctx context.Context, limit int) ([]DeliveryRecord, error)
 }
+
+// HostRow, StorageRow and NetworkRow are the infrastructure views (INV-05).
+// They are read-only projections: everything here is synced from the platform,
+// and the portal owns none of it.
+type HostRow struct {
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	PlatformName string    `json:"platform_name"`
+	Status       string    `json:"status"`
+	CPUCores     int       `json:"cpu_cores"`
+	MemoryBytes  int64     `json:"memory_bytes"`
+	Version      string    `json:"version"`
+	UptimeS      int64     `json:"uptime_s"`
+	SyncState    string    `json:"sync_state"`
+	VMCount      int       `json:"vm_count"`
+}
+
+type StorageRow struct {
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	PlatformName string    `json:"platform_name"`
+	HostName     string    `json:"host_name,omitempty"`
+	StorageType  string    `json:"storage_type"`
+	TotalBytes   int64     `json:"total_bytes"`
+	UsedBytes    int64     `json:"used_bytes"`
+	IsShared     bool      `json:"is_shared"`
+	SyncState    string    `json:"sync_state"`
+}
+
+type NetworkRow struct {
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	PlatformName string    `json:"platform_name"`
+	HostName     string    `json:"host_name,omitempty"`
+	NetType      string    `json:"net_type"`
+	CIDR         string    `json:"cidr"`
+	VLANTag      *int      `json:"vlan_tag,omitempty"`
+	SyncState    string    `json:"sync_state"`
+}

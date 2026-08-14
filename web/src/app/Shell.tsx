@@ -15,9 +15,14 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', visible: can.viewInventory },
   { to: '/vms', label: 'Inventory', visible: can.viewInventory },
+  { to: '/hosts', label: 'Hosts', visible: can.viewInventory },
+  { to: '/storage', label: 'Storage', visible: can.viewInventory },
+  { to: '/networks', label: 'Networks', visible: can.viewInventory },
   { to: '/audit', label: 'Audit log', visible: can.viewAudit },
   { to: '/platforms', label: 'Platforms', visible: can.managePlatforms },
+  { to: '/notifications', label: 'Notifications', visible: can.manageUsers },
   { to: '/users', label: 'Users & groups', visible: can.manageUsers },
+  { to: '/settings', label: 'Settings', visible: can.manageUsers },
 ]
 
 export function Shell() {

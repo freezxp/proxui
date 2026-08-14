@@ -116,6 +116,16 @@ var permissionMap = map[string]Permission{
 	"DELETE /api/v1/notification-rules/{ruleID}":          roles(identity.RoleAdmin),
 	"GET /api/v1/notification-deliveries":                 roles(identity.RoleAdmin),
 
+	"GET /api/v1/hosts": roles(identity.RoleAdmin, identity.RoleOperator,
+		identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/storage": roles(identity.RoleAdmin, identity.RoleOperator,
+		identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/networks": roles(identity.RoleAdmin, identity.RoleOperator,
+		identity.RoleReadOnly, identity.RoleAuditor),
+
+	"GET /api/v1/settings":       roles(identity.RoleAdmin),
+	"PUT /api/v1/settings/{key}": roles(identity.RoleAdmin),
+
 	"GET /api/v1/alert-rules":             roles(identity.RoleAdmin),
 	"POST /api/v1/alert-rules":            roles(identity.RoleAdmin),
 	"PUT /api/v1/alert-rules/{ruleID}":    roles(identity.RoleAdmin),

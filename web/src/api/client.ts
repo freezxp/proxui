@@ -119,6 +119,24 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (await response.json()) as T
 }
 
+/** Fetches a file, carrying the same auth as any other call. Exports cannot be
+ *  plain links: the access token lives in memory, so a browser navigation
+ *  would arrive unauthenticated. */
+export async function requestBlob(path: string): Promise<Blob> {
+  const send = () =>
+    fetch(`/api/v1${path}`, {
+      credentials: 'same-origin',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    })
+
+  let response = await send()
+  if (response.status === 401 && (await refreshSession())) {
+    response = await send()
+  }
+  if (!response.ok) throw await parseError(response)
+  return response.blob()
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown, options: RequestOptions = {}) =>

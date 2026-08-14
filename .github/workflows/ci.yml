@@ -40,6 +40,11 @@ jobs:
       - name: Typecheck the frontend
         run: cd web && npm run lint
 
+      # The interactive pieces — menus, dialogs, focus handling — cannot be
+      # checked by reading, and there is no browser here to click them.
+      - name: Test the frontend
+        run: cd web && npm run test
+
       - name: Verify go.mod is tidy
         run: |
           go mod tidy

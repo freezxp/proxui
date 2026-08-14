@@ -44,6 +44,10 @@ down: ## Stop dev dependencies (keeps volumes)
 clean-data: ## Stop dev dependencies and delete their volumes
 	$(COMPOSE) down -v
 
+.PHONY: web-test
+web-test: ## Run the frontend tests
+	cd web && npm run test
+
 .PHONY: web
 web: ## Build the frontend into web/dist
 	cd web && npm ci --silent && npm run build

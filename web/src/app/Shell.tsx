@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@/features/auth/useAuth'
-import { can, roleLabel } from '@/lib/permissions'
+import { can } from '@/lib/permissions'
 import { useBranding } from '@/lib/branding'
-import { ThemeToggle } from '@/components/ThemeToggle'
+import { UserMenu } from '@/components/UserMenu'
 import { ChangePasswordDialog } from '@/features/auth/ChangePasswordDialog'
 import type { Role } from '@/api/types'
 
@@ -52,25 +52,11 @@ export function Shell() {
           <span className="hidden text-sm text-muted sm:inline">VM access portal</span>
         </div>
 
-        <div className="flex items-center gap-4">
-          <ThemeToggle />
-          <div className="text-right text-sm leading-tight">
-            <div className="font-medium">{user.display_name || user.username}</div>
-            <div className="text-xs text-muted">{roleLabel(user.role)}</div>
-          </div>
-          <button
-            onClick={() => setChangingPassword(true)}
-            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface"
-          >
-            Change password
-          </button>
-          <button
-            onClick={() => void logout()}
-            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface"
-          >
-            Sign out
-          </button>
-        </div>
+        <UserMenu
+          user={user}
+          onChangePassword={() => setChangingPassword(true)}
+          onSignOut={() => void logout()}
+        />
       </header>
 
       {changingPassword && (

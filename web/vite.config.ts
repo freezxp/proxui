@@ -17,6 +17,14 @@ export default defineConfig({
     // years ago, which is an acceptable floor for an operations tool.
     target: 'es2022',
   },
+  test: {
+    // A DOM, so the interactive pieces — menus, dialogs, focus — can be
+    // exercised without a browser. There is no browser in CI, and these are
+    // exactly the parts that cannot be checked by reading.
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test-setup.ts'],
+  },
   server: {
     port: 5173,
     // In development the SPA runs on Vite and the API on the Go binary;

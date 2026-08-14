@@ -13,6 +13,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/ports"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 	"github.com/freezxp/proxui/internal/domain/alert"
+	"github.com/freezxp/proxui/internal/infra/metrics"
 )
 
 // Repository is the alert store the evaluator drives.
@@ -97,13 +98,18 @@ func (e *Evaluator) Evaluate(ctx context.Context) error {
 		return fmt.Errorf("evaluate alerts: %w", err)
 	}
 
+	firing := 0
 	for _, rule := range rules {
+		firing += rule.FiringCount
 		if err := e.evaluateRule(ctx, rule, samples, names, now); err != nil {
 			// One bad rule must not stop the others: an alert that never runs
 			// is worse than one that logs a failure.
 			e.Log.Error().Err(err).Str("rule", rule.Name).Msg("could not evaluate alert rule")
 		}
 	}
+	// Counted from the state the pass started with, which is the figure the
+	// firing list showed a moment ago rather than a half-updated one.
+	metrics.AlertsFiring.Set(float64(firing))
 	return nil
 }
 

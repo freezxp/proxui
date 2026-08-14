@@ -13,6 +13,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/infra/crypto"
+	"github.com/freezxp/proxui/internal/infra/metrics"
 )
 
 // decoyHash returns a real argon2id hash of a random secret, computed once per
@@ -128,6 +129,7 @@ func (h *Login) Handle(ctx context.Context, in LoginInput) (LoginOutput, error) 
 		return LoginOutput{}, fmt.Errorf("login: record success: %w", err)
 	}
 
+	metrics.LoginSuccesses.Inc()
 	h.write(ctx, ports.AuditEntry{
 		Time: now, ActorUserID: &user.ID, ActorName: user.Username,
 		Category: ports.AuditCategoryAuth, Action: "login_success",
@@ -144,6 +146,9 @@ func (h *Login) Handle(ctx context.Context, in LoginInput) (LoginOutput, error) 
 }
 
 func (h *Login) auditFailure(ctx context.Context, in LoginInput, user *identity.User, reason string, now time.Time) {
+	// A burst here is the shape of credential stuffing, which is why it is a
+	// metric and not only an audit row (docs/16 §16.2).
+	metrics.LoginFailures.Inc()
 	e := ports.AuditEntry{
 		Time: now, ActorName: in.Username,
 		Category: ports.AuditCategoryAuth, Action: "login_failed",

@@ -1,0 +1,84 @@
+# Alerting rules for ProxUI itself (docs/16-observability.md §16.2).
+#
+# These watch the portal. The portal's own alert rules watch the VMs; if the
+# portal stops working, only these fire — which is the point of keeping them
+# in a separate system.
+groups:
+  - name: proxui
+    interval: 30s
+    rules:
+      - alert: ProxUIDown
+        expr: up{job="proxui"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "ProxUI is not responding to scrapes"
+          runbook: "docs/24-runbooks.md"
+
+      - alert: ProxUIPlatformUnreachable
+        expr: proxui_platform_up == 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.platform }} has not responded for 5 minutes"
+          runbook: "docs/24-runbooks.md#242-a-platform-stopped-synchronizing"
+
+      # The age of the last success, not the failure count: a platform that
+      # stopped being polled at all shows here and nowhere else.
+      - alert: ProxUISyncStale
+        expr: time() - proxui_sync_last_success_timestamp_seconds > 600
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.platform }} {{ $labels.kind }} last succeeded {{ $value | humanizeDuration }} ago"
+
+      - alert: ProxUIMetricsCollectionStopped
+        expr: rate(proxui_metrics_samples_written_total[10m]) == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "No performance samples written for {{ $labels.platform }} in 10 minutes"
+          description: "Charts will keep showing old data rather than a gap, so this is easy to miss in the UI."
+
+      - alert: ProxUIServerErrors
+        expr: |
+          sum(rate(proxui_http_requests_total{status="5xx"}[5m]))
+            / sum(rate(proxui_http_requests_total[5m])) > 0.01
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "More than 1% of requests are failing"
+
+      - alert: ProxUISlowRequests
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(proxui_http_request_duration_seconds_bucket[5m])) by (le, route)) > 0.5
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 for {{ $labels.route }} is above the 500 ms target (NFR-P1)"
+
+      - alert: ProxUINotificationsFailing
+        expr: increase(proxui_notification_deliveries_total{status="failed"}[15m]) > 3
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.kind }} notifications are failing"
+          description: "An alert nobody receives is worse than no alert."
+          runbook: "docs/24-runbooks.md#244-notifications-are-not-arriving"
+
+      # A burst of failures with no successes is the shape of credential
+      # stuffing; a burst with successes is more likely a broken integration.
+      - alert: ProxUILoginFailureBurst
+        expr: increase(proxui_login_failures_total[5m]) > 20
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} failed sign-ins in 5 minutes"
+
+      - alert: ProxUIAssetDrop
+        expr: |
+          proxui_assets < 0.8 * (proxui_assets offset 1h)
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.platform }} reports 20% fewer {{ $labels.type }} than an hour ago"
+          description: "Either something was genuinely removed, or a sync returned a partial answer."

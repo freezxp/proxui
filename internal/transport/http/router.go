@@ -140,6 +140,7 @@ func (s *Server) Routes() http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(requestLogger(s.log))
 	r.Use(recoverPanic(s.log))
+	r.Use(SecurityHeaders)
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	// The console WebSocket authenticates with its single-use ticket rather

@@ -4,8 +4,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog"
+
+	"github.com/freezxp/proxui/internal/infra/metrics"
 )
 
 // requestIDHeader is echoed on every response so users can quote it in reports
@@ -33,6 +36,13 @@ func requestLogger(log zerolog.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(ww, r)
 
 			status := ww.Status()
+			// Route pattern, not raw path: /vms/{vmID} is one series, while
+			// the raw path would mint one per VM (docs/16 §16.2).
+			route := chi.RouteContext(r.Context()).RoutePattern()
+			if route == "" {
+				route = "unmatched"
+			}
+			metrics.ObserveHTTP(route, r.Method, status, time.Since(start))
 			evt := log.Info()
 			switch {
 			case status >= 500:

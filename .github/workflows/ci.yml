@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.26"
+  GO_VERSION: "1.26.6"
 
 jobs:
   build-test:
@@ -47,6 +47,14 @@ jobs:
 
       - name: Lint (gofmt + vet)
         run: make lint
+
+      # Fails the build on a known-vulnerable dependency that the code
+      # actually reaches. Adding this found six standard-library issues fixed
+      # in Go 1.26.6, which is why GO_VERSION above is pinned to the patch.
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
 
       - name: Test (race detector)
         run: make test

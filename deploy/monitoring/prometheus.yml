@@ -1,0 +1,15 @@
+# Minimal scrape config for a ProxUI deployment.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - prometheus-rules.yml
+
+scrape_configs:
+  - job_name: proxui
+    # The metrics port is separate from the API port and should not be
+    # exposed publicly: it carries no secrets, but it does describe the
+    # estate's shape.
+    static_configs:
+      - targets: ['proxui:9090']

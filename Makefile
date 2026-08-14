@@ -107,8 +107,12 @@ migrate: ## Apply pending migrations against the dev database
 docker-build: ## Build the runtime container image
 	docker build -t proxui:$(VERSION) --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) .
 
+.PHONY: vuln
+vuln: ## Check dependencies for known vulnerabilities the code reaches
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 .PHONY: ci
-ci: tidy-check lint test build ## Everything CI enforces
+ci: tidy-check lint vuln test build ## Everything CI enforces
 
 # ci must stay identical to .github/workflows/ci.yml: a local gate that is
 # weaker than the pipeline is worse than no local gate, because it reports

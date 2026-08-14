@@ -14,6 +14,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/domain/notify"
 	"github.com/freezxp/proxui/internal/infra/crypto"
+	"github.com/freezxp/proxui/internal/infra/metrics"
 	infranotify "github.com/freezxp/proxui/internal/infra/notify"
 )
 
@@ -108,6 +109,13 @@ func (d *Dispatcher) inVMGroup(ctx context.Context, rule notify.Rule, event noti
 
 // deliver sends one message, retrying transient failures.
 func (d *Dispatcher) deliver(ctx context.Context, deliveryID int64, channelID uuid.UUID, message notify.Message) {
+	// Read once for the metric label; a failure here is not worth aborting a
+	// delivery over, so an unknown kind is labelled as such.
+	channelKind := "unknown"
+	if channel, err := d.Repo.GetChannel(ctx, channelID); err == nil {
+		channelKind = string(channel.Kind)
+	}
+
 	attempts := d.Attempts
 	if attempts <= 0 {
 		attempts = MaxAttempts
@@ -132,6 +140,12 @@ func (d *Dispatcher) deliver(ctx context.Context, deliveryID int64, channelID uu
 			}
 		}
 	}
+
+	status := "sent"
+	if lastErr != nil {
+		status = "failed"
+	}
+	metrics.NotificationDeliveries.WithLabelValues(channelKind, status).Inc()
 
 	if err := d.Repo.FinishDelivery(context.WithoutCancel(ctx), deliveryID, lastErr, d.Clock.Now()); err != nil {
 		d.Log.Error().Err(err).Int64("delivery_id", deliveryID).Msg("could not record delivery outcome")

@@ -17,6 +17,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/domain/console"
+	"github.com/freezxp/proxui/internal/infra/metrics"
 )
 
 // Close codes the browser can act on (docs/08-api-specification.md §8.4).
@@ -148,7 +149,10 @@ func (b *ConsoleBridge) ServeHTTP(w http.ResponseWriter, r *http.Request, ticket
 		Str("user_id", ticket.UserID.String()).
 		Msg("console connected")
 
+	metrics.ConsoleSessionsActive.Inc()
 	reason, tx, rx := b.relay(client, upstream, now)
+	metrics.ConsoleSessionsActive.Dec()
+	metrics.ConsoleSessions.WithLabelValues(reason).Inc()
 
 	b.finish(context.WithoutCancel(ctx), ticket.SessionID, reason, tx, rx)
 	b.Log.Info().Str("component", "console").

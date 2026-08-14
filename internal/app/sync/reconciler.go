@@ -19,6 +19,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/domain/inventory"
+	"github.com/freezxp/proxui/internal/infra/metrics"
 )
 
 // Stats counts what a run did, for the sync_runs record and the UI.
@@ -41,6 +42,10 @@ type Reconciler struct {
 	Runs      RunStore
 	Clock     ports.Clock
 	Log       zerolog.Logger
+
+	// platform is the name of the run in progress, kept so finish() can label
+	// its metrics without threading it through every call site.
+	platform string
 }
 
 // Result reports the outcome of a run.
@@ -58,6 +63,7 @@ type Result struct {
 // "partial" instead of losing the whole cluster's inventory.
 func (r *Reconciler) Reconcile(ctx context.Context, platform *inventory.Platform, conn connector.Connector, trigger string) (Result, error) {
 	now := r.Clock.Now()
+	r.platform = platform.Name
 	runID, err := r.Runs.StartRun(ctx, platform.ID, "inventory", trigger, now)
 	if err != nil {
 		return Result{}, err
@@ -343,6 +349,12 @@ func (r *Reconciler) abort(ctx context.Context, runID int64, stats Stats, now ti
 }
 
 func (r *Reconciler) finish(ctx context.Context, runID int64, status string, stats Stats, runErr string, now time.Time) {
+	metrics.ObserveSync(r.platform, "inventory", status, r.Clock.Now().Sub(now), now)
+	metrics.ObserveAssets(r.platform, map[string]int{
+		"vm": stats.VMs, "host": stats.Hosts,
+		"storage": stats.Storage, "network": stats.Networks,
+	})
+
 	payload := map[string]any{
 		"hosts": stats.Hosts, "vms": stats.VMs, "storage": stats.Storage,
 		"networks": stats.Networks, "added": stats.Added, "changed": stats.Changed,

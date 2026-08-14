@@ -14,6 +14,7 @@ import (
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/domain/inventory"
 	"github.com/freezxp/proxui/internal/infra/crypto"
+	"github.com/freezxp/proxui/internal/infra/metrics"
 )
 
 // Service owns a platform's synchronization lifecycle: build its connector,
@@ -126,7 +127,16 @@ func (s *Service) SyncMetrics(ctx context.Context, platformID uuid.UUID) (Metric
 	}
 	defer conn.Close()
 
-	return s.Metrics.Collect(ctx, p.ID, conn)
+	stats, err := s.Metrics.Collect(ctx, p.ID, conn)
+	if err == nil {
+		// Labelled here rather than inside the collector, which only knows the
+		// platform's identifier: a dashboard of UUIDs helps nobody.
+		metrics.MetricSamples.WithLabelValues(p.Name).Add(float64(stats.VMSamples + stats.HostSamples))
+		metrics.ObserveSync(p.Name, "metrics", "success", s.Clock.Now().Sub(now), now)
+	} else {
+		metrics.ObserveSync(p.Name, "metrics", "failed", s.Clock.Now().Sub(now), now)
+	}
+	return stats, err
 }
 
 // BackfillMetrics imports a platform's history, normally right after it is
@@ -201,6 +211,8 @@ func (s *Service) recordFailure(ctx context.Context, p *inventory.Platform, caus
 	s.Log.Error().Str("platform", p.Name).Err(cause).
 		Time("retry_after", p.BreakerOpenUntil).Msg("circuit breaker opened")
 
+	metrics.SetPlatformUp(p.Name, false)
+
 	severity := ports.SeverityWarning
 	if errors.Is(cause, connector.ErrAuth) || errors.Is(cause, connector.ErrPermission) {
 		// Credentials will not fix themselves; this needs a human.
@@ -231,6 +243,7 @@ func (s *Service) recordSuccess(ctx context.Context, p *inventory.Platform, conn
 
 func (s *Service) applySuccess(ctx context.Context, p *inventory.Platform, version string) {
 	now := s.Clock.Now()
+	metrics.SetPlatformUp(p.Name, true)
 	recovered := p.RecordSyncSuccess(now)
 	if version != "" {
 		p.DetectedVersion = version

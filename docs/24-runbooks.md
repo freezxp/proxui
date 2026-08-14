@@ -1,0 +1,168 @@
+# 24. Runbooks
+
+Operational procedures, written for someone who did not build this and is
+reading at an inconvenient hour. Each one states how to tell whether it
+applies, what to do, and how to know it worked.
+
+## 24.1 Backup and restore
+
+### Taking a backup
+
+```bash
+PROXUI_DATABASE_URL=postgres://proxui:...@db:5432/proxui \
+  BACKUP_DIR=/var/backups/proxui scripts/backup.sh
+```
+
+Two things must be kept, and they must be kept **apart**:
+
+| What | Where | Why |
+|---|---|---|
+| the database dump | backup storage | inventory, users, audit trail, encrypted credentials |
+| `PROXUI_MASTER_KEY` | a secret store, not the backup directory | without it the credentials in the dump cannot be decrypted |
+
+A dump and the key that opens it, sitting in the same archive, is one stolen
+backup away from every platform credential you own.
+
+**The dump client must match the server major version.** `backup.sh` refuses
+to run otherwise. A PostgreSQL 17 client writes `SET transaction_timeout`,
+which a 16 server rejects on restore — the dump succeeds and the restore
+fails, which is the worst place to discover it.
+
+### Restoring
+
+```bash
+PROXUI_DATABASE_URL=postgres://proxui:...@db:5432/proxui \
+  scripts/restore.sh /var/backups/proxui/proxui-20260814T044951Z.dump
+```
+
+The script refuses a non-empty target unless `FORCE=1`, verifies the
+checksum, and checks the restore afterwards.
+
+**TimescaleDB is why this is a script and not a `pg_restore` one-liner.** A
+plain restore produces a portal that looks healthy — it logs in, the
+inventory is there, the audit trail is intact — and has silently lost every
+metric, because the hypertables come back as ordinary tables with broken
+triggers. The first restore drill produced exactly that: 109 ignored errors
+and charts returning HTTP 500 while the rest of the portal appeared fine.
+
+The verification at the end of `restore.sh` exists because of that failure.
+It fails loudly if the hypertables or continuous aggregates are missing,
+rather than leaving a database that only looks restored.
+
+### Restore drill
+
+Run this quarterly, and after any change to the schema or the scripts.
+
+```bash
+# 1. take a backup
+BACKUP_DIR=/tmp/drill PROXUI_DATABASE_URL=$PROD_URL scripts/backup.sh
+
+# 2. restore into a scratch database
+createdb proxui_drill
+PROXUI_DATABASE_URL=postgres://.../proxui_drill scripts/restore.sh /tmp/drill/<dump>
+
+# 3. start the portal against it, on a spare port
+PROXUI_DATABASE_URL=postgres://.../proxui_drill PROXUI_HTTP_ADDR=:8099 \
+  ./bin/proxui --role=api
+
+# 4. check what a plain restore silently loses
+#    - sign in
+#    - open a running VM's performance tab; every range must return points
+#    - check the audit log is present
+# 5. drop the scratch database
+```
+
+**Measured 2026-08-14:** backup 1 s, restore and verify 11 s, full drill
+including portal start and metric checks under 2 minutes, on 8,232 metric
+samples across 19 VMs (672 KB dump). The design's target is under 30 minutes;
+this is comfortably inside it, and the number will grow with retention rather
+than with VM count.
+
+## 24.2 A platform stopped synchronizing
+
+**Symptom:** platform health shows `unreachable` or `breaker open`; VM data
+is going stale.
+
+1. **Platforms → the platform → Recent synchronizations.** The failed run's
+   error is the platform's own words, not ours.
+2. Common causes, in the order they actually occur:
+   - **credential expired or revoked** — the error mentions authentication.
+     Edit the platform, supply a new token, use Test connection before saving.
+   - **certificate changed** — the error mentions x509 or the fingerprint.
+     A node reinstall changes it. Re-pin the new fingerprint.
+   - **node unreachable** — network or the node is down. Nothing to fix in
+     the portal.
+   - **privileges narrowed** — Test connection reports which privileges are
+     missing by name.
+3. The circuit breaker suspends polling after three consecutive failures and
+   retries on its own. **Sync now bypasses the wait**, which is what to press
+   after fixing the cause rather than waiting out the cooldown.
+
+## 24.3 Consoles will not open
+
+**Symptom:** the console page spins, or closes immediately.
+
+| What you see | Cause | Fix |
+|---|---|---|
+| "closed before it was established (code 1006)" | something between browser and portal is filtering WebSockets | check the reverse proxy forwards `Upgrade`/`Connection` and does not buffer |
+| "This VM is not running" (409) | exactly that | start the VM |
+| "not permitted" (403) | the account has no grant covering this VM | Users & groups → grants |
+| "platform console unavailable" (4004) | the node refused or dropped the console | check the node is up and the token has `VM.Console` |
+| black screen, connected | the guest is not producing video | not a portal fault; check the guest |
+
+The portal answers the platform's RFB handshake itself (ADR 0002), so a
+console failure is never a browser credential problem — the browser holds no
+platform secret to be wrong.
+
+## 24.4 Notifications are not arriving
+
+1. **Notifications → Deliveries.** If entries are `failed`, the reason is
+   recorded verbatim from the channel.
+2. If there are **no entries at all**, nothing was routed. Check
+   Notifications → Routing has a rule whose category and minimum severity
+   match the events you expect.
+3. **Send test** on the channel isolates channel configuration from routing.
+4. Delivery is retried three times, but a misconfigured channel fails
+   immediately and permanently — a missing webhook URL fails identically
+   every time, and the log says so rather than retrying into the same wall.
+
+## 24.5 Alerts are noisy, or silent
+
+- **Too noisy:** raise the sustained duration so a spike stops qualifying, or
+  lengthen the cooldown. A cooldown of zero means *never repeat*, which is a
+  legitimate setting for a rule you only want to hear about once.
+- **Silent when it should not be:** check the rule is enabled, that the VM is
+  in the rule's group scope, and that the VM has reported within the last
+  three minutes — a VM that stopped reporting drops out of evaluation rather
+  than holding an alert open on stale data.
+- **Fires and never resolves:** the metric is still breaching. The firing
+  list shows the last value the evaluator saw.
+
+## 24.6 Losing the master key
+
+There is no recovery. `PROXUI_MASTER_KEY` decrypts platform credentials and
+notification secrets; nothing else can.
+
+If it is lost:
+
+1. The portal still starts, and inventory, users and audit are unaffected.
+2. Every platform will fail to authenticate, with errors that look like a
+   wrong password against settings that look correct.
+3. Re-enter each platform's credential through the UI. Test connection
+   confirms each one.
+4. Re-enter notification channel secrets the same way.
+
+Losing the key costs an afternoon of re-entering credentials. Losing the
+key *and* the database costs the estate's history. Back up both, separately.
+
+## 24.7 Upgrading
+
+1. Take a backup. Migrations are forward-only.
+2. Deploy the new image. Migrations run on API start under an advisory lock,
+   so several API replicas starting at once is safe.
+3. Watch the log for `migrations applied` and the schema version.
+4. `/readyz` reports ready only once migrations have applied.
+
+Rolling back a release whose migration added a column is safe: the old binary
+ignores it. Rolling back across a migration that *removed* something is not —
+which is why breaking changes are expand-and-contract, in two releases.

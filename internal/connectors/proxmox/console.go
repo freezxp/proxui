@@ -23,6 +23,10 @@ type vncProxyResponse struct {
 	UPID     string `json:"upid"`
 }
 
+// guestQEMU is how Proxmox names full virtual machines in its API paths.
+// Containers ("lxc") take the same paths but not the same console options.
+const guestQEMU = "qemu"
+
 // consoleTicketTTL is how long a Proxmox VNC ticket stays usable. The portal's
 // own one-time session token is shorter still (CONS-03).
 const consoleTicketTTL = 30 * time.Second
@@ -40,7 +44,7 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 	}
 	guestType := vm.Type
 	if guestType == "" {
-		guestType = "qemu"
+		guestType = guestQEMU
 	}
 
 	var (
@@ -52,13 +56,20 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 		path = fmt.Sprintf("/nodes/%s/%s/%s/vncproxy", vm.HostID, guestType, vm.ExternalID)
 		form.Set("websocket", "1")
 		// The node offers only RFB security type 2, so the console handshake
-		// has to be answered with a password. Asking for a generated one gets
-		// an eight-character random string scoped to this single session,
-		// which is what VNC auth can actually carry — the API ticket is far
-		// longer and would be silently truncated to its first eight bytes.
-		// The portal answers the challenge itself (console_rfb.go); this
-		// password never reaches the browser.
-		form.Set("generate-password", "1")
+		// has to be answered with a password. For a QEMU guest, asking the
+		// node to generate one gets an eight-character random string scoped
+		// to this session — which is what VNC auth can actually carry, since
+		// the API ticket is far longer and would be silently truncated to its
+		// first eight bytes.
+		//
+		// A container's vncproxy does not accept generate-password: it is a
+		// QEMU VNC server option, and passing it to an LXC guest is rejected
+		// with HTTP 400 before a console is ever started. Containers fall back
+		// to the ticket, which is what the node's own web UI uses, and which
+		// both ends truncate identically.
+		if guestType == guestQEMU {
+			form.Set("generate-password", "1")
+		}
 	case connector.ConsoleSerial:
 		path = fmt.Sprintf("/nodes/%s/%s/%s/termproxy", vm.HostID, guestType, vm.ExternalID)
 	default:
@@ -72,6 +83,13 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 	if resp.Ticket == "" {
 		return nil, connector.Errorf(connector.ErrUnreachable, "console", "platform returned no console ticket")
 	}
+	// Without a generated password the ticket is the credential, exactly as
+	// the platform's own interface uses it.
+	password := resp.Password
+	if password == "" {
+		password = resp.Ticket
+	}
+
 	port := fmt.Sprintf("%v", resp.Port)
 	if port == "" || port == "<nil>" {
 		return nil, connector.Errorf(connector.ErrUnreachable, "console", "platform returned no console port")
@@ -88,7 +106,7 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 	target.Path = ""
 	return &consoleEndpoint{
 		host:     target.Host,
-		password: resp.Password,
+		password: password,
 		scheme:   target.Scheme,
 		path:     wsPath,
 		// The websocket upgrade is an authenticated API call in its own right:

@@ -29,6 +29,21 @@ type fakePVE struct {
 	authHeaders []string
 	status      map[string]int // path -> forced status
 	permissions map[string]map[string]int
+	// generatePassword records whether the last console request asked the node
+	// to mint one — an option only QEMU guests accept.
+	generatePassword bool
+}
+
+func (f *fakePVE) recordGeneratePassword(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.generatePassword = v
+}
+
+func (f *fakePVE) generatePasswordRequested() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.generatePassword
 }
 
 func newFakePVE(t *testing.T) *fakePVE {
@@ -97,7 +112,22 @@ func newFakePVE(t *testing.T) *fakePVE {
 				}},
 			}})
 		case strings.HasSuffix(path, "/vncproxy"):
-			writeData(w, map[string]any{"ticket": "PVEVNC:ticket-value", "port": "5900", "user": testToken})
+			// The real node rejects generate-password on a container: it is a
+			// QEMU VNC server option, and asking for it on an LXC guest fails
+			// the request before any console starts. Reproducing that here is
+			// what stops the option being reintroduced for containers.
+			_ = r.ParseForm()
+			generate := r.PostFormValue("generate-password") == "1"
+			if generate && strings.Contains(path, "/lxc/") {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			f.recordGeneratePassword(generate)
+			out := map[string]any{"ticket": "PVEVNC:ticket-value", "port": "5900", "user": testToken}
+			if generate {
+				out["password"] = "8charpwd"
+			}
+			writeData(w, out)
 		case strings.HasSuffix(path, "/rrddata"):
 			writeData(w, rrdFixture())
 		case strings.Contains(path, "/status/"):
@@ -724,5 +754,40 @@ func TestSecretNeverAppearsInErrors(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprintf("%+v", err), testSecret) {
 		t.Error("the token secret leaked into the verbose error rendering")
+	}
+}
+
+// A container's console must not be asked for a generated password. Doing so
+// returns HTTP 400 from the node, which reached the operator as "the platform
+// console is unavailable" for every LXC guest while QEMU guests worked.
+func TestContainerConsoleDoesNotAskForAGeneratedPassword(t *testing.T) {
+	f := newFakePVE(t)
+	c := newConnector(t, f)
+
+	_, err := c.(connector.ConsoleProvider).CreateConsoleSession(context.Background(),
+		connector.VMRef{ExternalID: "200", HostID: "pve1", Type: "lxc"}, connector.ConsoleVNC)
+	if err != nil {
+		t.Fatalf("CreateConsoleSession for a container: %v", err)
+	}
+	if !f.sawRequest("POST /nodes/pve1/lxc/200/vncproxy") {
+		t.Error("the container's vncproxy was not requested")
+	}
+	if f.generatePasswordRequested() {
+		t.Error("a container was asked for a generated password; the node rejects that with HTTP 400")
+	}
+}
+
+// The QEMU path keeps it: eight characters is what VNC auth carries, where the
+// much longer ticket would be silently truncated to its first eight bytes.
+func TestVirtualMachineConsoleAsksForAGeneratedPassword(t *testing.T) {
+	f := newFakePVE(t)
+	c := newConnector(t, f)
+
+	if _, err := c.(connector.ConsoleProvider).CreateConsoleSession(context.Background(),
+		connector.VMRef{ExternalID: "100", HostID: "pve1", Type: "qemu"}, connector.ConsoleVNC); err != nil {
+		t.Fatalf("CreateConsoleSession: %v", err)
+	}
+	if !f.generatePasswordRequested() {
+		t.Error("a virtual machine's console did not ask for a generated password")
 	}
 }

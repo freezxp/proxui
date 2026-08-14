@@ -107,7 +107,7 @@ is going stale.
 | "closed before it was established (code 1006)" | something between browser and portal is filtering WebSockets | check the reverse proxy forwards `Upgrade`/`Connection` and does not buffer |
 | "This VM is not running" (409) | exactly that | start the VM |
 | "not permitted" (403) | the account has no grant covering this VM | Users & groups → grants |
-| "platform console unavailable" (4004) | the node refused or dropped the console | check the node is up and the token has `VM.Console` |
+| "platform console unavailable" (4004) | the node refused or dropped the console | check the node is up and the token has `VM.Console`. If it fails for *every* container while virtual machines work, the connector is sending a QEMU-only option to LXC — that was a real bug, fixed, and the shape to recognize |
 | black screen, connected | the guest is not producing video | not a portal fault; check the guest |
 
 The portal answers the platform's RFB handshake itself (ADR 0002), so a

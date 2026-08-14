@@ -154,3 +154,29 @@ func TestKindAndCategoryValidation(t *testing.T) {
 		t.Error("an unknown category was accepted")
 	}
 }
+
+// Alerts render their own wording, including the threshold and duration.
+// Falling back to "performance_alert: alert.firing" would throw that away and
+// deliver a message nobody can act on.
+func TestRenderPrefersASelfDescribingEvent(t *testing.T) {
+	event := notify.Event{
+		Category: notify.CategoryPerformanceAlert, Type: "alert.firing",
+		Severity: notify.SeverityWarning,
+		Payload: map[string]any{
+			"subject": "CPU burn on devops: CPU 97.5%",
+			"body":    "CPU on devops has been above 90% for at least 10 minutes.",
+			"vm_name": "devops",
+		},
+	}
+	msg := notify.Render(event)
+	if msg.Subject != "CPU burn on devops: CPU 97.5%" {
+		t.Errorf("subject = %q, want the alert's own wording", msg.Subject)
+	}
+	if !strings.Contains(msg.Body, "10 minutes") {
+		t.Errorf("body %q lost the alert's detail", msg.Body)
+	}
+	// The generic fallback must not reappear underneath it.
+	if strings.Contains(msg.Subject, "alert.firing") {
+		t.Errorf("subject %q leaked the event type", msg.Subject)
+	}
+}

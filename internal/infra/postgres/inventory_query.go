@@ -450,3 +450,27 @@ func derefInt(v *int) int {
 	}
 	return *v
 }
+
+// AllVMNames maps every live VM to its name, unscoped by grants. The alert
+// evaluator is not acting for a user: it evaluates the whole estate and the
+// resulting notification is routed by rule, not by who can see the VM.
+func (q *InventoryQuery) AllVMNames(ctx context.Context) (map[uuid.UUID]string, error) {
+	rows, err := q.db.Query(ctx, `SELECT id, name FROM vms WHERE deleted_at IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("list vm names: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[uuid.UUID]string{}
+	for rows.Next() {
+		var (
+			id   uuid.UUID
+			name string
+		)
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("scan vm name: %w", err)
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
+}

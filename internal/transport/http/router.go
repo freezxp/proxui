@@ -64,6 +64,9 @@ type ServerConfig struct {
 	// Notify carries the notification channels, rules and dispatcher.
 	Notify NotifyDeps
 
+	// Alerts carries the threshold rules and their current state.
+	Alerts AlertDeps
+
 	// Clock is injected so cookie expiry is testable.
 	Clock func() time.Time
 }
@@ -82,6 +85,7 @@ type Server struct {
 	console       ConsoleDeps
 	power         PowerDeps
 	notify        NotifyDeps
+	alerts        AlertDeps
 	events        EventStreamer
 	limiter       Limiter
 	spa           http.Handler
@@ -110,6 +114,7 @@ func NewServer(cfg ServerConfig) *Server {
 		console:       cfg.Console,
 		power:         cfg.Power,
 		notify:        cfg.Notify,
+		alerts:        cfg.Alerts,
 		events:        cfg.Events,
 		limiter:       cfg.Limiter,
 		spa:           cfg.SPA,
@@ -270,6 +275,19 @@ func (s *Server) Routes() http.Handler {
 
 			r.With(RequireRole(identity.RoleAdmin)).
 				Get("/notification-deliveries", s.handleListDeliveries)
+
+			r.Route("/alert-rules", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/", s.handleListAlertRules)
+				r.Post("/", s.handleCreateAlertRule)
+				r.Put("/{ruleID}", s.handleUpdateAlertRule)
+				r.Delete("/{ruleID}", s.handleDeleteAlertRule)
+			})
+
+			// What is currently wrong is operational information, not
+			// configuration: every role may read it.
+			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor)).
+				Get("/alerts", s.handleListFiringAlerts)
 
 			r.Route("/grants", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))

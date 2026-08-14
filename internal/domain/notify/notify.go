@@ -158,6 +158,14 @@ func describe(e Event) (subject, body string) {
 	name := payloadString(e.Payload, "name", "vm_name")
 	platform := payloadString(e.Payload, "platform_name", "platform")
 
+	// An event that already knows how to describe itself wins. Alerts render
+	// their own wording — which threshold, for how long, what the value is now
+	// — and reconstructing that here would mean keeping two versions of the
+	// same sentence in step.
+	if subject := payloadString(e.Payload, "subject"); subject != "" {
+		return subject, payloadString(e.Payload, "body")
+	}
+
 	switch e.Type {
 	case "sync.failed":
 		subject = fmt.Sprintf("Synchronization failed: %s", orUnknown(platform))

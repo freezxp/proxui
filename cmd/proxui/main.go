@@ -19,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 
+	appalert "github.com/freezxp/proxui/internal/app/alert"
 	"github.com/freezxp/proxui/internal/app/command"
 	appnotify "github.com/freezxp/proxui/internal/app/notify"
 	"github.com/freezxp/proxui/internal/app/ports"
@@ -231,6 +232,15 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Audit:   audit,
 	}
 
+	// Alerting: the evaluator runs in the scheduler role and publishes to the
+	// same outbox everything else does, so an alert reaches channels by the
+	// notification path built in sprint 16 rather than a parallel one.
+	alertRepo := postgres.NewAlertRepository(pool)
+	evaluator := &appalert.Evaluator{
+		Repo: alertRepo, Metrics: metrics, VMs: inventory, Groups: accessRepo,
+		Events: syncRepo, Clock: clock, Log: log,
+	}
+
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 	shutdown := make([]func(context.Context) error, 0, 2)
@@ -251,6 +261,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Inventory: httpapi.InventoryDeps{
 				Inventory: inventory, Audit: auditLog, Metrics: metrics,
 			},
+			Alerts: httpapi.AlertDeps{Alerts: alertRepo},
 			Notify: httpapi.NotifyDeps{
 				Repo: notifyRepo, Dispatcher: dispatcher, Vault: vault,
 			},
@@ -332,6 +343,12 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		scheduler := jobs.NewScheduler(queue, platforms, log)
 		scheduler.Start(ctx)
 		defer scheduler.Stop()
+
+		// Evaluated in the scheduler rather than as a queued job: it is cheap,
+		// it must run on a steady cadence for sustained-duration rules to mean
+		// anything, and a backlog of evaluations would be worse than a skipped
+		// one (NOTIF-04).
+		jobs.RunAlertEvaluator(ctx, evaluator, log)
 	}
 
 	select {

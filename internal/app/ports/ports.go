@@ -182,12 +182,17 @@ type DomainEvent struct {
 const (
 	EventCategorySyncFailure   = "sync_failure"
 	EventCategoryVMStateChange = "vm_state_change"
+	// EventCategoryPerformanceAlert carries threshold alerts (NOTIF-04). It
+	// matches the category name notification rules route on.
+	EventCategoryPerformanceAlert = "performance_alert"
 
 	EventVMCreated      = "vm.created"
 	EventVMStateChanged = "vm.state_changed"
 	EventVMDeleted      = "vm.deleted"
 	EventSyncFailed     = "sync.failed"
 	EventSyncRecovered  = "sync.recovered"
+	EventAlertFiring    = "alert.firing"
+	EventAlertResolved  = "alert.resolved"
 
 	SeverityInfo     = "info"
 	SeverityWarning  = "warning"

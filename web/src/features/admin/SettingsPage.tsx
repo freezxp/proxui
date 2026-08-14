@@ -116,6 +116,9 @@ function SettingRow({
             id={item.key}
             value={String(current)}
             maxLength={item.max_length}
+            // An empty field that falls back to something should say what,
+            // rather than looking like a field nobody filled in.
+            placeholder={emptyMeans(item)}
             onChange={(e) => onDraft(e.target.value)}
             className="w-72 rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
           />
@@ -228,6 +231,12 @@ function ImageSetting({
       </p>
     </div>
   )
+}
+
+// What an empty text field resolves to, shown as its placeholder.
+function emptyMeans(item: Setting): string {
+  if (item.key === 'branding.portal_name') return window.location.hostname
+  return ''
 }
 
 function unitLabel(item: Setting): string {

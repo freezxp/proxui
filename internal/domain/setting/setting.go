@@ -120,8 +120,14 @@ func validateImage(value string) error {
 var Catalogue = []Definition{
 	{
 		Key: "branding.portal_name", Group: "Branding", Kind: KindText,
-		Label: "Portal name", DefaultText: "ProxUI", MaxLength: 40, Public: true,
-		Help: "Shown in the header, on the sign-in page and in the browser tab.",
+		Label: "Portal name", DefaultText: "", MaxLength: 40, Public: true,
+		// Empty means "use the address this portal was reached at", resolved
+		// in the browser rather than here: the server sees whatever Host a
+		// proxy passed it, while the browser knows what the person actually
+		// typed. For a self-hosted tool that address is usually the best name
+		// it could have, which is why it is the default.
+		Help: "Shown in the header, on the sign-in page and in the browser tab. " +
+			"Leave empty to use the address people reach the portal at.",
 	},
 	{
 		Key: "branding.logo", Group: "Branding", Kind: KindImage,

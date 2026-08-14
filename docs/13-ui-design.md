@@ -61,6 +61,7 @@
 ### Settings (`/admin/settings`, admin)
 - Grouped forms: Branding (portal name, logo, sign-in notice) · Sync defaults · Sessions & security (token lifetimes, lockout, console idle/max) · Retention (metrics, audit, history). Each field shows default + "modified" indicator; saves audited per key.
 - Branding is readable unauthenticated (`GET /branding`), because the sign-in page renders before anyone has signed in. The logo is stored as a data URI chosen in the browser rather than uploaded, so the portal still accepts no file uploads; an external image address is refused rather than silently blocked by the CSP.
+- An unset portal name follows the address the browser used, resolved client-side — the server sees whatever `Host` a proxy passed it, the browser knows what was typed. For a self-hosted tool that address is usually the best name it has, so it is the default.
 
 ### Auth pages
 - Login (username/password → optional TOTP step), forced password change, "session expired" interstitial that preserves the return URL. No self-registration, no public password reset (admin-driven).

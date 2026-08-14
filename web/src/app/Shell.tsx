@@ -57,7 +57,9 @@ export function Shell() {
                   end={item.to === '/'}
                   className={({ isActive }) =>
                     `block rounded-md px-3 py-2 text-sm ${
-                      isActive ? 'bg-accent/10 font-medium text-accent' : 'text-content hover:bg-surface'
+                      isActive
+                        ? 'bg-accent/10 font-medium text-accent'
+                        : 'text-content hover:bg-surface'
                     }`
                   }
                 >

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { Shell } from './Shell'
 import { LoginPage } from '@/features/auth/LoginPage'
@@ -19,7 +20,30 @@ function ComingSoon({ title }: { title: string }) {
   )
 }
 
+// noVNC is the single largest dependency in the app and only a console needs
+// it, so it is fetched when one is opened (NFR-P5).
+const ConsolePage = lazy(() =>
+  import('@/features/console/ConsolePage').then((m) => ({ default: m.ConsolePage })),
+)
+
+function LazyConsole() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center bg-black text-sm text-white/70">
+          Loading console…
+        </div>
+      }
+    >
+      <ConsolePage />
+    </Suspense>
+  )
+}
+
 const router = createBrowserRouter([
+  // The console owns the whole viewport: no sidebar, no top bar, so it lives
+  // beside the shell rather than inside it (docs/13-ui-design.md §13.2).
+  { path: '/console/:vmId', element: <LazyConsole /> },
   {
     path: '/',
     element: <Shell />,

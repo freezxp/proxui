@@ -7,10 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "lint": "prettier --check \"src/**/*.{ts,tsx,css}\" && tsc --noEmit",
+    "test": "vitest run",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
+    "@novnc/novnc": "^1.7.0",
     "@tanstack/react-query": "^5.62.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -23,6 +25,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
+    "prettier": "^3.9.6",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",

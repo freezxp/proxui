@@ -12,6 +12,10 @@ export default defineConfig({
     // ships both halves of the portal.
     outDir: 'dist',
     sourcemap: false,
+    // noVNC 1.7 ships top-level await, which Vite's default target predates.
+    // Raising it rules out browsers that stopped receiving security updates
+    // years ago, which is an acceptable floor for an operations tool.
+    target: 'es2022',
   },
   server: {
     port: 5173,

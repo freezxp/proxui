@@ -94,6 +94,9 @@ func (s *Server) writeConsoleError(w http.ResponseWriter, r *http.Request, err e
 		// Same response for "no such VM" and "not yours": the difference would
 		// confirm the VM exists.
 		WriteProblem(w, r, http.StatusNotFound, "not_found", "The requested resource does not exist.")
+	case errors.Is(err, console.ErrNotRunning):
+		WriteProblem(w, r, http.StatusConflict, "console.not_running",
+			"This VM is not running, so it has no console.")
 	case errors.Is(err, console.ErrUnsupported), errors.Is(err, connector.ErrNotSupported):
 		WriteProblem(w, r, http.StatusUnprocessableEntity, "console.unsupported",
 			"This platform does not offer that console type.")

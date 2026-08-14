@@ -108,7 +108,7 @@ func (b *ConsoleBridge) ServeHTTP(w http.ResponseWriter, r *http.Request, ticket
 	}
 	defer client.Close()
 
-	upstream, release, err := b.resolve(ctx, ticket)
+	upstream, endpoint, release, err := b.resolve(ctx, ticket)
 	if err != nil {
 		b.Log.Warn().Err(err).Str("vm_id", ticket.VMID.String()).Msg("could not reach the platform console")
 		closeWith(client, CloseUnavailable, "platform console unavailable")
@@ -117,6 +117,20 @@ func (b *ConsoleBridge) ServeHTTP(w http.ResponseWriter, r *http.Request, ticket
 	}
 	defer release()
 	defer upstream.Close()
+
+	// Some platforms demand an authentication exchange before the session
+	// proper. The connector owns that exchange because it is platform
+	// specific, and it runs before relaying starts so that the browser is
+	// never asked to hold a platform secret (docs/adr/0002).
+	if auth, ok := endpoint.(connector.ConsoleAuthenticator); ok {
+		if err := auth.AuthenticateConsole(ctx, upstream, client); err != nil {
+			b.Log.Warn().Err(err).Str("vm_id", ticket.VMID.String()).
+				Msg("console handshake failed")
+			closeWith(client, CloseUpstream, "console handshake failed")
+			b.finish(context.WithoutCancel(ctx), ticket.SessionID, console.ReasonUpstream, 0, 0)
+			return
+		}
+	}
 
 	now := b.Clock.Now()
 	if err := b.Sessions.MarkConnected(context.WithoutCancel(ctx), ticket.SessionID, now); err != nil {
@@ -140,16 +154,16 @@ func (b *ConsoleBridge) ServeHTTP(w http.ResponseWriter, r *http.Request, ticket
 // resolve opens the upstream console. Proxmox exposes it as a WebSocket, so the
 // bridge dials one; a connector offering a raw stream is not supported here
 // because the browser side is always a WebSocket.
-func (b *ConsoleBridge) resolve(ctx context.Context, ticket console.Ticket) (*websocket.Conn, func(), error) {
+func (b *ConsoleBridge) resolve(ctx context.Context, ticket console.Ticket) (*websocket.Conn, connector.ConsoleEndpoint, func(), error) {
 	endpoint, release, err := b.Resolver.Resolve(ctx, ticket.VMID, ticket.Kind)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	wsEndpoint, ok := endpoint.(connector.WebsocketConsole)
 	if !ok {
 		release()
-		return nil, nil, console.ErrUnsupported
+		return nil, nil, nil, console.ErrUnsupported
 	}
 
 	dialer := &websocket.Dialer{
@@ -163,11 +177,11 @@ func (b *ConsoleBridge) resolve(ctx context.Context, ticket console.Ticket) (*we
 	if err != nil {
 		release()
 		if resp != nil {
-			return nil, nil, errors.New("upstream console refused the connection: " + resp.Status)
+			return nil, nil, nil, errors.New("upstream console refused the connection: " + resp.Status)
 		}
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return conn, release, nil
+	return conn, endpoint, release, nil
 }
 
 // relay pumps frames in both directions until one side closes or a limit is

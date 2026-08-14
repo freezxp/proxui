@@ -18,7 +18,9 @@ type vncProxyResponse struct {
 	Port   any    `json:"port"` // string in some releases, number in others
 	User   string `json:"user"`
 	Cert   string `json:"cert"`
-	UPID   string `json:"upid"`
+	// Password is present only when generate-password is requested.
+	Password string `json:"password"`
+	UPID     string `json:"upid"`
 }
 
 // consoleTicketTTL is how long a Proxmox VNC ticket stays usable. The portal's
@@ -49,9 +51,14 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 	case connector.ConsoleVNC, "":
 		path = fmt.Sprintf("/nodes/%s/%s/%s/vncproxy", vm.HostID, guestType, vm.ExternalID)
 		form.Set("websocket", "1")
-		// generate-password is deliberately not requested: the ticket is the
-		// credential, and asking for a password would add a second secret to
-		// carry around.
+		// The node offers only RFB security type 2, so the console handshake
+		// has to be answered with a password. Asking for a generated one gets
+		// an eight-character random string scoped to this single session,
+		// which is what VNC auth can actually carry — the API ticket is far
+		// longer and would be silently truncated to its first eight bytes.
+		// The portal answers the challenge itself (console_rfb.go); this
+		// password never reaches the browser.
+		form.Set("generate-password", "1")
 	case connector.ConsoleSerial:
 		path = fmt.Sprintf("/nodes/%s/%s/%s/termproxy", vm.HostID, guestType, vm.ExternalID)
 	default:
@@ -80,9 +87,10 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 	target := *c.client.base
 	target.Path = ""
 	return &consoleEndpoint{
-		host:   target.Host,
-		scheme: target.Scheme,
-		path:   wsPath,
+		host:     target.Host,
+		password: resp.Password,
+		scheme:   target.Scheme,
+		path:     wsPath,
 		// The websocket upgrade is an authenticated API call in its own right:
 		// Proxmox answers "401 No ticket" without the token header, even though
 		// the URL already carries a VNC ticket. This is also precisely why the
@@ -99,6 +107,7 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 // bytes, which keeps this independent of VNC and serial specifics.
 type consoleEndpoint struct {
 	host       string
+	password   string
 	scheme     string
 	path       string
 	authHeader string

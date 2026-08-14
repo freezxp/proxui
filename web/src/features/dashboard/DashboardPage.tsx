@@ -28,7 +28,11 @@ export function DashboardPage() {
         <Stat label="Virtual machines" value={data.total_vms} />
         <Stat label="Running" value={data.running_vms} tone="text-running" />
         <Stat label="Stopped" value={data.stopped_vms} tone="text-stopped" />
-        <Stat label="Missing" value={data.missing_vms} tone={data.missing_vms > 0 ? 'text-stale' : undefined} />
+        <Stat
+          label="Missing"
+          value={data.missing_vms}
+          tone={data.missing_vms > 0 ? 'text-stale' : undefined}
+        />
       </div>
 
       <section className="space-y-2">
@@ -51,7 +55,9 @@ export function DashboardPage() {
                   <td className="px-4 py-2 text-muted">{platform.datacenter}</td>
                   <td className={`px-4 py-2 ${HEALTH_STYLES[platform.health] ?? 'text-muted'}`}>
                     {platform.health}
-                    {platform.breaker_open && <span className="ml-2 text-xs text-stale">(backing off)</span>}
+                    {platform.breaker_open && (
+                      <span className="ml-2 text-xs text-stale">(backing off)</span>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-muted">{platform.version ?? '—'}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{platform.vm_count}</td>
@@ -95,7 +101,10 @@ function TopList({
         {entries.length === 0 && <p className="p-4 text-sm text-muted">No recent samples.</p>}
         <ul className="divide-y divide-border">
           {entries.map((entry) => (
-            <li key={entry.vm_id} className="flex items-center justify-between gap-4 px-4 py-2 text-sm">
+            <li
+              key={entry.vm_id}
+              className="flex items-center justify-between gap-4 px-4 py-2 text-sm"
+            >
               <span className="truncate">
                 {entry.name} <span className="text-muted">· {entry.platform_name}</span>
               </span>

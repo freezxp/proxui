@@ -1,0 +1,248 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
+import RFB from '@novnc/novnc'
+import { api, ApiError } from '@/api/client'
+import type { VMDetail } from '@/api/types'
+import { StateBadge } from '@/components/StateBadge'
+
+type Phase = 'connecting' | 'connected' | 'disconnected' | 'error'
+
+type Session = { session_id: string; ws_url: string; expires_in: number }
+
+// The bridge sends these on close; anything else is an unexpected drop
+// (docs/08-api-specification.md §8.4).
+const CLOSE_REASONS: Record<number, string> = {
+  4000: 'The console closed after a period without activity.',
+  4001: 'The console reached its maximum session length.',
+  4002: 'An administrator ended this console session.',
+  4003: 'The platform closed the console connection.',
+  4004: 'The platform console is unavailable. The VM may be stopped, or the node unreachable.',
+}
+
+export function ConsolePage() {
+  const { vmId = '' } = useParams()
+  const screenRef = useRef<HTMLDivElement>(null)
+  const rfbRef = useRef<RFB | null>(null)
+  const [phase, setPhase] = useState<Phase>('connecting')
+  const [message, setMessage] = useState('')
+  const [vm, setVM] = useState<VMDetail | null>(null)
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    api
+      .get<VMDetail>(`/vms/${vmId}`)
+      .then(setVM)
+      .catch(() => undefined)
+  }, [vmId])
+
+  useEffect(() => {
+    let cancelled = false
+    let rfb: RFB | null = null
+    let socket: WebSocket | null = null
+
+    async function connect() {
+      setPhase('connecting')
+      setMessage('')
+      try {
+        // The ticket is single-use and short-lived, so it is fetched per
+        // connection attempt rather than reused on reconnect.
+        const session = await api.post<Session>(`/vms/${vmId}/console`, {
+          kind: 'vnc',
+        })
+        if (cancelled || !screenRef.current) return
+
+        const url = new URL(session.ws_url, window.location.href)
+        url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+
+        // The socket is opened here rather than by noVNC so that the bridge's
+        // close codes are readable: noVNC's own disconnect event reports only
+        // whether the close was clean, which would reduce "idle timeout",
+        // "admin ended it" and "node unreachable" to one blank message.
+        socket = new WebSocket(url.toString(), 'binary')
+        socket.binaryType = 'arraybuffer'
+        socket.addEventListener('close', (event) => {
+          if (cancelled) return
+          const known = CLOSE_REASONS[event.code]
+          if (known) {
+            setMessage(known)
+            setPhase(event.code === 4003 || event.code === 4004 ? 'error' : 'disconnected')
+          }
+        })
+
+        rfb = new RFB(screenRef.current, socket, {
+          // No credentials: the portal answered the platform's console
+          // challenge server-side, so the browser holds no secret (ADR 0002).
+          // That is also why this works over plain HTTP on a LAN — with
+          // security type "None" noVNC never reaches for WebCrypto, which is
+          // unavailable outside a secure context.
+          wsProtocols: ['binary'],
+        })
+        rfb.scaleViewport = true
+        rfb.clipViewport = true
+        rfb.background = 'transparent'
+        rfbRef.current = rfb
+
+        rfb.addEventListener('connect', () => !cancelled && setPhase('connected'))
+        rfb.addEventListener('disconnect', ((event: CustomEvent<{ clean: boolean }>) => {
+          if (cancelled) return
+          // A close code, if the bridge sent one, already produced a better
+          // message than anything available here.
+          setPhase((current) =>
+            current === 'connected' ? (event.detail?.clean ? 'disconnected' : 'error') : current,
+          )
+          setMessage(
+            (current) =>
+              current ||
+              (event.detail?.clean
+                ? 'The console session ended.'
+                : 'The console connection dropped.'),
+          )
+        }) as EventListener)
+        rfb.addEventListener('securityfailure', () => {
+          if (cancelled) return
+          setPhase('error')
+          setMessage('The platform rejected the console session.')
+        })
+      } catch (err) {
+        if (cancelled) return
+        setPhase('error')
+        setMessage(consoleError(err))
+      }
+    }
+
+    void connect()
+    return () => {
+      cancelled = true
+      rfb?.disconnect()
+      socket?.close()
+      rfbRef.current = null
+    }
+  }, [vmId, attempt])
+
+  const send = useCallback((keys: () => void) => () => keys(), [])
+  const ctrlAltDel = send(() => rfbRef.current?.sendCtrlAltDel())
+
+  const [fullscreen, setFullscreen] = useState(false)
+  useEffect(() => {
+    const onChange = () => setFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  return (
+    <div className="flex h-screen flex-col bg-black">
+      <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium">{vm?.name ?? 'Console'}</span>
+          {vm && <StateBadge state={vm.state} />}
+        </div>
+
+        <ConnectionDot phase={phase} />
+
+        <div className="ml-auto flex items-center gap-2">
+          <ToolbarButton onClick={ctrlAltDel} disabled={phase !== 'connected'}>
+            Ctrl+Alt+Del
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => {
+              if (document.fullscreenElement) void document.exitFullscreen()
+              else void document.documentElement.requestFullscreen()
+            }}
+          >
+            {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          </ToolbarButton>
+          {phase === 'connected' ? (
+            <ToolbarButton onClick={() => rfbRef.current?.disconnect()}>Disconnect</ToolbarButton>
+          ) : (
+            <ToolbarButton onClick={() => setAttempt((n) => n + 1)} primary>
+              Reconnect
+            </ToolbarButton>
+          )}
+          <ToolbarButton onClick={() => window.close()}>Close</ToolbarButton>
+        </div>
+      </header>
+
+      <div className="relative flex-1 overflow-hidden">
+        <div ref={screenRef} className="h-full w-full" />
+
+        {phase !== 'connected' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-6">
+            <div className="max-w-md space-y-3 text-center">
+              {phase === 'connecting' && (
+                <>
+                  <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  <p className="text-sm text-white/80">Connecting to the console…</p>
+                </>
+              )}
+              {phase !== 'connecting' && (
+                <>
+                  <p className={`text-sm ${phase === 'error' ? 'text-red-400' : 'text-white/80'}`}>
+                    {message}
+                  </p>
+                  <button
+                    onClick={() => setAttempt((n) => n + 1)}
+                    className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white"
+                  >
+                    Reconnect
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ConnectionDot({ phase }: { phase: Phase }) {
+  const colour =
+    phase === 'connected'
+      ? 'bg-state-running'
+      : phase === 'connecting'
+        ? 'bg-state-paused'
+        : 'bg-state-stopped'
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-muted">
+      <span className={`h-2 w-2 rounded-full ${colour}`} />
+      {phase}
+    </span>
+  )
+}
+
+function ToolbarButton({
+  children,
+  onClick,
+  disabled,
+  primary,
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+  primary?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-md px-3 py-1.5 text-sm disabled:opacity-40 ${
+        primary ? 'bg-accent text-white' : 'border border-border hover:bg-surface-raised'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+// Console failures have specific causes an operator can act on, so they are
+// named rather than collapsed into "something went wrong".
+function consoleError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 403) return 'Your account is not permitted to open a console on this VM.'
+    if (err.status === 404) return 'This VM does not exist, or is not visible to your account.'
+    if (err.status === 429) return 'Too many console requests. Wait a moment and try again.'
+    if (err.status === 409) return 'This VM is not running, so it has no console.'
+    return err.message
+  }
+  return 'Could not open a console session.'
+}

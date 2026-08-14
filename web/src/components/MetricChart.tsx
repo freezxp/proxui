@@ -89,7 +89,10 @@ export function MetricChart({ timestamps, series, height = 200, percentScale }: 
       ],
     }
 
-    const data: uPlot.AlignedData = [timestamps, ...series.map((s) => s.values)] as uPlot.AlignedData
+    const data: uPlot.AlignedData = [
+      timestamps,
+      ...series.map((s) => s.values),
+    ] as uPlot.AlignedData
 
     chart.current?.destroy()
     chart.current = new uPlot(options, data, container.current)

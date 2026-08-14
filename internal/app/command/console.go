@@ -63,6 +63,17 @@ func (h *OpenConsole) Handle(ctx context.Context, in OpenConsoleInput) (OpenCons
 		return OpenConsoleOutput{}, console.ErrNotPermitted
 	}
 
+	// A stopped guest has no console. Checking here costs one read and turns
+	// what would otherwise surface as a dropped WebSocket into a plain answer
+	// before any session or audit record is created.
+	vm, err := h.Inventory.GetVM(ctx, in.VMID, identity.RoleAdmin, uuid.Nil)
+	if err != nil {
+		return OpenConsoleOutput{}, err
+	}
+	if vm.State != "running" {
+		return OpenConsoleOutput{}, console.ErrNotRunning
+	}
+
 	now := h.Clock.Now()
 	session := &console.Session{
 		ID: uuid.New(), UserID: in.Actor.UserID, VMID: in.VMID, Kind: in.Kind,

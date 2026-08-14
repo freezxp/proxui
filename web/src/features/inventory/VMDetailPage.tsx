@@ -75,12 +75,21 @@ export function VMDetailPage() {
         </div>
 
         {user && can.openConsole(user.role) && (
-          <Link
-            to={`/vms/${detail.id}/console`}
-            className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white"
+          <a
+            href={`/console/${detail.id}`}
+            target="_blank"
+            rel="noreferrer"
+            // A console opens in its own tab so that navigating the portal
+            // does not tear down a session someone is working in.
+            className={`rounded-md px-3 py-2 text-sm font-medium ${
+              detail.state === 'running'
+                ? 'bg-accent text-white'
+                : 'pointer-events-none border border-border text-muted opacity-60'
+            }`}
+            title={detail.state === 'running' ? undefined : 'The VM is not running'}
           >
             Open console
-          </Link>
+          </a>
         )}
       </div>
 
@@ -135,8 +144,16 @@ function Overview({ vm }: { vm: VMDetail }) {
           <Field label="VMID" value={vm.external_id} />
           <Field label="Type" value={vm.vm_type} />
           <Field label="Uptime" value={vm.state === 'running' ? uptime(vm.uptime_s) : '—'} />
-          <Field label="First seen" value={relativeTime(vm.first_seen_at)} title={absoluteTime(vm.first_seen_at)} />
-          <Field label="Last synced" value={relativeTime(vm.last_seen_at)} title={absoluteTime(vm.last_seen_at)} />
+          <Field
+            label="First seen"
+            value={relativeTime(vm.first_seen_at)}
+            title={absoluteTime(vm.first_seen_at)}
+          />
+          <Field
+            label="Last synced"
+            value={relativeTime(vm.last_seen_at)}
+            title={absoluteTime(vm.last_seen_at)}
+          />
         </dl>
       </section>
 
@@ -146,10 +163,7 @@ function Overview({ vm }: { vm: VMDetail }) {
           <Field label="vCPU" value={String(vm.cpu_cores || '—')} />
           <Field label="Memory" value={bytes(vm.memory_bytes)} />
           <Field label="Disk" value={bytes(vm.disk_bytes)} />
-          <Field
-            label="Current CPU"
-            value={vm.state === 'running' ? percent(vm.cpu_pct) : '—'}
-          />
+          <Field label="Current CPU" value={vm.state === 'running' ? percent(vm.cpu_pct) : '—'} />
         </dl>
 
         <div className="space-y-1 pt-2">

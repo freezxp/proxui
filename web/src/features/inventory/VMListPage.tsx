@@ -112,14 +112,42 @@ export function VMListPage() {
         <table className="w-full min-w-[52rem] text-sm">
           <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
             <tr>
-              <SortableHeader label="Name" field="name" sort={sort} onSort={(s) => update({ sort: s })} />
-              <SortableHeader label="State" field="state" sort={sort} onSort={(s) => update({ sort: s })} />
+              <SortableHeader
+                label="Name"
+                field="name"
+                sort={sort}
+                onSort={(s) => update({ sort: s })}
+              />
+              <SortableHeader
+                label="State"
+                field="state"
+                sort={sort}
+                onSort={(s) => update({ sort: s })}
+              />
               <th className="px-4 py-2 font-medium">Node</th>
-              <SortableHeader label="vCPU" field="cpu" sort={sort} onSort={(s) => update({ sort: s })} align="right" />
-              <SortableHeader label="Memory" field="memory" sort={sort} onSort={(s) => update({ sort: s })} align="right" />
+              <SortableHeader
+                label="vCPU"
+                field="cpu"
+                sort={sort}
+                onSort={(s) => update({ sort: s })}
+                align="right"
+              />
+              <SortableHeader
+                label="Memory"
+                field="memory"
+                sort={sort}
+                onSort={(s) => update({ sort: s })}
+                align="right"
+              />
               <th className="px-4 py-2 text-right font-medium">CPU</th>
               <th className="px-4 py-2 text-right font-medium">Mem</th>
-              <SortableHeader label="Uptime" field="uptime" sort={sort} onSort={(s) => update({ sort: s })} align="right" />
+              <SortableHeader
+                label="Uptime"
+                field="uptime"
+                sort={sort}
+                onSort={(s) => update({ sort: s })}
+                align="right"
+              />
               <th className="px-4 py-2 font-medium">Addresses</th>
             </tr>
           </thead>
@@ -150,7 +178,10 @@ export function VMListPage() {
             {vms.data?.data.map((vm) => (
               <tr key={vm.id} className="border-t border-border hover:bg-surface-raised/60">
                 <td className="px-4 py-2">
-                  <Link to={`/vms/${vm.id}`} className="font-medium hover:text-accent hover:underline">
+                  <Link
+                    to={`/vms/${vm.id}`}
+                    className="font-medium hover:text-accent hover:underline"
+                  >
                     {vm.name}
                   </Link>
                   <div className="text-xs text-muted">

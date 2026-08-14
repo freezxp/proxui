@@ -59,6 +59,11 @@ var (
 	ErrNotPermitted = errors.New("console: not permitted")
 	// ErrUnsupported means the platform offers no console of this kind.
 	ErrUnsupported = errors.New("console: not supported by this platform")
+	// ErrNotRunning means the VM has no console because it is not running.
+	// Proxmox will still mint a ticket for a stopped guest and then drop the
+	// socket during the handshake, which reaches the operator as an obscure
+	// protocol failure; refusing here says what is actually wrong.
+	ErrNotRunning = errors.New("console: the VM is not running")
 )
 
 // Ticket is the one-time handle a browser exchanges for a live console.

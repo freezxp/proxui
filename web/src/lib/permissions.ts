@@ -19,5 +19,10 @@ export const can = {
 }
 
 export function roleLabel(role: Role): string {
-  return { admin: 'Administrator', operator: 'Operator', readonly: 'Read only', auditor: 'Auditor' }[role]
+  return {
+    admin: 'Administrator',
+    operator: 'Operator',
+    readonly: 'Read only',
+    auditor: 'Auditor',
+  }[role]
 }

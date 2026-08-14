@@ -35,15 +35,30 @@ export function PerformanceTab({
     { label: 'CPU', color: themeColor('--accent'), values: columns.cpu, format: percent },
   ]
   const memory: Series[] = [
-    { label: 'Memory', color: themeColor('--state-running'), values: columns.memUsed, format: bytes },
+    {
+      label: 'Memory',
+      color: themeColor('--state-running'),
+      values: columns.memUsed,
+      format: bytes,
+    },
   ]
   const network: Series[] = [
     { label: 'Receive', color: themeColor('--accent'), values: columns.netRx, format: perSecond },
-    { label: 'Transmit', color: themeColor('--state-paused'), values: columns.netTx, format: perSecond },
+    {
+      label: 'Transmit',
+      color: themeColor('--state-paused'),
+      values: columns.netTx,
+      format: perSecond,
+    },
   ]
   const disk: Series[] = [
     { label: 'Read', color: themeColor('--accent'), values: columns.diskRead, format: perSecond },
-    { label: 'Write', color: themeColor('--state-paused'), values: columns.diskWrite, format: perSecond },
+    {
+      label: 'Write',
+      color: themeColor('--state-paused'),
+      values: columns.diskWrite,
+      format: perSecond,
+    },
   ]
 
   return (
@@ -68,7 +83,8 @@ export function PerformanceTab({
             must not look like per-minute detail. */}
         {resolution && (
           <span className="text-xs text-muted">
-            {points.length} points · {resolution === 'raw' ? '1-minute samples' : `${resolution} averages`}
+            {points.length} points ·{' '}
+            {resolution === 'raw' ? '1-minute samples' : `${resolution} averages`}
           </span>
         )}
       </div>

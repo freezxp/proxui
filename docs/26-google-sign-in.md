@@ -13,10 +13,15 @@ Its rules for an authorized redirect URI are:
 | Must use `https://`, except for localhost | `http://…:8080` is refused |
 | No IP addresses, except `127.0.0.1` and `localhost` | `192.168.100.23` is refused |
 | The domain must have a public suffix | `.vm`, `.local`, `.lan` and `.internal` are refused |
+| For an *External* app, you must **own** the domain and verify it | an invented internal name cannot be used |
 
 So `http://192.168.100.23:8080/api/v1/auth/google/callback` cannot be
 registered, and neither can anything ending in `.vm`. This is Google's
 restriction, not the portal's — there is no setting that works around it.
+
+A name like `vm.intranet.my` clears the public-suffix rule, because `.my` is a
+real top-level domain. It still has to be reached over `https://`, and for an
+External app you have to prove you own `intranet.my` — see §26.2a.
 
 Three ways forward:
 
@@ -39,6 +44,22 @@ DNS-01 validation avoids even that.
 
 Redirect URI becomes `https://vm.example.com/api/v1/auth/google/callback`.
 
+### A2. An internal-only name on a domain you own
+
+The host does not have to be reachable from the internet. What has to be
+public is enough of the DNS to get a certificate:
+
+- Point `vm.example.com` at the portal's private address. A public `A` record
+  holding `192.168.100.23` is perfectly legal and resolves to nothing useful
+  from outside — or use split-horizon DNS and skip the public record
+  entirely.
+- Issue the certificate with **DNS-01** validation rather than HTTP-01. It
+  proves ownership by writing a TXT record, so Let's Encrypt never needs to
+  reach the host. Caddy supports this with a DNS provider module.
+
+This is the usual shape for an internal portal that still wants real
+certificates and Google sign-in.
+
 ### B. localhost, for trying it out
 
 Google allows `http://localhost`. Forward the port from your own machine:
@@ -58,6 +79,25 @@ work because the redirect does not match.
 
 Password accounts and self-registration work at any address. Google sign-in
 is a convenience, not a requirement.
+
+## 26.2a Behind a reverse proxy
+
+Two things to get right when TLS terminates in front of the portal.
+
+**Pass the scheme through.** The portal decides whether to send HSTS from
+`X-Forwarded-Proto`. Caddy's `reverse_proxy` sets it; nginx needs
+`proxy_set_header X-Forwarded-Proto $scheme;`. Without it the portal believes
+it is serving plain HTTP and omits the header.
+
+**Turn secure cookies back on.** `PROXUI_SECURE_COOKIES` defaults to true and
+should stay that way behind TLS. It is only set to false for plain-HTTP LAN
+use, where a `Secure` cookie would never be sent back and nobody could sign
+in. If you set it false while testing over HTTP, set it back.
+
+**WebSockets must pass through** for consoles and live updates: Caddy handles
+this automatically, nginx needs `proxy_set_header Upgrade $http_upgrade;` and
+`proxy_set_header Connection "upgrade";`. A proxy that buffers or drops the
+upgrade shows up as a console stuck on "Connecting…".
 
 ## 26.2 Creating the OAuth client
 
@@ -108,6 +148,11 @@ Once you have decided on the address from §26.1.
      and the sign-in fails with `redirect_uri_mismatch`.
    - **Authorized JavaScript origins**: not needed. This portal does the
      exchange server-side.
+
+   For an *External* app, the domain must also appear under **Authorized
+   domains** on the consent screen, and Google will ask you to verify it in
+   Search Console (a DNS TXT record or an HTML file). *Internal* Workspace
+   apps skip this.
 
 5. **Copy the client ID and client secret.** The secret is shown once.
 

@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { Shell } from './Shell'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
+import { VMListPage } from '@/features/inventory/VMListPage'
 import { useAuth } from '@/features/auth/useAuth'
 
 /** Placeholder for pages arriving in later sprints, so navigation is
@@ -23,7 +24,7 @@ const router = createBrowserRouter([
     element: <Shell />,
     children: [
       { index: true, element: <DashboardPage /> },
-      { path: 'vms', element: <ComingSoon title="Inventory" /> },
+      { path: 'vms', element: <VMListPage /> },
       { path: 'audit', element: <ComingSoon title="Audit log" /> },
       { path: 'platforms', element: <ComingSoon title="Platforms" /> },
       { path: 'users', element: <ComingSoon title="Users & groups" /> },

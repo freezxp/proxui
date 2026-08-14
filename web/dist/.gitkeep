@@ -1,3 +1,0 @@
-The built frontend lands here (make web). It is git-ignored, but the directory
-must exist because the Go binary embeds it; a missing directory would break the
-build for anyone who has not run the frontend build yet.

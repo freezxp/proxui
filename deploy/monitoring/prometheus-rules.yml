@@ -64,7 +64,7 @@ groups:
         annotations:
           summary: "{{ $labels.kind }} notifications are failing"
           description: "An alert nobody receives is worse than no alert."
-          runbook: "docs/24-runbooks.md#244-notifications-are-not-arriving"
+          runbook: "docs/24-runbooks.md#245-notifications-are-not-arriving"
 
       # A burst of failures with no successes is the shape of credential
       # stuffing; a burst with successes is more likely a broken integration.

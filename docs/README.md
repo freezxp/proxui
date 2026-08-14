@@ -52,6 +52,7 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | 23 | [AI-Native Development Guide](23-ai-native-development.md) | AI-native docs (with root `CLAUDE.md`) |
 | 24 | [Runbooks](24-runbooks.md) | operational procedures, written for 3am |
 | 25 | [Security Checklist](25-security-checklist.md) | ASVS L2 pass with evidence, including what is not met |
+| 26 | [Google Sign-in Setup](26-google-sign-in.md) | creating the OAuth client, and the address rules Google enforces |
 
 ## How to read this package
 

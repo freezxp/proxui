@@ -114,7 +114,15 @@ The portal answers the platform's RFB handshake itself (ADR 0002), so a
 console failure is never a browser credential problem — the browser holds no
 platform secret to be wrong.
 
-## 24.4 Notifications are not arriving
+## 24.4 Google sign-in
+
+Setting it up, and what Google will not accept, is
+[docs/26-google-sign-in.md](26-google-sign-in.md). The short version: Google
+refuses a redirect URI on an IP address, on plain HTTP, or on a domain
+without a public suffix — so a portal reached at `http://10.x.x.x:8080` or at
+`something.vm` cannot use it until it has a real name and a certificate.
+
+## 24.5 Notifications are not arriving
 
 1. **Notifications → Deliveries.** If entries are `failed`, the reason is
    recorded verbatim from the channel.
@@ -126,7 +134,7 @@ platform secret to be wrong.
    immediately and permanently — a missing webhook URL fails identically
    every time, and the log says so rather than retrying into the same wall.
 
-## 24.5 Alerts are noisy, or silent
+## 24.6 Alerts are noisy, or silent
 
 - **Too noisy:** raise the sustained duration so a spike stops qualifying, or
   lengthen the cooldown. A cooldown of zero means *never repeat*, which is a
@@ -138,7 +146,7 @@ platform secret to be wrong.
 - **Fires and never resolves:** the metric is still breaching. The firing
   list shows the last value the evaluator saw.
 
-## 24.6 Losing the master key
+## 24.7 Losing the master key
 
 There is no recovery. `PROXUI_MASTER_KEY` decrypts platform credentials and
 notification secrets; nothing else can.
@@ -155,7 +163,7 @@ If it is lost:
 Losing the key costs an afternoon of re-entering credentials. Losing the
 key *and* the database costs the estate's history. Back up both, separately.
 
-## 24.7 Upgrading
+## 24.8 Upgrading
 
 1. Take a backup. Migrations are forward-only.
 2. Deploy the new image. Migrations run on API start under an advisory lock,

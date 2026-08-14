@@ -285,6 +285,53 @@ func (s *Server) handleCreateVMGroup(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusCreated, g)
 }
 
+func (s *Server) handleListVMGroupMembers(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathUUID(w, r, "groupID")
+	if !ok {
+		return
+	}
+	ids, err := s.admin.Access.VMGroupMemberIDs(r.Context(), id)
+	if err != nil {
+		s.serverError(w, r, err, "Could not list group members.")
+		return
+	}
+	out := make([]string, 0, len(ids))
+	for _, vmID := range ids {
+		out = append(out, vmID.String())
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+}
+
+type setMembersRequest struct {
+	VMIDs []string `json:"vm_ids"`
+}
+
+func (s *Server) handleSetVMGroupMembers(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathUUID(w, r, "groupID")
+	if !ok {
+		return
+	}
+	var req setMembersRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		return
+	}
+	ids := make([]uuid.UUID, 0, len(req.VMIDs))
+	for _, raw := range req.VMIDs {
+		parsed, err := uuid.Parse(raw)
+		if err != nil {
+			WriteProblem(w, r, http.StatusBadRequest, "invalid_request",
+				"One of the supplied VM identifiers is not a valid UUID.")
+			return
+		}
+		ids = append(ids, parsed)
+	}
+	if err := s.admin.ManageAccess.SetVMGroupMembers(r.Context(), s.actor(r), id, ids); err != nil {
+		s.writeAdminError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleDeleteVMGroup(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.pathUUID(w, r, "groupID")
 	if !ok {

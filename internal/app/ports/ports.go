@@ -65,6 +65,11 @@ type AccessRepository interface {
 	CreateVMGroup(ctx context.Context, g *access.VMGroup) error
 	ListVMGroups(ctx context.Context) ([]access.VMGroup, error)
 	DeleteVMGroup(ctx context.Context, id uuid.UUID) error
+	// SetVMGroupMembers replaces a group's manually chosen members. Members
+	// added by an auto rule are left alone: they belong to the rule, and a
+	// manual edit must not silently undo synchronization.
+	SetVMGroupMembers(ctx context.Context, groupID uuid.UUID, vmIDs []uuid.UUID) error
+	VMGroupMemberIDs(ctx context.Context, groupID uuid.UUID) ([]uuid.UUID, error)
 
 	CreateGrant(ctx context.Context, g *access.Grant) error
 	ListGrants(ctx context.Context) ([]access.Grant, error)

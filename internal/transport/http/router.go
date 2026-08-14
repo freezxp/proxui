@@ -180,6 +180,8 @@ func (s *Server) Routes() http.Handler {
 				r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor)).
 					Get("/", s.handleListVMGroups)
 				r.With(RequireRole(identity.RoleAdmin)).Post("/", s.handleCreateVMGroup)
+				r.With(RequireRole(identity.RoleAdmin)).Get("/{groupID}/members", s.handleListVMGroupMembers)
+				r.With(RequireRole(identity.RoleAdmin)).Put("/{groupID}/members", s.handleSetVMGroupMembers)
 				r.With(RequireRole(identity.RoleAdmin)).Delete("/{groupID}", s.handleDeleteVMGroup)
 			})
 

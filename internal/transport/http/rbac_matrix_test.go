@@ -47,17 +47,21 @@ func (p roleTokenParser) Parse(string) (*crypto.Claims, error) {
 // returning empty results so the matrix measures authorization, not behaviour.
 type stubAccess struct{}
 
-func (stubAccess) CreateUserGroup(context.Context, *access.UserGroup) error    { return nil }
-func (stubAccess) ListUserGroups(context.Context) ([]access.UserGroup, error)  { return nil, nil }
-func (stubAccess) DeleteUserGroup(context.Context, uuid.UUID) error            { return nil }
-func (stubAccess) SetUserGroups(context.Context, uuid.UUID, []uuid.UUID) error { return nil }
-func (stubAccess) UserGroupNames(context.Context, uuid.UUID) ([]string, error) { return nil, nil }
-func (stubAccess) CreateVMGroup(context.Context, *access.VMGroup) error        { return nil }
-func (stubAccess) ListVMGroups(context.Context) ([]access.VMGroup, error)      { return nil, nil }
-func (stubAccess) DeleteVMGroup(context.Context, uuid.UUID) error              { return nil }
-func (stubAccess) CreateGrant(context.Context, *access.Grant) error            { return nil }
-func (stubAccess) ListGrants(context.Context) ([]access.Grant, error)          { return nil, nil }
-func (stubAccess) DeleteGrant(context.Context, uuid.UUID) error                { return nil }
+func (stubAccess) CreateUserGroup(context.Context, *access.UserGroup) error        { return nil }
+func (stubAccess) ListUserGroups(context.Context) ([]access.UserGroup, error)      { return nil, nil }
+func (stubAccess) DeleteUserGroup(context.Context, uuid.UUID) error                { return nil }
+func (stubAccess) SetUserGroups(context.Context, uuid.UUID, []uuid.UUID) error     { return nil }
+func (stubAccess) UserGroupNames(context.Context, uuid.UUID) ([]string, error)     { return nil, nil }
+func (stubAccess) CreateVMGroup(context.Context, *access.VMGroup) error            { return nil }
+func (stubAccess) ListVMGroups(context.Context) ([]access.VMGroup, error)          { return nil, nil }
+func (stubAccess) DeleteVMGroup(context.Context, uuid.UUID) error                  { return nil }
+func (stubAccess) SetVMGroupMembers(context.Context, uuid.UUID, []uuid.UUID) error { return nil }
+func (stubAccess) VMGroupMemberIDs(context.Context, uuid.UUID) ([]uuid.UUID, error) {
+	return nil, nil
+}
+func (stubAccess) CreateGrant(context.Context, *access.Grant) error   { return nil }
+func (stubAccess) ListGrants(context.Context) ([]access.Grant, error) { return nil, nil }
+func (stubAccess) DeleteGrant(context.Context, uuid.UUID) error       { return nil }
 func (stubAccess) VisibleVMGroupIDs(context.Context, uuid.UUID) ([]uuid.UUID, error) {
 	return nil, nil
 }

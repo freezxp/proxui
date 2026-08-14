@@ -76,6 +76,36 @@ func (h *ManageAccess) CreateVMGroup(ctx context.Context, in GroupInput) (*acces
 	return g, nil
 }
 
+// SetVMGroupMembers replaces which VMs a group contains.
+//
+// This changes who can see what, because grants are expressed in terms of
+// groups: it is audited with both the old and the new membership so that a
+// later question of "when did this operator gain access to that VM" has an
+// answer.
+func (h *ManageAccess) SetVMGroupMembers(ctx context.Context, actor Actor, groupID uuid.UUID, vmIDs []uuid.UUID) error {
+	before, err := h.Access.VMGroupMemberIDs(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if err := h.Access.SetVMGroupMembers(ctx, groupID, vmIDs); err != nil {
+		return err
+	}
+	writeAudit(ctx, h.Audit, actor, h.Clock.Now(), ports.AuditCategoryUserMgmt, "vm_group_members_set",
+		"vm_group", groupID.String(), "", map[string]any{
+			"before": idStrings(before), "after": idStrings(vmIDs),
+			"added": len(vmIDs) - len(before),
+		})
+	return nil
+}
+
+func idStrings(ids []uuid.UUID) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	return out
+}
+
 // DeleteVMGroup removes a VM group and every grant that referenced it.
 func (h *ManageAccess) DeleteVMGroup(ctx context.Context, actor Actor, id uuid.UUID) error {
 	if err := h.Access.DeleteVMGroup(ctx, id); err != nil {

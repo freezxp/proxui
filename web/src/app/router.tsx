@@ -6,6 +6,7 @@ import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { VMListPage } from '@/features/inventory/VMListPage'
 import { VMDetailPage } from '@/features/inventory/VMDetailPage'
 import { PlatformsPage } from '@/features/platforms/PlatformsPage'
+import { UsersPage } from '@/features/admin/UsersPage'
 import { useAuth } from '@/features/auth/useAuth'
 
 /** Placeholder for pages arriving in later sprints, so navigation is
@@ -54,7 +55,7 @@ const router = createBrowserRouter([
       { path: 'vms/:vmId', element: <VMDetailPage /> },
       { path: 'audit', element: <ComingSoon title="Audit log" /> },
       { path: 'platforms', element: <PlatformsPage /> },
-      { path: 'users', element: <ComingSoon title="Users & groups" /> },
+      { path: 'users', element: <UsersPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

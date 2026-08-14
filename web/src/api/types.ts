@@ -187,3 +187,38 @@ export interface SyncRun {
   error?: string
   stats: Record<string, number>
 }
+
+export interface User {
+  id: string
+  username: string
+  email: string
+  display_name: string
+  role: 'admin' | 'operator' | 'readonly' | 'auditor'
+  is_active: boolean
+  totp_enabled: boolean
+  must_change_password: boolean
+  last_login_at?: string
+  created_at: string
+}
+
+export interface UserGroup {
+  id: string
+  name: string
+  description: string
+  member_count: number
+  created_at: string
+}
+
+export interface VMGroup extends UserGroup {
+  auto_rule?: unknown
+}
+
+export interface Grant {
+  id: string
+  user_group_id: string
+  user_group_name: string
+  vm_group_id: string
+  vm_group_name: string
+  granted_by?: string
+  created_at: string
+}

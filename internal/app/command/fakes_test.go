@@ -112,6 +112,9 @@ type fakeAccess struct {
 	vmGroups   map[uuid.UUID]*access.VMGroup
 	grants     map[uuid.UUID]*access.Grant
 	membership map[uuid.UUID][]uuid.UUID // user -> user groups
+	// vmGroupMembers is VM group -> VMs, the link that makes a grant confer
+	// access to anything at all.
+	vmGroupMembers map[uuid.UUID][]uuid.UUID
 }
 
 func newFakeAccess() *fakeAccess {
@@ -204,6 +207,22 @@ func (f *fakeAccess) ListVMGroups(context.Context) ([]access.VMGroup, error) {
 		out = append(out, *g)
 	}
 	return out, nil
+}
+
+func (f *fakeAccess) SetVMGroupMembers(_ context.Context, groupID uuid.UUID, vmIDs []uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.vmGroupMembers == nil {
+		f.vmGroupMembers = map[uuid.UUID][]uuid.UUID{}
+	}
+	f.vmGroupMembers[groupID] = append([]uuid.UUID(nil), vmIDs...)
+	return nil
+}
+
+func (f *fakeAccess) VMGroupMemberIDs(_ context.Context, groupID uuid.UUID) ([]uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]uuid.UUID(nil), f.vmGroupMembers[groupID]...), nil
 }
 
 func (f *fakeAccess) DeleteVMGroup(_ context.Context, id uuid.UUID) error {

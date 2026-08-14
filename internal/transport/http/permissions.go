@@ -77,6 +77,8 @@ var permissionMap = map[string]Permission{
 	"DELETE /api/v1/user-groups/{groupID}":         roles(identity.RoleAdmin),
 	"GET /api/v1/vm-groups":                        roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
 	"POST /api/v1/vm-groups":                       roles(identity.RoleAdmin),
+	"GET /api/v1/vm-groups/{groupID}/members":      roles(identity.RoleAdmin),
+	"PUT /api/v1/vm-groups/{groupID}/members":      roles(identity.RoleAdmin),
 	"DELETE /api/v1/vm-groups/{groupID}":           roles(identity.RoleAdmin),
 	"GET /api/v1/platforms":                        roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
 	"POST /api/v1/platforms":                       roles(identity.RoleAdmin),

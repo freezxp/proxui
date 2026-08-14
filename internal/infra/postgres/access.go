@@ -131,7 +131,9 @@ func (r *AccessRepository) CreateVMGroup(ctx context.Context, g *access.VMGroup)
 // ListVMGroups returns all VM groups.
 func (r *AccessRepository) ListVMGroups(ctx context.Context) ([]access.VMGroup, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT id, name, description, auto_rule, created_at FROM vm_groups ORDER BY name`)
+		`SELECT g.id, g.name, g.description, g.auto_rule, g.created_at,
+		        (SELECT count(*) FROM vm_group_members m WHERE m.vm_group_id = g.id)
+		   FROM vm_groups g ORDER BY g.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list vm groups: %w", err)
 	}
@@ -140,10 +142,57 @@ func (r *AccessRepository) ListVMGroups(ctx context.Context) ([]access.VMGroup, 
 	var out []access.VMGroup
 	for rows.Next() {
 		var g access.VMGroup
-		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.AutoRule, &g.CreatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.AutoRule, &g.CreatedAt, &g.MemberCount); err != nil {
 			return nil, fmt.Errorf("scan vm group: %w", err)
 		}
 		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// SetVMGroupMembers replaces the manual membership of a group in one
+// transaction, so a failure part-way cannot leave a group half-populated and
+// therefore granting access to a set nobody chose.
+func (r *AccessRepository) SetVMGroupMembers(ctx context.Context, groupID uuid.UUID, vmIDs []uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("set vm group members: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Only manual rows are replaced: auto-rule membership is owned by the sync
+	// engine and reappears on the next run regardless.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM vm_group_members WHERE vm_group_id = $1 AND added_by = 'manual'`, groupID); err != nil {
+		return fmt.Errorf("clear vm group members: %w", err)
+	}
+	for _, vmID := range vmIDs {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO vm_group_members (vm_group_id, vm_id, added_by)
+			 VALUES ($1, $2, 'manual')
+			 ON CONFLICT (vm_group_id, vm_id) DO NOTHING`, groupID, vmID); err != nil {
+			return fmt.Errorf("add vm group member: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// VMGroupMemberIDs lists every VM in a group, however it got there.
+func (r *AccessRepository) VMGroupMemberIDs(ctx context.Context, groupID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT vm_id FROM vm_group_members WHERE vm_group_id = $1`, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("list vm group members: %w", err)
+	}
+	defer rows.Close()
+
+	out := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan vm group member: %w", err)
+		}
+		out = append(out, id)
 	}
 	return out, rows.Err()
 }

@@ -106,6 +106,16 @@ var permissionMap = map[string]Permission{
 	"GET /api/v1/audit-logs/export":     roles(identity.RoleAdmin, identity.RoleAuditor),
 	"GET /api/v1/audit-logs/categories": roles(identity.RoleAdmin, identity.RoleAuditor),
 
+	"GET /api/v1/notification-channels":                   roles(identity.RoleAdmin),
+	"POST /api/v1/notification-channels":                  roles(identity.RoleAdmin),
+	"PUT /api/v1/notification-channels/{channelID}":       roles(identity.RoleAdmin),
+	"DELETE /api/v1/notification-channels/{channelID}":    roles(identity.RoleAdmin),
+	"POST /api/v1/notification-channels/{channelID}/test": roles(identity.RoleAdmin),
+	"GET /api/v1/notification-rules":                      roles(identity.RoleAdmin),
+	"POST /api/v1/notification-rules":                     roles(identity.RoleAdmin),
+	"DELETE /api/v1/notification-rules/{ruleID}":          roles(identity.RoleAdmin),
+	"GET /api/v1/notification-deliveries":                 roles(identity.RoleAdmin),
+
 	"GET /api/v1/grants":              roles(identity.RoleAdmin),
 	"POST /api/v1/grants":             roles(identity.RoleAdmin),
 	"DELETE /api/v1/grants/{grantID}": roles(identity.RoleAdmin),

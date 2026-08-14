@@ -20,12 +20,14 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/freezxp/proxui/internal/app/command"
+	appnotify "github.com/freezxp/proxui/internal/app/notify"
 	"github.com/freezxp/proxui/internal/app/ports"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/infra/config"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 	"github.com/freezxp/proxui/internal/infra/logging"
+	infranotify "github.com/freezxp/proxui/internal/infra/notify"
 	"github.com/freezxp/proxui/internal/infra/postgres"
 	redisinfra "github.com/freezxp/proxui/internal/infra/redis"
 	"github.com/freezxp/proxui/internal/jobs"
@@ -215,6 +217,20 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		}
 	}
 
+	// Notifications: one dispatcher serves both the relay (event-driven
+	// delivery) and the API (test sends), so a channel proven by a test is
+	// the same code path an incident will use.
+	notifyRepo := postgres.NewNotifyRepository(pool)
+	dispatcher := &appnotify.Dispatcher{
+		Repo:    notifyRepo,
+		Groups:  accessRepo,
+		Senders: infranotify.DefaultRegistry(nil),
+		Vault:   vault,
+		Clock:   clock,
+		Log:     log,
+		Audit:   audit,
+	}
+
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 	shutdown := make([]func(context.Context) error, 0, 2)
@@ -234,6 +250,9 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Metrics:   httpapi.MetricsDeps{Metrics: metrics},
 			Inventory: httpapi.InventoryDeps{
 				Inventory: inventory, Audit: auditLog, Metrics: metrics,
+			},
+			Notify: httpapi.NotifyDeps{
+				Repo: notifyRepo, Dispatcher: dispatcher, Vault: vault,
 			},
 			Power: httpapi.PowerDeps{
 				Power: &command.Power{
@@ -297,7 +316,10 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	// (sprint 6). Until then these roles idle so deployment wiring can be
 	// exercised end to end.
 	if cfg.Role.RunsWorker() {
-		relay := &jobs.Relay{Store: syncRepo, Redis: rdb.Client, Log: log, Clock: clock}
+		relay := &jobs.Relay{
+			Store: syncRepo, Redis: rdb.Client, Log: log, Clock: clock,
+			Notifier: dispatcher,
+		}
 		worker := jobs.NewWorker(rdb.Client, &jobs.SyncHandler{Service: syncService, Log: log}, relay, log)
 		if err := worker.Start(); err != nil {
 			return err

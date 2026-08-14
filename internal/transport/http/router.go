@@ -61,6 +61,9 @@ type ServerConfig struct {
 	// HTTP development; production terminates TLS at the reverse proxy.
 	SecureCookies bool
 
+	// Notify carries the notification channels, rules and dispatcher.
+	Notify NotifyDeps
+
 	// Clock is injected so cookie expiry is testable.
 	Clock func() time.Time
 }
@@ -78,6 +81,7 @@ type Server struct {
 	inventory     InventoryDeps
 	console       ConsoleDeps
 	power         PowerDeps
+	notify        NotifyDeps
 	events        EventStreamer
 	limiter       Limiter
 	spa           http.Handler
@@ -105,6 +109,7 @@ func NewServer(cfg ServerConfig) *Server {
 		inventory:     cfg.Inventory,
 		console:       cfg.Console,
 		power:         cfg.Power,
+		notify:        cfg.Notify,
 		events:        cfg.Events,
 		limiter:       cfg.Limiter,
 		spa:           cfg.SPA,
@@ -246,6 +251,25 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/export", s.handleExportAudit)
 				r.Get("/categories", s.handleAuditCategories)
 			})
+
+			r.Route("/notification-channels", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/", s.handleListChannels)
+				r.Post("/", s.handleCreateChannel)
+				r.Put("/{channelID}", s.handleUpdateChannel)
+				r.Delete("/{channelID}", s.handleDeleteChannel)
+				r.Post("/{channelID}/test", s.handleTestChannel)
+			})
+
+			r.Route("/notification-rules", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/", s.handleListRules)
+				r.Post("/", s.handleCreateRule)
+				r.Delete("/{ruleID}", s.handleDeleteRule)
+			})
+
+			r.With(RequireRole(identity.RoleAdmin)).
+				Get("/notification-deliveries", s.handleListDeliveries)
 
 			r.Route("/grants", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))

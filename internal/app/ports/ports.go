@@ -16,6 +16,7 @@ import (
 	"github.com/freezxp/proxui/internal/domain/console"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/domain/inventory"
+	"github.com/freezxp/proxui/internal/domain/notify"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 )
 
@@ -493,4 +494,36 @@ type ConsoleRepository interface {
 type TicketStore interface {
 	Issue(ctx context.Context, t console.Ticket) error
 	Redeem(ctx context.Context, id string) (console.Ticket, error)
+}
+
+// DeliveryRecord is one row of the notification delivery log (NOTIF-03).
+type DeliveryRecord struct {
+	ID          int64      `json:"id"`
+	ChannelID   uuid.UUID  `json:"channel_id"`
+	ChannelName string     `json:"channel_name"`
+	Subject     string     `json:"subject"`
+	Status      string     `json:"status"`
+	Attempts    int        `json:"attempts"`
+	LastError   string     `json:"last_error,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	SentAt      *time.Time `json:"sent_at,omitempty"`
+}
+
+// NotifyRepository stores channels, routing rules and deliveries.
+type NotifyRepository interface {
+	CreateChannel(ctx context.Context, ch *notify.Channel, sealed *crypto.SealedSecret) error
+	UpdateChannel(ctx context.Context, ch *notify.Channel, sealed *crypto.SealedSecret) error
+	ListChannels(ctx context.Context) ([]notify.Channel, error)
+	GetChannel(ctx context.Context, id uuid.UUID) (notify.Channel, error)
+	ChannelSecret(ctx context.Context, id uuid.UUID, vault *crypto.Vault) (string, error)
+	DeleteChannel(ctx context.Context, id uuid.UUID, at time.Time) error
+
+	CreateRule(ctx context.Context, rule *notify.Rule) error
+	ListRules(ctx context.Context) ([]notify.Rule, error)
+	DeleteRule(ctx context.Context, id uuid.UUID) error
+
+	ClaimDelivery(ctx context.Context, outboxID int64, channelID uuid.UUID, subject string, now time.Time) (int64, bool, error)
+	RecordDelivery(ctx context.Context, channelID uuid.UUID, subject string, now time.Time) (int64, error)
+	FinishDelivery(ctx context.Context, id int64, sendErr error, now time.Time) error
+	ListDeliveries(ctx context.Context, limit int) ([]DeliveryRecord, error)
 }

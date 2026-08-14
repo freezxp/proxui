@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- **Self-registration and Google sign-in** (ADR 0003), both off until switched
+  on. Google's client ID, secret and redirect URL are configured in Settings,
+  the secret encrypted like a platform credential.
+- **A `newuser` role** for accounts that provision themselves. It reaches
+  `GET /auth/me` and the password change endpoint, and nothing else — where
+  read-only, the previous default, could survey the estate's hosts, storage
+  and networks without ever being granted a VM. Such an account lands on a
+  page telling it to ask an administrator for access.
+- **Live updates now actually work in a browser.** `GET /api/v1/events` was a
+  WebSocket carrying no credential — a browser cannot put an `Authorization`
+  header on one — so it had answered 401 in a reconnect loop since it was
+  written. It is replaced by `POST /events/ticket` plus
+  `GET /ws/events/{ticketID}`, the same single-use ticket the console uses.
+- Branding: portal name, logo and login banner, with the name defaulting to
+  the host the portal was reached at.
+- Password change in the UI, including the forced change on first sign-in.
+- Operators no longer see the platform column or administrative navigation.
+
 ## v1.0.0-rc.1 — 2026-08-14
 
 First release candidate. Every sprint in the roadmap is implemented and

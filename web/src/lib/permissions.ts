@@ -8,7 +8,11 @@ import type { Role } from '@/api/types'
  * the enforcement is elsewhere.
  */
 export const can = {
-  viewInventory: (_role: Role) => true,
+  /** A brand-new account reaches nothing but its welcome page. Every other
+   *  capability below is written to exclude it, and the server refuses it on
+   *  every route regardless — this only decides what is worth showing. */
+  useThePortal: (role: Role) => role !== 'newuser',
+  viewInventory: (role: Role) => role !== 'newuser',
   /** Hosts, storage and networks describe the estate rather than the VMs in
    *  it. An operator works on what they were granted; surveying the nodes
    *  behind it is an administrator's job. */
@@ -28,5 +32,6 @@ export function roleLabel(role: Role): string {
     operator: 'Operator',
     readonly: 'Read only',
     auditor: 'Auditor',
+    newuser: 'New user',
   }[role]
 }

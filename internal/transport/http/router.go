@@ -68,6 +68,10 @@ type ServerConfig struct {
 	// HTTP development; production terminates TLS at the reverse proxy.
 	SecureCookies bool
 
+	// StreamTickets authenticates the live event WebSocket, which a browser
+	// cannot send a header on.
+	StreamTickets StreamTicketStore
+
 	// Registration carries self-registration and external sign-in.
 	Registration RegistrationDeps
 
@@ -102,6 +106,7 @@ type Server struct {
 	alerts        AlertDeps
 	settings      SettingsDeps
 	events        EventStreamer
+	streamTickets StreamTicketStore
 	limiter       Limiter
 	spa           http.Handler
 	startedAt     time.Time
@@ -133,6 +138,7 @@ func NewServer(cfg ServerConfig) *Server {
 		alerts:        cfg.Alerts,
 		settings:      cfg.Settings,
 		events:        cfg.Events,
+		streamTickets: cfg.StreamTickets,
 		limiter:       cfg.Limiter,
 		spa:           cfg.SPA,
 		startedAt:     time.Now(),
@@ -158,6 +164,9 @@ func (s *Server) Routes() http.Handler {
 	// The console WebSocket authenticates with its single-use ticket rather
 	// than a bearer token: a browser cannot set headers on a WebSocket.
 	r.Get("/ws/console/{ticketID}", s.handleConsoleWS)
+	// The live event stream, for the same reason: a browser cannot put an
+	// Authorization header on a WebSocket, so the ticket is the credential.
+	r.Get("/ws/events/{ticketID}", s.handleEventsWS)
 
 	r.Get("/healthz", s.handleLive)
 	r.Get("/readyz", s.handleReady)
@@ -284,7 +293,7 @@ func (s *Server) Routes() http.Handler {
 			// Live updates are scoped per subscriber inside the hub, so every
 			// role may subscribe and each sees only their own estate.
 			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor)).
-				Get("/events", s.handleEvents)
+				Post("/events/ticket", s.handleEventTicket)
 
 			r.Route("/audit-logs", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin, identity.RoleAuditor))

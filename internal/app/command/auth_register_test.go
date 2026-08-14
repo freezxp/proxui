@@ -21,7 +21,7 @@ func newRegister(open bool, seed ...*identity.User) (*Register, *fakeUsers, *fak
 	}, users, audit
 }
 
-func TestRegisterCreatesAReadOnlyAccountWithNoAccess(t *testing.T) {
+func TestRegisterCreatesAnAccountWithNoAccessAtAll(t *testing.T) {
 	h, users, audit := newRegister(true)
 
 	user, err := h.Handle(context.Background(), RegisterInput{
@@ -32,10 +32,11 @@ func TestRegisterCreatesAReadOnlyAccountWithNoAccess(t *testing.T) {
 		t.Fatalf("Handle() error = %v", err)
 	}
 
-	// The whole containment story for open registration: an account that can
-	// see nothing until an administrator grants it something.
-	if user.Role != identity.RoleReadOnly {
-		t.Errorf("role = %q, want readonly", user.Role)
+	// The containment story for open registration. Not read-only, which can
+	// still survey the estate's hosts, storage and networks: a new account
+	// reaches one page telling it to ask for access.
+	if user.Role != identity.RoleNewUser {
+		t.Errorf("role = %q, want newuser", user.Role)
 	}
 	if user.AuthProvider != identity.ProviderLocal {
 		t.Errorf("provider = %q, want local", user.AuthProvider)
@@ -130,8 +131,8 @@ func TestExternalSignInProvisionsAnAccount(t *testing.T) {
 	if user.AuthProvider != identity.ProviderGoogle || user.ExternalID != "google-subject-1" {
 		t.Errorf("provider = %q external = %q", user.AuthProvider, user.ExternalID)
 	}
-	if user.Role != identity.RoleReadOnly {
-		t.Errorf("role = %q, want readonly", user.Role)
+	if user.Role != identity.RoleNewUser {
+		t.Errorf("role = %q, want newuser", user.Role)
 	}
 	// No password at all, so the password path has nothing to compare against.
 	if user.PasswordHash != "" {
@@ -236,5 +237,16 @@ func TestUsernameIsDerivedFromTheAddress(t *testing.T) {
 		if got := usernameFromEmail(in); got != want {
 			t.Errorf("usernameFromEmail(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The role a new account gets is the containment, so it is worth stating
+// plainly rather than leaving implied by two other tests.
+func TestNewAccountsGetTheRoleThatReachesNothing(t *testing.T) {
+	if NewAccountRole != identity.RoleNewUser {
+		t.Errorf("NewAccountRole = %q; self-registration must not hand out a role that can see the estate", NewAccountRole)
+	}
+	if NewAccountRole == identity.RoleReadOnly {
+		t.Error("read-only can survey hosts, storage and networks; a stranger who just signed up should not")
 	}
 }

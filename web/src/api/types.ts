@@ -1,7 +1,7 @@
 /** Shapes returned by the Go API. Hand-written for now; generated from
  *  OpenAPI once the specification is committed (docs/23 recipe). */
 
-export type Role = 'admin' | 'operator' | 'readonly' | 'auditor'
+export type Role = 'admin' | 'operator' | 'readonly' | 'auditor' | 'newuser'
 
 export interface CurrentUser {
   id: string
@@ -193,7 +193,7 @@ export interface User {
   username: string
   email: string
   display_name: string
-  role: 'admin' | 'operator' | 'readonly' | 'auditor'
+  role: Role
   is_active: boolean
   totp_enabled: boolean
   must_change_password: boolean

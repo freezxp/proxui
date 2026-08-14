@@ -18,12 +18,16 @@ const (
 	RoleOperator Role = "operator"
 	RoleReadOnly Role = "readonly"
 	RoleAuditor  Role = "auditor"
+	// RoleNewUser can sign in and nothing else. It is what a self-registered
+	// account starts as: the account exists, but every part of the portal is
+	// closed to it until an administrator says otherwise.
+	RoleNewUser Role = "newuser"
 )
 
 // Valid reports whether r is a known role.
 func (r Role) Valid() bool {
 	switch r {
-	case RoleAdmin, RoleOperator, RoleReadOnly, RoleAuditor:
+	case RoleAdmin, RoleOperator, RoleReadOnly, RoleAuditor, RoleNewUser:
 		return true
 	}
 	return false

@@ -135,7 +135,8 @@ Set-Cookie: proxui_rt=…; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth
 | GET `/settings` | admin | All keys + defaults + descriptions |
 | PUT `/settings` | admin | `{key: value, …}` partial update; validated; audited per key |
 | GET `/system/info` | admin | Version, build, uptime, queue depth, DB/Redis health |
-| WS `/ws/events` | any (scoped) | Server-push: `vm.state_changed`, `sync.status`, `alert.fired/resolved` for visible VMs only |
+| POST `/events/ticket` | any but newuser | Mints a single-use, 30-second ticket for the stream below |
+| WS `/ws/events/{ticketID}` | ticket (scoped) | Server-push: `vm.state_changed`, `sync.status`, `alert.fired/resolved` for visible VMs only |
 | GET `/healthz` | — | Liveness (process up) |
 | GET `/readyz` | — | Readiness (DB + Redis reachable, migrations current) |
 | GET `/metrics` | network-restricted | Prometheus exposition (bound to internal listener) |

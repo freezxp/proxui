@@ -51,3 +51,14 @@ func (s *AttemptStore) Take(ctx context.Context, state string) (oauth.Attempt, e
 }
 
 func attemptKey(state string) string { return "proxui:oauth:attempt:" + state }
+
+// SetTicket stores a short-lived one-time value.
+func (c *Client) SetTicket(ctx context.Context, key, value string, ttl time.Duration) error {
+	return c.Set(ctx, key, value, ttl).Err()
+}
+
+// TakeTicket reads and deletes in one step, so a ticket presented twice finds
+// nothing the second time.
+func (c *Client) TakeTicket(ctx context.Context, key string) (string, error) {
+	return c.GetDel(ctx, key).Result()
+}

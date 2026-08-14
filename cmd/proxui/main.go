@@ -305,9 +305,10 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 					Audit: audit, Clock: clock,
 				},
 			},
-			Events:  eventHub,
-			Limiter: limiterFunc(limiter.AllowRequest),
-			SPA:     httpapi.NewSPA(web.Assets()),
+			Events:        eventHub,
+			StreamTickets: httpapi.NewStreamTicketStore(rdb),
+			Limiter:       limiterFunc(limiter.AllowRequest),
+			SPA:           httpapi.NewSPA(web.Assets()),
 			Console: httpapi.ConsoleDeps{
 				Open: &command.OpenConsole{
 					Inventory: inventory, Sessions: consoles, Tickets: tickets,

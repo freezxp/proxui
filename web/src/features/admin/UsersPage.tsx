@@ -21,6 +21,11 @@ const ROLES: { value: User['role']; label: string; help: string }[] = [
   },
   { value: 'readonly', label: 'Read only', help: 'Can look at granted VMs; cannot act on them.' },
   { value: 'auditor', label: 'Auditor', help: 'Read access plus the audit log.' },
+  {
+    value: 'newuser',
+    label: 'New user',
+    help: 'Can sign in and nothing else. What self-registration and Google sign-in create.',
+  },
 ]
 
 export function UsersPage() {

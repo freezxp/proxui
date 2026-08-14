@@ -26,11 +26,11 @@ type RegistrationPolicy interface {
 
 // NewAccountRole is what every self-provisioned account starts as.
 //
-// Read-only with no group membership, which means no grants, which means an
-// empty inventory. That is the whole containment story for open registration:
-// signing up gets you an account that can see nothing until an administrator
-// grants it something (docs/adr/0003).
-const NewAccountRole = identity.RoleReadOnly
+// Not read-only: that role can see the hosts, storage and networks the estate
+// is made of, which is more than someone who has just signed up should get.
+// A new user reaches one page telling it to ask for access, and nothing else
+// (docs/adr/0003).
+const NewAccountRole = identity.RoleNewUser
 
 // RegisterInput is someone creating their own account.
 type RegisterInput struct {

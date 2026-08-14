@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -58,6 +59,13 @@ func (s *Server) handleBranding(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, setting.PublicValues(stored))
 }
 
+// Values are trimmed before they are stored.
+//
+// A credential copied out of a console picks up a trailing space more often
+// than not, and none of these settings has a use for one. The failure it
+// causes is opaque — Google answers "the OAuth client was not found", which
+// sends someone hunting for a client that is in fact perfectly correct — so
+// the space is removed here rather than diagnosed later.
 type settingUpdate struct {
 	// Either, depending on the setting's kind. Both absent means "reset".
 	Value *int    `json:"value"`
@@ -117,6 +125,10 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 		}
 		stored, details = *req.Value, map[string]any{"value": *req.Value}
 	case def.Kind.Secret():
+		if req.Text != nil {
+			trimmed := normalizeSettingText(*req.Text)
+			req.Text = &trimmed
+		}
 		if req.Text == nil || *req.Text == "" {
 			WriteProblem(w, r, http.StatusUnprocessableEntity, "validation",
 				"A secret cannot be set to nothing. Use reset to remove it.")
@@ -143,6 +155,8 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 				"This setting takes text.")
 			return
 		}
+		trimmed := normalizeSettingText(*req.Text)
+		req.Text = &trimmed
 		if err := def.ValidateText(*req.Text); err != nil {
 			WriteProblem(w, r, http.StatusUnprocessableEntity, "validation", err.Error())
 			return
@@ -163,6 +177,26 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditSetting(r, key, details)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// normalizeSettingText cleans a value before it is validated or stored.
+//
+// Trailing whitespace on a pasted credential is the specific case this exists
+// for: it survives every validation, then fails at the provider with a message
+// about something else entirely. Zero-width and non-breaking spaces are
+// stripped too, because a copy out of a web console can carry them and they
+// are invisible in the field afterwards.
+func normalizeSettingText(value string) string {
+	value = strings.Map(func(r rune) rune {
+		switch r {
+		case '\u200b', '\u200c', '\u200d', '\ufeff': // zero-width family
+			return -1
+		case '\u00a0': // non-breaking space, which looks like a space
+			return ' '
+		}
+		return r
+	}, value)
+	return strings.TrimSpace(value)
 }
 
 func (s *Server) auditSetting(r *http.Request, key string, details map[string]any) {

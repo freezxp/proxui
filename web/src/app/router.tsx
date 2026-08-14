@@ -4,6 +4,7 @@ import { Shell } from './Shell'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { ChangePasswordDialog } from '@/features/auth/ChangePasswordDialog'
 import { RegisterPage } from '@/features/auth/RegisterPage'
+import { WelcomePage } from '@/features/auth/WelcomePage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { VMListPage } from '@/features/inventory/VMListPage'
 import { VMDetailPage } from '@/features/inventory/VMDetailPage'
@@ -14,6 +15,7 @@ import { SettingsPage } from '@/features/admin/SettingsPage'
 import { NotificationsPage } from '@/features/notifications/NotificationsPage'
 import { HostsPage, NetworksPage, StoragePage } from '@/features/infrastructure/InfrastructurePage'
 import { useAuth } from '@/features/auth/useAuth'
+import { can } from '@/lib/permissions'
 
 // noVNC is the single largest dependency in the app and only a console needs
 // it, so it is fetched when one is opened (NFR-P5).
@@ -87,6 +89,10 @@ export function AppRoutes() {
   if (user.must_change_password) {
     return <ChangePasswordDialog forced onChanged={() => void logout()} />
   }
+
+  // An account with no permissions gets one page rather than a shell full of
+  // links that would each refuse it.
+  if (!can.useThePortal(user.role)) return <WelcomePage />
 
   return <RouterProvider router={router} />
 }

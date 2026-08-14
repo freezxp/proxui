@@ -21,3 +21,4 @@ web/dist/*
 *.log
 .idea/
 .vscode/
+web/tsconfig.tsbuildinfo

@@ -56,7 +56,11 @@ var permissionMap = map[string]Permission{
 	// The console socket carries its own single-use ticket; the permission
 	// check happened when that ticket was issued.
 	"GET /ws/console/{ticketID}": {Access: AccessPublic},
-	"GET /readyz":                {Access: AccessPublic},
+	// So does the event stream, for the same reason: a browser cannot put an
+	// Authorization header on a WebSocket. The ticket names the user whose
+	// events the socket will carry, so it is also the scoping.
+	"GET /ws/events/{ticketID}": {Access: AccessPublic},
+	"GET /readyz":               {Access: AccessPublic},
 
 	// Branding is public because the sign-in page renders before anyone has
 	// signed in. It exposes only what every visitor is meant to see: the
@@ -75,8 +79,11 @@ var permissionMap = map[string]Permission{
 	"GET /api/v1/auth/me":          {Access: AccessAuthenticated},
 	"POST /api/v1/auth/logout-all": {Access: AccessAuthenticated},
 
+	// Every role including a brand-new account: changing your own password
+	// requires the current one, and an account that cannot do it is one an
+	// administrator has to be involved in every time.
 	"POST /api/v1/auth/password": roles(identity.RoleAdmin, identity.RoleOperator,
-		identity.RoleReadOnly, identity.RoleAuditor),
+		identity.RoleReadOnly, identity.RoleAuditor, identity.RoleNewUser),
 
 	"GET /api/v1/users":                    roles(identity.RoleAdmin),
 	"POST /api/v1/users":                   roles(identity.RoleAdmin),
@@ -109,11 +116,13 @@ var permissionMap = map[string]Permission{
 	"GET /api/v1/vms/{vmID}/history":               roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
 	"POST /api/v1/vms/{vmID}/console":              roles(identity.RoleAdmin, identity.RoleOperator),
 	"POST /api/v1/vms/{vmID}/power":                roles(identity.RoleAdmin, identity.RoleOperator),
-	"GET /api/v1/events":                           roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
-	"GET /api/v1/system/info":                      roles(identity.RoleAdmin),
-	"GET /api/v1/console-sessions":                 roles(identity.RoleAdmin),
-	"PUT /api/v1/vms/{vmID}/tags":                  roles(identity.RoleAdmin, identity.RoleOperator),
-	"PUT /api/v1/vms/{vmID}/notes":                 roles(identity.RoleAdmin, identity.RoleOperator),
+	// The stream itself is authenticated by its ticket, at /ws/events/{id},
+	// outside the API's role gates — the same shape as the console.
+	"POST /api/v1/events/ticket":   roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/system/info":      roles(identity.RoleAdmin),
+	"GET /api/v1/console-sessions": roles(identity.RoleAdmin),
+	"PUT /api/v1/vms/{vmID}/tags":  roles(identity.RoleAdmin, identity.RoleOperator),
+	"PUT /api/v1/vms/{vmID}/notes": roles(identity.RoleAdmin, identity.RoleOperator),
 
 	"GET /api/v1/audit-logs":            roles(identity.RoleAdmin, identity.RoleAuditor),
 	"GET /api/v1/audit-logs/export":     roles(identity.RoleAdmin, identity.RoleAuditor),

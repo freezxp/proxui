@@ -21,7 +21,7 @@ Two new ways to get an account, both off unless switched on:
 1. **Self-registration** — `POST /auth/register`, gated by the `auth.self_registration` setting, which ships **disabled**.
 2. **Google sign-in** — OpenID Connect authorization code flow with PKCE, enabled by supplying client credentials in the environment.
 
-Every self-provisioned account is created **read-only with no group membership**.
+Every self-provisioned account is created in a **`newuser` role with no group membership** — a role that reaches one page and nothing else.
 
 ## Rationale
 
@@ -30,6 +30,10 @@ Every self-provisioned account is created **read-only with no group membership**
 Registration hands out an account, not access. Roles say what someone may do; grants say what they may do it to, and a new account has none — so its inventory is empty, its dashboard shows nothing, and every VM answers 404. An administrator granting a VM group is still the moment access begins, exactly as before.
 
 That is what makes open registration tolerable: the gate moved from "can you have an account" to "can you see anything", and the second gate is the one that mattered.
+
+**The role was originally read-only, and that was not empty enough.** Read-only can list the estate's hosts, storage and networks — none of which is scoped by grants, because they describe the infrastructure rather than any particular VM. A stranger who registered could therefore enumerate the nodes, pools and interfaces without ever being granted a thing. `newuser` closes that: it is declared on exactly two routes, `GET /auth/me` and `POST /auth/password`, so every other endpoint refuses it by the map's deny-by-default. The frontend matches — the router hands it a welcome page telling it to ask an administrator for access, rather than a navigation full of views it cannot load.
+
+Granting access is now two steps for an administrator: change the role, then grant a VM group. That is a real cost, and it is the right one — the alternative gave away a survey of the estate to anyone who filled in a form.
 
 ### Where Google's credentials live
 
@@ -65,7 +69,8 @@ An account that signs in through a provider holds no password, and the password 
 - The setting **fails closed**: if it cannot be read, registration is treated as disabled. A database hiccup opening the portal to new accounts is the wrong way round to be wrong.
 - Registration is rate limited as strictly as sign-in, being the other endpoint reachable without an account.
 - `users` gained `auth_provider` and `external_id`, unique together where the external id is present, so one Google account cannot become two portal accounts.
-- **A self-registered account is read-only, and read-only currently sees hosts, storage and networks.** A stranger who registers can therefore enumerate the estate's nodes, pools and interfaces without ever being granted a VM. Restricting those three views to administrators and auditors would close it; that is a live decision, not something this ADR settles.
+- `user_role` gained a `newuser` value (migration 00013). Postgres enum values cannot be removed, so this is one-way.
+- **Read-only still sees hosts, storage and networks.** `newuser` means self-registration no longer hands that out, but an administrator who assigns read-only is still granting a survey of the estate. Whether those three views should be narrowed remains open, and is now a deliberate choice rather than a side effect of registering.
 
 ## Alternatives considered
 
@@ -76,6 +81,6 @@ An account that signs in through a provider holds no password, and the password 
 
 ## Verification
 
-Registration was exercised against the running portal: enabling the setting, registering, and confirming the new account is read-only, signed in immediately, sees **0 VMs**, and is refused the admin API. Duplicate username and duplicate email return the same message, so the form cannot be used to ask which accounts exist.
+Registration was exercised against the running portal: enabling the setting, registering, and confirming the new account signs in immediately and reaches nothing. Every route was then tried with its token — inventory, dashboard, hosts, storage, networks, platforms, users, groups, grants, audit logs, settings, alert rules, alerts, notification channels and rules, console sessions, system info, connectors, and a console on a VM that exists — and all twenty answered **403**. `GET /auth/me` answers 200 with `role: newuser`, and the password change endpoint is reachable; those two are the whole surface. Duplicate username and duplicate email return the same message, so the form cannot be used to ask which accounts exist.
 
-**Google sign-in has not been exercised against Google.** It needs a client ID, secret and a registered redirect URI, which are the stakeholder's to create. What is tested is everything that does not need them: the authorize URL carries state, nonce and a correct PKCE challenge while never carrying the verifier; an unconfigured client refuses; attempts are unique and long enough; malformed signing keys are rejected; and the return path cannot be used to redirect off the portal.
+**Google sign-in has been exercised against Google end to end**, once the credentials were entered in Settings: the authorize redirect is accepted, the callback exchanges and verifies an identity token, and the account is provisioned. What is unit-tested is what needs no credentials: the authorize URL carries state, nonce and a correct PKCE challenge while never carrying the verifier; an unconfigured client refuses; attempts are unique and long enough; malformed signing keys are rejected; and the return path cannot be used to redirect off the portal.

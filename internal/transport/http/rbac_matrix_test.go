@@ -29,6 +29,7 @@ import (
 
 var allRoles = []identity.Role{
 	identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor,
+	identity.RoleNewUser,
 }
 
 // roleTokenParser hands out claims for whichever role the test is exercising.

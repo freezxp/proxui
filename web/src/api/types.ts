@@ -77,3 +77,42 @@ export interface Paged<T> {
   data: T[]
   meta: { total: number; page?: number; per_page?: number }
 }
+
+export interface MetricPoint {
+  t: string
+  cpu_pct: number
+  mem_used_bytes: number
+  mem_total_bytes: number
+  disk_read_bps: number
+  disk_write_bps: number
+  net_rx_bps: number
+  net_tx_bps: number
+  disk_used_bytes: number
+}
+
+export interface MetricSeriesResponse {
+  vm_id: string
+  from: string
+  to: string
+  series: {
+    /** Which stored resolution answered: shown to the user so a chart never
+     *  implies more precision than it has. */
+    resolution: string
+    bucket_seconds: number
+    points: MetricPoint[]
+  }
+}
+
+export interface HistoryEntry {
+  changed_at: string
+  field: string
+  old_value: string
+  new_value: string
+}
+
+export interface VMDetail extends VMListItem {
+  notes: string
+  groups: string[]
+  attrs?: Record<string, unknown>
+  first_seen_at: string
+}

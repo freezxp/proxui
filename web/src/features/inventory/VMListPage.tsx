@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type { Paged, PlatformHealth, VMListItem } from '@/api/types'
@@ -150,7 +150,9 @@ export function VMListPage() {
             {vms.data?.data.map((vm) => (
               <tr key={vm.id} className="border-t border-border hover:bg-surface-raised/60">
                 <td className="px-4 py-2">
-                  <div className="font-medium">{vm.name}</div>
+                  <Link to={`/vms/${vm.id}`} className="font-medium hover:text-accent hover:underline">
+                    {vm.name}
+                  </Link>
                   <div className="text-xs text-muted">
                     {vm.vm_type} · {vm.external_id} · {vm.platform_name}
                   </div>

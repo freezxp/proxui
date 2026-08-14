@@ -68,6 +68,9 @@ type ServerConfig struct {
 	// HTTP development; production terminates TLS at the reverse proxy.
 	SecureCookies bool
 
+	// Registration carries self-registration and external sign-in.
+	Registration RegistrationDeps
+
 	// Notify carries the notification channels, rules and dispatcher.
 	Notify NotifyDeps
 
@@ -88,6 +91,7 @@ type Server struct {
 	version       string
 	readiness     *Readiness
 	auth          AuthDeps
+	registration  RegistrationDeps
 	admin         AdminDeps
 	platforms     PlatformDeps
 	metrics       MetricsDeps
@@ -118,6 +122,7 @@ func NewServer(cfg ServerConfig) *Server {
 		version:       cfg.Version,
 		readiness:     cfg.Readiness,
 		auth:          cfg.Auth,
+		registration:  cfg.Registration,
 		admin:         cfg.Admin,
 		platforms:     cfg.Platforms,
 		metrics:       cfg.Metrics,
@@ -161,8 +166,18 @@ func (s *Server) Routes() http.Handler {
 		// Branding before authentication: the sign-in page has to render the
 		// portal's own name and logo, and cannot do that after sign-in only.
 		r.Get("/branding", s.handleBranding)
+		// Which ways in this portal offers, so the sign-in page can show them
+		// rather than guess.
+		r.Get("/auth/methods", s.handleAuthMethods)
 
 		r.Route("/auth", func(r chi.Router) {
+			// Registration is rate limited as strictly as login: it is the
+			// other endpoint reachable without an account.
+			r.With(s.rateLimit("register", loginLimit, loginWindow)).
+				Post("/register", s.handleRegister)
+			r.Get("/google/start", s.handleGoogleStart)
+			r.Get("/google/callback", s.handleGoogleCallback)
+
 			// Unauthenticated: these establish a session.
 			// Login is the one endpoint reachable without an account, so it
 			// carries the strictest limit.

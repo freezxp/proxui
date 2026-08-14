@@ -23,12 +23,14 @@ import (
 	"github.com/freezxp/proxui/internal/app/command"
 	appnotify "github.com/freezxp/proxui/internal/app/notify"
 	"github.com/freezxp/proxui/internal/app/ports"
+	appsetting "github.com/freezxp/proxui/internal/app/setting"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/infra/config"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 	"github.com/freezxp/proxui/internal/infra/logging"
 	infranotify "github.com/freezxp/proxui/internal/infra/notify"
+	"github.com/freezxp/proxui/internal/infra/oauth"
 	"github.com/freezxp/proxui/internal/infra/postgres"
 	redisinfra "github.com/freezxp/proxui/internal/infra/redis"
 	"github.com/freezxp/proxui/internal/jobs"
@@ -244,6 +246,19 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Events: syncRepo, Clock: clock, Log: log,
 	}
 
+	// Registration and external sign-in. The policy is read per request, so
+	// switching registration off in Settings takes effect at once.
+	settingsRepo := postgres.NewSettingsRepository(pool)
+	registrationPolicy := &appsetting.Policy{Settings: settingsRepo, Log: log}
+	googleClient := oauth.New(oauth.Config{
+		ClientID:     cfg.GoogleClientID,
+		ClientSecret: cfg.GoogleClientSecret,
+		RedirectURL:  cfg.GoogleRedirectURL,
+	}, nil)
+	if googleClient.Config.Enabled() {
+		log.Info().Str("redirect_url", cfg.GoogleRedirectURL).Msg("google sign-in enabled")
+	}
+
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 	shutdown := make([]func(context.Context) error, 0, 2)
@@ -265,7 +280,22 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 				Inventory: inventory, Audit: auditLog, Metrics: metrics, Infra: inventory,
 			},
 			Alerts:   httpapi.AlertDeps{Alerts: alertRepo},
-			Settings: httpapi.SettingsDeps{Settings: postgres.NewSettingsRepository(pool)},
+			Settings: httpapi.SettingsDeps{Settings: settingsRepo},
+			Registration: httpapi.RegistrationDeps{
+				Register: &command.Register{
+					Users: users, Policy: registrationPolicy, Hasher: hasher,
+					Audit: audit, Clock: clock,
+				},
+				External: &command.SignInExternal{
+					Users: users, Policy: registrationPolicy, Audit: audit, Clock: clock,
+				},
+				Sessions: &command.IssueSession{
+					Users: users, Sessions: sessions, Tokens: tokens, Audit: audit, Clock: clock,
+				},
+				OAuth:    googleClient,
+				Attempts: redisinfra.NewAttemptStore(rdb),
+				Policy:   registrationPolicy,
+			},
 			Notify: httpapi.NotifyDeps{
 				Repo: notifyRepo, Dispatcher: dispatcher, Vault: vault,
 			},

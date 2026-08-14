@@ -42,3 +42,48 @@ func ValidatePassword(password, username, email string) error {
 	}
 	return nil
 }
+
+// ErrInvalidUsername and ErrInvalidEmail reject account details that could not
+// be used to sign in, or that would be confusing to see in an audit trail.
+var (
+	ErrInvalidUsername = errors.New("identity: invalid username")
+	ErrInvalidEmail    = errors.New("identity: invalid email address")
+)
+
+// MaxUsernameLength keeps a username readable in tables and audit entries.
+const MaxUsernameLength = 32
+
+// ValidateUsername accepts a modest, unambiguous set of characters.
+//
+// Deliberately narrow: a username appears in the audit trail, and one
+// containing spaces, control characters or lookalike Unicode makes that record
+// harder to read and easier to spoof.
+func ValidateUsername(username string) error {
+	if len(username) < 3 || len(username) > MaxUsernameLength {
+		return fmt.Errorf("%w: between 3 and %d characters", ErrInvalidUsername, MaxUsernameLength)
+	}
+	for _, r := range username {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+		default:
+			return fmt.Errorf("%w: use lowercase letters, digits, dot, dash or underscore", ErrInvalidUsername)
+		}
+	}
+	return nil
+}
+
+// ValidateEmail checks the shape of an address rather than its deliverability,
+// which only sending to it can establish.
+func ValidateEmail(email string) error {
+	if len(email) < 3 || len(email) > 254 {
+		return fmt.Errorf("%w: that is not an email address", ErrInvalidEmail)
+	}
+	local, domain, found := strings.Cut(email, "@")
+	if !found || local == "" || domain == "" {
+		return fmt.Errorf("%w: that is not an email address", ErrInvalidEmail)
+	}
+	if !strings.Contains(domain, ".") || strings.ContainsAny(email, " \t\r\n") {
+		return fmt.Errorf("%w: that is not an email address", ErrInvalidEmail)
+	}
+	return nil
+}

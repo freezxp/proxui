@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { Shell } from './Shell'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { ChangePasswordDialog } from '@/features/auth/ChangePasswordDialog'
+import { RegisterPage } from '@/features/auth/RegisterPage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { VMListPage } from '@/features/inventory/VMListPage'
 import { VMDetailPage } from '@/features/inventory/VMDetailPage'
@@ -60,6 +61,7 @@ const router = createBrowserRouter([
 
 export function AppRoutes() {
   const { user, loading, logout } = useAuth()
+  const [registering, setRegistering] = useState(false)
 
   // Waiting for the refresh attempt avoids flashing the login form at a user
   // whose session is about to be restored.
@@ -71,7 +73,13 @@ export function AppRoutes() {
     )
   }
 
-  if (!user) return <LoginPage />
+  if (!user) {
+    return registering ? (
+      <RegisterPage onDone={() => setRegistering(false)} onCancel={() => setRegistering(false)} />
+    ) : (
+      <LoginPage onRegister={() => setRegistering(true)} />
+    )
+  }
 
   // An account with a temporary password reaches nothing else until it has
   // one of its own. The server would still enforce every route; this is so

@@ -32,6 +32,8 @@ const (
 	// path, or a data: URI produced by the settings page from a chosen file.
 	// It is stored as text, so the portal still accepts no file uploads.
 	KindImage Kind = "image"
+	// KindSelect is a fixed set of choices, rendered as a dropdown.
+	KindSelect Kind = "select"
 )
 
 // Numeric reports whether the setting holds a number rather than text.
@@ -56,6 +58,8 @@ type Definition struct {
 	// DefaultText and MaxLength apply to text and image settings.
 	DefaultText string `json:"default_text,omitempty"`
 	MaxLength   int    `json:"max_length,omitempty"`
+	// Options apply to select settings.
+	Options []Option `json:"options,omitempty"`
 	// Public marks a setting the login page needs before anyone has signed in.
 	// Only branding qualifies: a portal that cannot show its own name until
 	// after authentication is not branded.
@@ -73,6 +77,12 @@ func (d Definition) ValidateNumber(value int) error {
 	return nil
 }
 
+// Option is one choice in a select setting.
+type Option struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
 // ValidateText checks a proposed text value.
 func (d Definition) ValidateText(value string) error {
 	if d.Kind.Numeric() {
@@ -83,6 +93,14 @@ func (d Definition) ValidateText(value string) error {
 	}
 	if d.Kind == KindImage {
 		return validateImage(value)
+	}
+	if d.Kind == KindSelect {
+		for _, o := range d.Options {
+			if o.Value == value {
+				return nil
+			}
+		}
+		return fmt.Errorf("%w: %s does not offer that choice", ErrInvalidValue, d.Label)
 	}
 	return nil
 }
@@ -140,6 +158,20 @@ var Catalogue = []Definition{
 		Help: "Optional. Shown on the sign-in page — an acceptable-use notice, or who to contact for access.",
 	},
 	{
+		Key: "auth.self_registration", Group: "Access", Kind: KindSelect,
+		Label: "Self-registration", DefaultText: RegistrationDisabled,
+		Options: []Option{
+			{Value: RegistrationDisabled, Label: "Disabled — an administrator creates every account"},
+			{Value: RegistrationOpen, Label: "Open — anyone can create an account"},
+		},
+		// Off by default: a portal reachable on a network should not accept
+		// new accounts until someone decides it should. A registered account
+		// is read-only with no grants, so it can see nothing until granted,
+		// but it does exist and it can sign in (docs/adr/0003).
+		Help: "Whether people can create their own account. New accounts are read-only " +
+			"and see nothing until an administrator grants them VMs.",
+	},
+	{
 		Key: "sync.inventory_interval_s", Group: "Synchronization",
 		Label: "Inventory interval", Kind: KindDuration, Default: 60, Min: 30, Max: 3600,
 		Help: "How often each platform is asked what it has. Applies to platforms without their own override.",
@@ -190,6 +222,12 @@ var Catalogue = []Definition{
 		Help: "How long per-VM field changes are kept.",
 	},
 }
+
+// Registration modes for auth.self_registration.
+const (
+	RegistrationDisabled = "disabled"
+	RegistrationOpen     = "open"
+)
 
 // Lookup finds a definition by key.
 func Lookup(key string) (Definition, bool) {

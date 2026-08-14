@@ -1,10 +1,15 @@
 import { useState } from 'react'
 import { useAuth } from './useAuth'
 import { useBranding } from '@/lib/branding'
+import { useAuthMethods, SSO_MESSAGES } from '@/lib/authMethods'
 import { ApiError } from '@/api/client'
 
-export function LoginPage() {
+export function LoginPage({ onRegister }: { onRegister: () => void }) {
   const branding = useBranding()
+  const methods = useAuthMethods()
+  // The Google callback redirects here with a reason when it could not
+  // finish, rather than rendering a page of its own.
+  const ssoError = new URLSearchParams(window.location.search).get('sso')
   const { login } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -58,6 +63,12 @@ export function LoginPage() {
           <p className="mt-1 text-sm text-muted">Sign in to continue</p>
         </div>
 
+        {ssoError && (
+          <p className="rounded-md border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+            {SSO_MESSAGES[ssoError] ?? 'That sign-in could not be completed.'}
+          </p>
+        )}
+
         {branding['branding.login_banner'] && (
           <p className="rounded-md border border-border bg-surface p-3 text-xs text-muted">
             {branding['branding.login_banner']}
@@ -99,7 +110,61 @@ export function LoginPage() {
         >
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
+
+        {methods.google && (
+          <>
+            <div className="flex items-center gap-3 text-xs text-muted">
+              <span className="h-px flex-1 bg-border" />
+              or
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            {/* A plain link, not a fetch: the browser has to actually navigate
+                to Google, and the callback comes back as a navigation too. */}
+            <a
+              href="/api/v1/auth/google/start"
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-surface"
+            >
+              <GoogleMark />
+              Sign in with Google
+            </a>
+          </>
+        )}
+
+        {methods.registration && (
+          <p className="text-center text-sm text-muted">
+            No account?{' '}
+            <button type="button" onClick={onRegister} className="text-accent hover:underline">
+              Create one
+            </button>
+          </p>
+        )}
       </form>
     </div>
+  )
+}
+
+/** Google's mark, inline so the sign-in page reaches no other origin — the
+ *  content security policy would block it, and a button with a missing image
+ *  looks broken. */
+function GoogleMark() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M45 24c0-1.6-.1-2.7-.4-4H24v7.5h12c-.2 2-1.5 5-4.4 7l6.7 5.2C42.2 36 45 30.6 45 24z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 46c5.9 0 10.9-2 14.5-5.3l-6.9-5.4c-1.9 1.3-4.4 2.2-7.6 2.2-5.8 0-10.7-3.9-12.5-9.2l-7.1 5.5C8.1 41 15.4 46 24 46z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M11.5 28.3A13.6 13.6 0 0 1 10.8 24c0-1.5.3-3 .7-4.3l-7.1-5.5A22 22 0 0 0 2 24c0 3.6.9 7 2.4 9.8l7.1-5.5z"
+      />
+      <path
+        fill="#EA4335"
+        d="M24 10.4c3.2 0 6 1.1 8.2 3.2l6.1-6.1C34.9 4 29.9 2 24 2 15.4 2 8.1 7 4.4 14.2l7.1 5.5C13.3 14.3 18.2 10.4 24 10.4z"
+      />
+    </svg>
   )
 }

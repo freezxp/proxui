@@ -9,8 +9,16 @@ interface AuthState {
    *  bounce a returning user to the login page before their cookie is tried. */
   loading: boolean
   login: (username: string, password: string) => Promise<void>
+  registerAccount: (input: RegisterInput) => Promise<void>
   logout: () => Promise<void>
   reload: () => Promise<void>
+}
+
+export interface RegisterInput {
+  username: string
+  email: string
+  display_name: string
+  password: string
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -52,6 +60,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [loadUser],
   )
 
+  // Registration signs the new account in straight away: the server issues a
+  // session with the response, so a second form asking for the credentials
+  // just chosen would be pure friction.
+  const registerAccount = useCallback(
+    async (input: RegisterInput) => {
+      const token = await api.post<TokenResponse>('/auth/register', input, { skipRefresh: true })
+      setAccessToken(token.access_token)
+      await loadUser()
+    },
+    [loadUser],
+  )
+
   const logout = useCallback(async () => {
     try {
       await api.post('/auth/logout', undefined, { skipRefresh: true })
@@ -62,8 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, login, logout, reload: loadUser }),
-    [user, loading, login, logout, loadUser],
+    () => ({ user, loading, login, registerAccount, logout, reload: loadUser }),
+    [user, loading, login, registerAccount, logout, loadUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

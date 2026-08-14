@@ -49,7 +49,15 @@ var (
 
 // User is the aggregate root for a portal account.
 type User struct {
-	ID                 uuid.UUID
+	ID uuid.UUID
+	// AuthProvider names where this account signs in. A provider account has
+	// no password of its own, so a password login against one must be refused
+	// on the provider rather than on the hash comparison — otherwise the
+	// failure looks like a wrong password and invites guessing.
+	AuthProvider AuthProvider
+	// ExternalID is the provider's own stable identifier, kept because an
+	// email address can be reassigned while a subject identifier cannot.
+	ExternalID         string
 	Username           string
 	Email              string
 	DisplayName        string
@@ -64,6 +72,25 @@ type User struct {
 	LastLoginAt        time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+}
+
+// AuthProvider is where an account authenticates.
+type AuthProvider string
+
+const (
+	// ProviderLocal is a password held by this portal.
+	ProviderLocal AuthProvider = "local"
+	// ProviderGoogle is Google, via OpenID Connect.
+	ProviderGoogle AuthProvider = "google"
+)
+
+// ErrWrongProvider is returned when someone tries to sign in with a password
+// against an account that belongs to an identity provider.
+var ErrWrongProvider = errors.New("identity: this account signs in with its provider")
+
+// UsesPassword reports whether this account authenticates with a password.
+func (u *User) UsesPassword() bool {
+	return u.AuthProvider == "" || u.AuthProvider == ProviderLocal
 }
 
 // IsLocked reports whether the account is currently locked out.

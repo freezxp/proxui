@@ -61,10 +61,16 @@ var permissionMap = map[string]Permission{
 	// Branding is public because the sign-in page renders before anyone has
 	// signed in. It exposes only what every visitor is meant to see: the
 	// portal's name, its logo and any notice the administrator set.
-	"GET /api/v1/branding":      {Access: AccessPublic},
-	"POST /api/v1/auth/login":   {Access: AccessPublic},
-	"POST /api/v1/auth/refresh": {Access: AccessPublic},
-	"POST /api/v1/auth/logout":  {Access: AccessPublic},
+	"GET /api/v1/branding": {Access: AccessPublic},
+	// Registration and external sign-in are reachable without an account by
+	// definition; whether they do anything is decided by policy, not by role.
+	"GET /api/v1/auth/methods":         {Access: AccessPublic},
+	"POST /api/v1/auth/register":       {Access: AccessPublic},
+	"GET /api/v1/auth/google/start":    {Access: AccessPublic},
+	"GET /api/v1/auth/google/callback": {Access: AccessPublic},
+	"POST /api/v1/auth/login":          {Access: AccessPublic},
+	"POST /api/v1/auth/refresh":        {Access: AccessPublic},
+	"POST /api/v1/auth/logout":         {Access: AccessPublic},
 
 	"GET /api/v1/auth/me":          {Access: AccessAuthenticated},
 	"POST /api/v1/auth/logout-all": {Access: AccessAuthenticated},

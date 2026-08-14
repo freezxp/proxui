@@ -50,6 +50,8 @@ type UserRepository interface {
 	Create(ctx context.Context, u *identity.User) error
 	GetByID(ctx context.Context, id uuid.UUID) (*identity.User, error)
 	GetByUsername(ctx context.Context, username string) (*identity.User, error)
+	GetByEmail(ctx context.Context, email string) (*identity.User, error)
+	GetByExternalID(ctx context.Context, provider identity.AuthProvider, externalID string) (*identity.User, error)
 	Update(ctx context.Context, u *identity.User) error
 	CountAll(ctx context.Context) (int, error)
 	List(ctx context.Context, f UserFilter) ([]*identity.User, error)

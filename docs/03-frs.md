@@ -6,7 +6,7 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 
 | ID | Pri | Requirement |
 |---|---|---|
-| AUTH-01 | M | Users authenticate with username + password; passwords hashed with argon2id (see security doc for parameters). |
+| AUTH-01 | M | Users authenticate with username + password; passwords hashed with argon2id (see security doc for parameters). Google (OpenID Connect) was added later — see [ADR 0003](adr/0003-self-registration-and-google-sign-in.md). |
 | AUTH-02 | M | Successful login issues a short-lived JWT access token (15 min) and a rotating refresh token (7 days, httpOnly secure cookie). |
 | AUTH-03 | M | Refresh tokens are single-use; reuse of a rotated token revokes the whole session family and raises a security event. |
 | AUTH-04 | S | Users may enroll TOTP (RFC 6238); when enrolled, login requires the 6-digit code. Admin can reset a user's TOTP. |
@@ -116,6 +116,6 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 
 | ID | Pri | Requirement |
 |---|---|---|
-| ADM-01 | M | User CRUD (create with temp password, edit role/groups, deactivate); no self-service registration. |
+| ADM-01 | M | User CRUD (create with temp password, edit role/groups, deactivate). Self-service registration was added later and reverses the original "no self-registration" — see [ADR 0003](adr/0003-self-registration-and-google-sign-in.md); it ships disabled, and a self-registered account is read-only with no grants. |
 | ADM-02 | M | System settings (sync defaults, session lifetimes, console idle timeout, retention overrides) editable in UI, stored in `settings`, change-audited, applied without restart. |
 | ADM-03 | M | First-run bootstrap: initial admin created from environment variables/secret on first start only. |

@@ -75,6 +75,12 @@ func (stubUsers) GetByID(context.Context, uuid.UUID) (*identity.User, error) {
 func (stubUsers) GetByUsername(context.Context, string) (*identity.User, error) {
 	return testUser(), nil
 }
+func (stubUsers) GetByEmail(context.Context, string) (*identity.User, error) {
+	return testUser(), nil
+}
+func (stubUsers) GetByExternalID(context.Context, identity.AuthProvider, string) (*identity.User, error) {
+	return nil, ports.ErrNotFound
+}
 func (stubUsers) Update(context.Context, *identity.User) error { return nil }
 func (stubUsers) CountAll(context.Context) (int, error)        { return 1, nil }
 func (stubUsers) List(context.Context, ports.UserFilter) ([]*identity.User, error) {

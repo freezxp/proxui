@@ -79,6 +79,15 @@ func (h *Login) Handle(ctx context.Context, in LoginInput) (LoginOutput, error) 
 		return LoginOutput{}, identity.ErrInvalidCredentials
 	}
 
+	// An account that signs in through a provider has no password here. Refuse
+	// it on the provider rather than on the hash comparison: the stored hash is
+	// empty, so a comparison would fail anyway, but as "wrong password" — which
+	// invites guessing at a password that does not exist.
+	if !user.UsesPassword() {
+		h.auditFailure(ctx, in, user, "wrong_provider", now)
+		return LoginOutput{}, identity.ErrInvalidCredentials
+	}
+
 	if err := user.CanAuthenticate(now); err != nil {
 		reason := "inactive"
 		if errors.Is(err, identity.ErrAccountLocked) {

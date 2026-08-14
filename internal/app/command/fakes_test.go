@@ -41,7 +41,12 @@ func (f *fakeUsers) Create(_ context.Context, u *identity.User) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, existing := range f.byID {
-		if strings.EqualFold(existing.Username, u.Username) {
+		// Both columns are UNIQUE in the schema. The fake enforced only the
+		// username, which hid the fact that a duplicate email is refused the
+		// same way — the property registration relies on to avoid becoming an
+		// account-enumeration oracle.
+		if strings.EqualFold(existing.Username, u.Username) ||
+			strings.EqualFold(existing.Email, u.Email) {
 			return ports.ErrConflict
 		}
 	}
@@ -54,6 +59,28 @@ func (f *fakeUsers) GetByID(_ context.Context, id uuid.UUID) (*identity.User, er
 	defer f.mu.Unlock()
 	if u, ok := f.byID[id]; ok {
 		return u, nil
+	}
+	return nil, ports.ErrNotFound
+}
+
+func (f *fakeUsers) GetByEmail(_ context.Context, email string) (*identity.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, u := range f.byID {
+		if strings.EqualFold(u.Email, email) {
+			return u, nil
+		}
+	}
+	return nil, ports.ErrNotFound
+}
+
+func (f *fakeUsers) GetByExternalID(_ context.Context, provider identity.AuthProvider, externalID string) (*identity.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, u := range f.byID {
+		if u.AuthProvider == provider && u.ExternalID != "" && u.ExternalID == externalID {
+			return u, nil
+		}
 	}
 	return nil, ports.ErrNotFound
 }

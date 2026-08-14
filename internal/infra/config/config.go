@@ -71,6 +71,17 @@ type Config struct {
 	AdminEmail       string
 	AdminDisplayName string
 	AdminPassword    string
+
+	// Google sign-in. Deployment configuration rather than a setting: a
+	// client secret in the settings table would sit there in plain text, and
+	// this belongs with the master key and the database URL.
+	GoogleClientID     string
+	GoogleClientSecret string
+	// GoogleRedirectURL must match one registered with Google exactly. It is
+	// explicit rather than derived from the request, because the request's
+	// Host is whatever a proxy passed along and a mismatch here is the single
+	// most common way this flow fails.
+	GoogleRedirectURL string
 }
 
 // HasBootstrapAdmin reports whether first-run admin credentials were supplied.
@@ -99,6 +110,10 @@ func Load() (Config, error) {
 		AdminEmail:       env("PROXUI_ADMIN_EMAIL", ""),
 		AdminDisplayName: env("PROXUI_ADMIN_DISPLAY_NAME", ""),
 		AdminPassword:    env("PROXUI_ADMIN_PASSWORD", ""),
+
+		GoogleClientID:     env("PROXUI_GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: env("PROXUI_GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURL:  env("PROXUI_GOOGLE_REDIRECT_URL", ""),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

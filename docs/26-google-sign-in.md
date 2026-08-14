@@ -94,6 +94,13 @@ should stay that way behind TLS. It is only set to false for plain-HTTP LAN
 use, where a `Secure` cookie would never be sent back and nobody could sign
 in. If you set it false while testing over HTTP, set it back.
 
+A portal reached **both** ways — say `https://vm.example.com` through the
+proxy and `http://10.0.0.5:8080` directly on the LAN — cannot have it both
+ways: `true` breaks sign-in over plain HTTP, `false` leaves the refresh
+cookie without the `Secure` flag on the HTTPS path. Pick the HTTPS name as
+the way in and set it `true`; the direct address stays useful for `/healthz`
+and metrics, which need no cookie.
+
 **WebSockets must pass through** for consoles and live updates: Caddy handles
 this automatically, nginx needs `proxy_set_header Upgrade $http_upgrade;` and
 `proxy_set_header Connection "upgrade";`. A proxy that buffers or drops the
@@ -182,6 +189,7 @@ button as soon as all three are present.
 | Back at sign-in with "Google could not confirm that sign-in" | the token exchange failed; the portal log carries Google's own reason, usually `redirect_uri_mismatch` or a wrong client secret |
 | "There is no account for that address…" | `auth.self_registration` is disabled and no account exists with that email. Either enable it, or create the account first — signing in with Google then links to it |
 | It worked, and the portal is empty | expected. A new account has no grants. **Users & groups → grants** |
+| Console stuck on "Connecting…" through a CDN | the proxy is not passing the WebSocket upgrade. Cloudflare does by default; verify with `curl -sI` that a `/ws/` request returns `101` rather than `200` |
 
 ## 26.5 What the portal does with the identity
 

@@ -464,3 +464,83 @@ func TestUnknownJSONFieldsAreRejected(t *testing.T) {
 }
 
 var _ = io.Discard
+
+// The Secure flag follows the request when the setting is off, because a
+// deployment reachable both over TLS and over a plain-HTTP LAN address is a
+// real configuration and the boot-time flag cannot describe both.
+func TestRefreshCookieIsSecureWheneverTheRequestArrivedOverTLS(t *testing.T) {
+	newServer := func(secureCookies bool) http.Handler {
+		return NewServer(ServerConfig{
+			Log: zerolog.New(io.Discard), Version: "test",
+			Auth: AuthDeps{Login: &fakeLogin{out: command.LoginOutput{
+				AccessToken: "jwt", ExpiresIn: time.Minute,
+				RefreshToken: "refresh-value", User: testUser(),
+			}}},
+			SecureCookies: secureCookies,
+			Clock:         func() time.Time { return time.Date(2026, 8, 13, 9, 0, 0, 0, time.UTC) },
+		}).Routes()
+	}
+
+	cases := []struct {
+		name          string
+		secureCookies bool
+		forwarded     string
+		wantSecure    bool
+	}{
+		// The reported problem: served over HTTPS behind a proxy with the
+		// setting off, and the cookie went out without the flag.
+		{"setting off, proxied TLS", false, "https", true},
+		{"setting off, plain HTTP", false, "", false},
+		{"setting off, proxied plain HTTP", false, "http", false},
+		// On is a floor: it must not be weakened by a header a client controls.
+		{"setting on, plain HTTP", true, "", true},
+		{"setting on, proxied TLS", true, "https", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := postJSON(t, newServer(tc.secureCookies), "/api/v1/auth/login",
+				loginRequest{Username: "jsmith", Password: "correct horse battery staple"},
+				func(r *http.Request) {
+					if tc.forwarded != "" {
+						r.Header.Set("X-Forwarded-Proto", tc.forwarded)
+					}
+				})
+
+			c := findCookie(rec, refreshCookieName)
+			if c == nil {
+				t.Fatalf("no refresh cookie (status %d)", rec.Code)
+			}
+			if c.Secure != tc.wantSecure {
+				t.Errorf("Secure = %v, want %v", c.Secure, tc.wantSecure)
+			}
+		})
+	}
+}
+
+// A cookie is only dropped by a Set-Cookie whose attributes match the one that
+// set it, so clearing has to make the same decision.
+func TestClearingTheRefreshCookieMatchesHowItWasSet(t *testing.T) {
+	h := NewServer(ServerConfig{
+		Log: zerolog.New(io.Discard), Version: "test",
+		Auth:  AuthDeps{Refresh: &fakeRefresh{err: identity.ErrSessionExpired}},
+		Clock: func() time.Time { return time.Date(2026, 8, 13, 9, 0, 0, 0, time.UTC) },
+	}).Routes()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "stale"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	c := findCookie(rec, refreshCookieName)
+	if c == nil {
+		t.Fatal("the stale cookie was not cleared")
+	}
+	if !c.Secure {
+		t.Error("cleared without Secure over TLS; the browser would keep the cookie")
+	}
+	if c.MaxAge >= 0 {
+		t.Errorf("MaxAge = %d, want negative so the cookie is dropped", c.MaxAge)
+	}
+}

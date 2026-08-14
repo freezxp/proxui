@@ -89,17 +89,25 @@ Two things to get right when TLS terminates in front of the portal.
 `proxy_set_header X-Forwarded-Proto $scheme;`. Without it the portal believes
 it is serving plain HTTP and omits the header.
 
-**Turn secure cookies back on.** `PROXUI_SECURE_COOKIES` defaults to true and
-should stay that way behind TLS. It is only set to false for plain-HTTP LAN
-use, where a `Secure` cookie would never be sent back and nobody could sign
-in. If you set it false while testing over HTTP, set it back.
+**Secure cookies.** `PROXUI_SECURE_COOKIES` defaults to true and needs nothing
+done to it behind TLS. It matters only for a portal reached **both** ways —
+say `https://vm.example.com` through the proxy and `http://10.0.0.5:8080`
+directly on the LAN, which is worth keeping as a way in when the proxy or its
+DNS is the thing that broke.
 
-A portal reached **both** ways — say `https://vm.example.com` through the
-proxy and `http://10.0.0.5:8080` directly on the LAN — cannot have it both
-ways: `true` breaks sign-in over plain HTTP, `false` leaves the refresh
-cookie without the `Secure` flag on the HTTPS path. Pick the HTTPS name as
-the way in and set it `true`; the direct address stays useful for `/healthz`
-and metrics, which need no cookie.
+| Setting | Over TLS | Over plain HTTP |
+|---|---|---|
+| `true` (default) | `Secure` | `Secure`, so the cookie is never sent back and sign-in fails |
+| `false` | `Secure` | no flag, so LAN sign-in works |
+
+The flag is decided per request from `X-Forwarded-Proto`, not once at boot, so
+`false` does **not** mean "never Secure" — an HTTPS request gets the flag
+either way. Set it false only if you actually sign in over the plain-HTTP
+address; the setting cannot weaken the HTTPS path.
+
+This also depends on the proxy passing the scheme through, above: without
+`X-Forwarded-Proto` the portal cannot tell the two apart and treats everything
+as plain HTTP.
 
 **WebSockets must pass through** for consoles and live updates: Caddy handles
 this automatically, nginx needs `proxy_set_header Upgrade $http_upgrade;` and

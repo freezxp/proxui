@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **The refresh cookie's `Secure` flag now follows the request.** It was
+  decided once at boot, so a portal served over HTTPS with
+  `PROXUI_SECURE_COOKIES=false` — the setting that exists so a plain-HTTP LAN
+  address can be signed into at all — sent its refresh cookie without the
+  flag. The configured value is now a floor: a request that arrived over TLS
+  gets `Secure` whatever the setting says, and one deployment can serve both
+  addresses correctly. Clearing the cookie makes the same decision, or the
+  browser keeps the cookie it was told to drop.
+- **Copy and paste in the console.** A clipboard panel sends text to the
+  guest's clipboard and shows what was copied inside the guest. It moves text
+  through a textarea rather than syncing silently, because reading the local
+  clipboard needs a permission that does not exist outside a secure context —
+  which the plain-HTTP LAN deployment is not.
+
 - **Self-registration and Google sign-in** (ADR 0003), both off until switched
   on. Google's client ID, secret and redirect URL are configured in Settings,
   the secret encrypted like a platform credential.

@@ -62,8 +62,12 @@ type Config struct {
 	// MasterKeyFile holds the key that seals every platform credential. Losing
 	// it means re-entering platform tokens; leaking it means they are readable.
 	MasterKeyFile string
-	// SecureCookies marks the refresh cookie Secure; disable only for local
-	// HTTP development.
+	// SecureCookies requires the Secure flag on the refresh cookie even when
+	// the request did not arrive over TLS. It is a floor, not the whole rule:
+	// a request that did arrive over TLS gets the flag regardless, so setting
+	// this false cannot weaken the HTTPS path. Set it false only for a portal
+	// that is also signed into over a plain-HTTP address, where a Secure
+	// cookie would never be sent back and nobody could sign in at all.
 	SecureCookies bool
 
 	// First-run administrator (ADM-03). Ignored once any account exists.

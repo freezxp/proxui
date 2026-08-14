@@ -79,7 +79,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.setRefreshCookie(w, out.RefreshToken, out.User.ID.String())
+	s.setRefreshCookie(w, r, out.RefreshToken, out.User.ID.String())
 	WriteJSON(w, http.StatusOK, tokenResponse{
 		AccessToken: out.AccessToken,
 		TokenType:   "Bearer",
@@ -103,12 +103,12 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Any refresh failure clears the cookie: the client must re-login
 		// rather than retry with a token we have already rejected.
-		s.clearRefreshCookie(w)
+		s.clearRefreshCookie(w, r)
 		s.writeAuthError(w, r, err)
 		return
 	}
 
-	s.setRefreshCookie(w, out.RefreshToken, out.User.ID.String())
+	s.setRefreshCookie(w, r, out.RefreshToken, out.User.ID.String())
 	WriteJSON(w, http.StatusOK, tokenResponse{
 		AccessToken: out.AccessToken,
 		TokenType:   "Bearer",
@@ -134,7 +134,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		WriteProblem(w, r, http.StatusInternalServerError, "internal", "Could not complete logout.")
 		return
 	}
-	s.clearRefreshCookie(w)
+	s.clearRefreshCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -156,7 +156,7 @@ func (s *Server) handleLogoutAll(w http.ResponseWriter, r *http.Request) {
 		WriteProblem(w, r, http.StatusInternalServerError, "internal", "Could not complete logout.")
 		return
 	}
-	s.clearRefreshCookie(w)
+	s.clearRefreshCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -198,7 +198,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Every session was revoked, including this one, so the refresh cookie is
 	// cleared rather than left pointing at something dead.
-	s.clearRefreshCookie(w)
+	s.clearRefreshCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -265,26 +265,42 @@ func (s *Server) writeAuthError(w http.ResponseWriter, r *http.Request, err erro
 	}
 }
 
-func (s *Server) setRefreshCookie(w http.ResponseWriter, token, _ string) {
+// cookieIsSecure decides whether the refresh cookie carries the Secure flag.
+//
+// The configured value is a floor, not the whole answer. A request that
+// arrived over TLS always gets a Secure cookie, whatever the setting says:
+// `PROXUI_SECURE_COOKIES=false` exists so a portal on a plain-HTTP LAN can be
+// signed into at all — a Secure cookie is never sent back over HTTP, so
+// nobody could — and that is a statement about the HTTP address, not a request
+// to strip the flag from an HTTPS one. Deciding per request rather than at
+// boot is what lets one deployment serve both, which is exactly the
+// configuration where getting this wrong is invisible.
+func (s *Server) cookieIsSecure(r *http.Request) bool {
+	return s.secureCookies || isTLS(r)
+}
+
+func (s *Server) setRefreshCookie(w http.ResponseWriter, r *http.Request, token, _ string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    token,
 		Path:     refreshCookiePath,
 		HttpOnly: true,
-		Secure:   s.secureCookies,
+		Secure:   s.cookieIsSecure(r),
 		SameSite: http.SameSiteStrictMode,
 		Expires:  s.clock().Add(identity.RefreshTokenTTL),
 		MaxAge:   int(identity.RefreshTokenTTL / time.Second),
 	})
 }
 
-func (s *Server) clearRefreshCookie(w http.ResponseWriter) {
+func (s *Server) clearRefreshCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    "",
 		Path:     refreshCookiePath,
 		HttpOnly: true,
-		Secure:   s.secureCookies,
+		// The flag has to match the one it was set with, or the browser keeps
+		// the cookie it was told to drop.
+		Secure:   s.cookieIsSecure(r),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})

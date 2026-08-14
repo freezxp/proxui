@@ -110,7 +110,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.setRefreshCookie(w, out.RefreshToken, "")
+	s.setRefreshCookie(w, r, out.RefreshToken, "")
 	WriteJSON(w, http.StatusCreated, tokenResponse{
 		AccessToken: out.AccessToken,
 		TokenType:   "Bearer",
@@ -227,7 +227,7 @@ func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.setRefreshCookie(w, out.RefreshToken, "")
+	s.setRefreshCookie(w, r, out.RefreshToken, "")
 	// The access token is deliberately not put in the URL, where it would land
 	// in history and any proxy log. The page it lands on refreshes from the
 	// cookie it now holds, which is the same path a returning visitor takes.

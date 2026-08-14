@@ -28,6 +28,25 @@ export function ConsolePage() {
   const [vm, setVM] = useState<VMDetail | null>(null)
   const [attempt, setAttempt] = useState(0)
 
+  // The clipboard panel. Text is moved through a textarea rather than synced
+  // silently with the local clipboard, because reading the local clipboard
+  // needs navigator.clipboard.readText — a permission prompt, and one that
+  // does not exist at all outside a secure context, which the plain-HTTP LAN
+  // deployment is. Ctrl+V into a textarea needs neither and works everywhere.
+  const [clipboardOpen, setClipboardOpen] = useState(false)
+  const [outgoing, setOutgoing] = useState('')
+  const [incoming, setIncoming] = useState('')
+  const [notice, setNotice] = useState('')
+  const incomingRef = useRef<HTMLTextAreaElement>(null)
+  const noticeTimer = useRef<number | undefined>(undefined)
+
+  const flash = useCallback((text: string) => {
+    setNotice(text)
+    window.clearTimeout(noticeTimer.current)
+    noticeTimer.current = window.setTimeout(() => setNotice(''), 2000)
+  }, [])
+  useEffect(() => () => window.clearTimeout(noticeTimer.current), [])
+
   useEffect(() => {
     api
       .get<VMDetail>(`/vms/${vmId}`)
@@ -125,6 +144,13 @@ export function ConsolePage() {
           setPhase('error')
           setMessage('The platform rejected the console session.')
         })
+        // The guest copied something. RFB pushes cut text unasked, so this
+        // arrives whether or not the panel is open — opening it later still
+        // finds the last thing copied rather than nothing.
+        rfb.addEventListener('clipboard', ((event: CustomEvent<{ text: string }>) => {
+          if (cancelled || typeof event.detail?.text !== 'string') return
+          setIncoming(event.detail.text)
+        }) as EventListener)
       } catch (err) {
         if (cancelled) return
         setPhase('error')
@@ -143,6 +169,29 @@ export function ConsolePage() {
 
   const send = useCallback((keys: () => void) => () => keys(), [])
   const ctrlAltDel = send(() => rfbRef.current?.sendCtrlAltDel())
+
+  // Sending puts the text on the *guest's* clipboard; pasting it is still a
+  // Ctrl+V inside the guest. Saying so in the panel saves the "I clicked send
+  // and nothing appeared" round trip.
+  const sendClipboard = useCallback(() => {
+    const rfb = rfbRef.current
+    if (!rfb || outgoing === '') return
+    rfb.clipboardPasteFrom(outgoing)
+    flash("Sent. Paste inside the VM with the guest's own paste shortcut.")
+  }, [outgoing, flash])
+
+  const copyIncoming = useCallback(async () => {
+    if (incoming === '') return
+    try {
+      await navigator.clipboard.writeText(incoming)
+      flash('Copied to this computer’s clipboard.')
+    } catch {
+      // No permission, or no secure context. Selecting the text leaves the
+      // user one Ctrl+C away rather than at a dead end.
+      incomingRef.current?.select()
+      flash('Press Ctrl+C to copy the selected text.')
+    }
+  }, [incoming, flash])
 
   const [fullscreen, setFullscreen] = useState(false)
   useEffect(() => {
@@ -166,6 +215,13 @@ export function ConsolePage() {
             Ctrl+Alt+Del
           </ToolbarButton>
           <ToolbarButton
+            onClick={() => setClipboardOpen((open) => !open)}
+            pressed={clipboardOpen}
+            disabled={phase !== 'connected'}
+          >
+            Clipboard
+          </ToolbarButton>
+          <ToolbarButton
             onClick={() => {
               if (document.fullscreenElement) void document.exitFullscreen()
               else void document.documentElement.requestFullscreen()
@@ -184,33 +240,103 @@ export function ConsolePage() {
         </div>
       </header>
 
-      <div className="relative flex-1 overflow-hidden">
-        <div ref={screenRef} className="h-full w-full" />
+      <div className="relative flex min-h-0 flex-1">
+        <div className="relative min-w-0 flex-1 overflow-hidden">
+          <div ref={screenRef} className="h-full w-full" />
 
-        {phase !== 'connected' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-6">
-            <div className="max-w-md space-y-3 text-center">
-              {phase === 'connecting' && (
-                <>
-                  <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  <p className="text-sm text-white/80">Connecting to the console…</p>
-                </>
-              )}
-              {phase !== 'connecting' && (
-                <>
-                  <p className={`text-sm ${phase === 'error' ? 'text-red-400' : 'text-white/80'}`}>
-                    {message}
-                  </p>
-                  <button
-                    onClick={() => setAttempt((n) => n + 1)}
-                    className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white"
-                  >
-                    Reconnect
-                  </button>
-                </>
-              )}
+          {phase !== 'connected' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-6">
+              <div className="max-w-md space-y-3 text-center">
+                {phase === 'connecting' && (
+                  <>
+                    <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    <p className="text-sm text-white/80">Connecting to the console…</p>
+                  </>
+                )}
+                {phase !== 'connecting' && (
+                  <>
+                    <p
+                      className={`text-sm ${phase === 'error' ? 'text-red-400' : 'text-white/80'}`}
+                    >
+                      {message}
+                    </p>
+                    <button
+                      onClick={() => setAttempt((n) => n + 1)}
+                      className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white"
+                    >
+                      Reconnect
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
+          )}
+        </div>
+
+        {clipboardOpen && (
+          <aside
+            aria-label="Clipboard"
+            className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-surface p-4"
+          >
+            <div className="space-y-2">
+              <label htmlFor="clipboard-out" className="block text-sm font-medium">
+                Send to the VM
+              </label>
+              <p className="text-xs text-muted">
+                Paste here, then send. It lands on the VM&apos;s clipboard — paste it inside the VM
+                as you normally would.
+              </p>
+              <textarea
+                id="clipboard-out"
+                value={outgoing}
+                onChange={(event) => setOutgoing(event.target.value)}
+                rows={5}
+                spellCheck={false}
+                className="w-full rounded-md border border-border bg-surface-raised p-2 font-mono text-xs"
+              />
+              <div className="flex gap-2">
+                <ToolbarButton
+                  onClick={sendClipboard}
+                  disabled={phase !== 'connected' || outgoing === ''}
+                  primary
+                >
+                  Send
+                </ToolbarButton>
+                <ToolbarButton onClick={() => setOutgoing('')} disabled={outgoing === ''}>
+                  Clear
+                </ToolbarButton>
+              </div>
+            </div>
+
+            <div className="space-y-2 border-t border-border pt-4">
+              <label htmlFor="clipboard-in" className="block text-sm font-medium">
+                Copied in the VM
+              </label>
+              <p className="text-xs text-muted">
+                {incoming === ''
+                  ? 'Copy something inside the VM and it appears here.'
+                  : 'Copy this to your own clipboard.'}
+              </p>
+              <textarea
+                id="clipboard-in"
+                ref={incomingRef}
+                value={incoming}
+                readOnly
+                rows={5}
+                spellCheck={false}
+                className="w-full rounded-md border border-border bg-surface-raised p-2 font-mono text-xs"
+              />
+              <ToolbarButton onClick={() => void copyIncoming()} disabled={incoming === ''}>
+                Copy
+              </ToolbarButton>
+            </div>
+
+            {/* Announced politely: the send and copy buttons give no other
+                confirmation, and a silent success reads as a broken button. */}
+            <p aria-live="polite" className="min-h-[2rem] text-xs text-muted">
+              {notice}
+            </p>
+          </aside>
         )}
       </div>
     </div>
@@ -237,18 +363,25 @@ function ToolbarButton({
   onClick,
   disabled,
   primary,
+  pressed,
 }: {
   children: React.ReactNode
   onClick: () => void
   disabled?: boolean
   primary?: boolean
+  pressed?: boolean
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      aria-pressed={pressed}
       className={`rounded-md px-3 py-1.5 text-sm disabled:opacity-40 ${
-        primary ? 'bg-accent text-white' : 'border border-border hover:bg-surface-raised'
+        primary
+          ? 'bg-accent text-white'
+          : pressed
+            ? 'border border-accent bg-accent/10 text-accent'
+            : 'border border-border hover:bg-surface-raised'
       }`}
     >
       {children}

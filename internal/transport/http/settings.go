@@ -11,18 +11,23 @@ import (
 
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/domain/setting"
+	"github.com/freezxp/proxui/internal/infra/crypto"
 )
 
 // SettingsStore persists administrator overrides.
 type SettingsStore interface {
 	All(ctx context.Context) (map[string]json.RawMessage, error)
 	Set(ctx context.Context, key string, value any, by uuid.UUID, at time.Time) error
+	SetSecret(ctx context.Context, key, value string, vault *crypto.Vault, by uuid.UUID, at time.Time) error
 	Reset(ctx context.Context, key string) error
 }
 
 // SettingsDeps bundles the settings endpoints' dependencies.
 type SettingsDeps struct {
 	Settings SettingsStore
+	// Vault seals secret settings, with the same key that protects platform
+	// credentials.
+	Vault *crypto.Vault
 }
 
 func (s *Server) handleListSettings(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +89,10 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reset := any(def.Default)
-		if !def.Kind.Numeric() {
+		switch {
+		case def.Kind.Secret():
+			reset = "removed"
+		case !def.Kind.Numeric():
 			reset = def.DefaultText
 		}
 		s.auditSetting(r, key, map[string]any{"reset_to_default": reset})
@@ -108,6 +116,27 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		stored, details = *req.Value, map[string]any{"value": *req.Value}
+	case def.Kind.Secret():
+		if req.Text == nil || *req.Text == "" {
+			WriteProblem(w, r, http.StatusUnprocessableEntity, "validation",
+				"A secret cannot be set to nothing. Use reset to remove it.")
+			return
+		}
+		if err := def.ValidateText(*req.Text); err != nil {
+			WriteProblem(w, r, http.StatusUnprocessableEntity, "validation", err.Error())
+			return
+		}
+		if err := s.settings.Settings.SetSecret(r.Context(), key, *req.Text,
+			s.settings.Vault, actorID, s.clock()); err != nil {
+			s.serverError(w, r, err, "Could not store the setting.")
+			return
+		}
+		// The value never appears in the trail; that it changed, and by whom,
+		// is what the trail is for.
+		s.auditSetting(r, key, map[string]any{"secret_replaced": true})
+		w.WriteHeader(http.StatusNoContent)
+		return
+
 	default:
 		if req.Text == nil {
 			WriteProblem(w, r, http.StatusUnprocessableEntity, "validation",

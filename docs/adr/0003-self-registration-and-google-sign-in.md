@@ -31,11 +31,13 @@ Registration hands out an account, not access. Roles say what someone may do; gr
 
 That is what makes open registration tolerable: the gate moved from "can you have an account" to "can you see anything", and the second gate is the one that mattered.
 
-### Why Google's credentials live in the environment
+### Where Google's credentials live
 
-The settings table stores values in plain text. A client secret does not belong there, and adding an encrypted settings kind for one field would be a schema change carrying its own risk. Client credentials are deployment configuration in the same sense as the master key and the database URL: `PROXUI_GOOGLE_CLIENT_ID`, `PROXUI_GOOGLE_CLIENT_SECRET`, `PROXUI_GOOGLE_REDIRECT_URL`.
+Configured in **Settings → Google sign-in**, with the environment as a fallback for deployments that would rather set it there (`PROXUI_GOOGLE_CLIENT_ID`, `PROXUI_GOOGLE_CLIENT_SECRET`, `PROXUI_GOOGLE_REDIRECT_URL`). A value in Settings wins.
 
-The cost is honest: an administrator cannot switch Google on from the UI, only from the deployment.
+This was initially environment-only, on the grounds that the settings table stores plain text and a client secret does not belong there. That reasoning was sound but the conclusion was wrong: the answer was to make the table able to hold a secret, not to keep the feature out of the UI. Settings gained a `secret` kind (migration 00012) using the same envelope encryption as platform credentials — a per-secret data key wrapped by the master key. A secret is write-only: never returned by any read, shown as "set" with a replace affordance, and audited as `{"secret_replaced": true}` rather than by value.
+
+Configuration is re-read per request rather than captured at boot. The usual mistake here is a mismatched redirect URL, which is only discovered by trying it; correcting it should not need a restart.
 
 ### Why the flow is hand-written
 

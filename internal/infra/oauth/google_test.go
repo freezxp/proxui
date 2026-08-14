@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"net/url"
@@ -16,14 +17,20 @@ func testConfig() Config {
 	}
 }
 
+// static is a configuration that never changes, for tests that do not care
+// that the real one is re-read per call.
+func static(cfg Config) ConfigSource {
+	return func(context.Context) Config { return cfg }
+}
+
 func TestAuthorizeURLCarriesTheProtections(t *testing.T) {
-	client := New(testConfig(), nil)
+	client := New(static(testConfig()), nil)
 	attempt, err := NewAttempt("/vms")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	raw, err := client.AuthorizeURL(attempt)
+	raw, err := client.AuthorizeURL(context.Background(), attempt)
 	if err != nil {
 		t.Fatalf("AuthorizeURL: %v", err)
 	}
@@ -53,11 +60,11 @@ func TestAuthorizeURLCarriesTheProtections(t *testing.T) {
 }
 
 func TestUnconfiguredClientRefuses(t *testing.T) {
-	client := New(Config{}, nil)
-	if client.Config.Enabled() {
+	client := New(static(Config{}), nil)
+	if client.Enabled(context.Background()) {
 		t.Fatal("an empty configuration reported itself as enabled")
 	}
-	if _, err := client.AuthorizeURL(Attempt{}); err != ErrNotConfigured {
+	if _, err := client.AuthorizeURL(context.Background(), Attempt{}); err != ErrNotConfigured {
 		t.Errorf("got %v, want ErrNotConfigured", err)
 	}
 }
@@ -98,4 +105,37 @@ func TestRSAKeyRejectsNonsense(t *testing.T) {
 		base64.RawURLEncoding.EncodeToString([]byte{0x01, 0x00, 0x01})); err != nil {
 		t.Errorf("a normal key was rejected: %v", err)
 	}
+}
+
+// Configuration is re-read on every call, so a credential corrected in
+// Settings takes effect on the next attempt rather than at the next restart.
+func TestConfigurationIsReadPerCall(t *testing.T) {
+	current := Config{}
+	client := New(func(context.Context) Config { return current }, nil)
+
+	if client.Enabled(context.Background()) {
+		t.Fatal("reported enabled before anything was configured")
+	}
+
+	current = testConfig()
+	if !client.Enabled(context.Background()) {
+		t.Error("a configuration supplied after construction was not picked up")
+	}
+
+	raw, err := client.AuthorizeURL(context.Background(), mustAttempt(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, url.QueryEscape(testConfig().RedirectURL)) {
+		t.Error("the authorize URL did not use the newly supplied redirect")
+	}
+}
+
+func mustAttempt(t *testing.T) Attempt {
+	t.Helper()
+	a, err := NewAttempt("/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
 }

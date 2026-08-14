@@ -343,7 +343,7 @@ export interface Setting {
   group: string
   label: string
   help: string
-  kind: 'duration_s' | 'count' | 'days' | 'text' | 'image'
+  kind: 'duration_s' | 'count' | 'days' | 'text' | 'image' | 'select' | 'secret'
   default?: number
   min?: number
   max?: number
@@ -351,5 +351,7 @@ export interface Setting {
   max_length?: number
   value?: number
   text?: string
+  has_value?: boolean
+  options?: { value: string; label: string }[]
   modified: boolean
 }

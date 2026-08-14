@@ -94,6 +94,9 @@ function SettingRow({
   if (item.kind === 'image') {
     return <ImageSetting item={item} onSave={onSave} onError={onError} />
   }
+  if (item.kind === 'secret') {
+    return <SecretSetting item={item} onSave={onSave} />
+  }
 
   const stored = item.kind === 'text' ? (item.text ?? '') : (item.value ?? 0)
   const current = draft ?? stored
@@ -111,7 +114,20 @@ function SettingRow({
           )}
         </label>
 
-        {item.kind === 'text' ? (
+        {item.kind === 'select' ? (
+          <select
+            id={item.key}
+            value={String(current)}
+            onChange={(e) => onDraft(e.target.value)}
+            className="w-96 rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
+          >
+            {item.options?.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        ) : item.kind === 'text' ? (
           <input
             id={item.key}
             value={String(current)}
@@ -156,6 +172,85 @@ function SettingRow({
         {item.kind !== 'text' &&
           ` Allowed: ${formatValue(item, item.min ?? 0)} to ${formatValue(item, item.max ?? 0)}.`}
       </p>
+    </div>
+  )
+}
+
+/** A secret is write-only: the value is never sent back, so the field offers
+ *  to replace it rather than pretending to show it. Same treatment a platform
+ *  credential gets. */
+function SecretSetting({
+  item,
+  onSave,
+}: {
+  item: Setting
+  onSave: (value: string | null) => void
+}) {
+  const [draft, setDraft] = useState('')
+  const [editing, setEditing] = useState(false)
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={item.key} className="min-w-56 text-sm">
+          {item.label}
+          {item.has_value && (
+            <span className="ml-2 rounded-full bg-state-running/15 px-2 py-0.5 text-xs text-state-running">
+              set
+            </span>
+          )}
+        </label>
+
+        {editing || !item.has_value ? (
+          <>
+            <input
+              id={item.key}
+              type="password"
+              value={draft}
+              autoComplete="new-password"
+              placeholder={item.has_value ? 'Enter a new secret' : ''}
+              onChange={(e) => setDraft(e.target.value)}
+              className="w-96 rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
+            />
+            <button
+              onClick={() => {
+                onSave(draft)
+                setDraft('')
+                setEditing(false)
+              }}
+              disabled={!draft}
+              className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+            >
+              Save
+            </button>
+            {item.has_value && (
+              <button
+                onClick={() => {
+                  setDraft('')
+                  setEditing(false)
+                }}
+                className="text-xs text-muted hover:underline"
+              >
+                Cancel
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <span className="font-mono text-sm text-muted">••••••••••••</span>
+            <button
+              onClick={() => setEditing(true)}
+              className="text-xs text-accent hover:underline"
+            >
+              Replace
+            </button>
+            <button onClick={() => onSave(null)} className="text-xs text-danger hover:underline">
+              Remove
+            </button>
+          </>
+        )}
+      </div>
+      <p className="text-xs text-muted">{item.help}</p>
     </div>
   )
 }
@@ -236,6 +331,11 @@ function ImageSetting({
 // What an empty text field resolves to, shown as its placeholder.
 function emptyMeans(item: Setting): string {
   if (item.key === 'branding.portal_name') return window.location.hostname
+  // The redirect URL has exactly one correct value for this deployment, and
+  // typing it by hand is how it ends up mismatched.
+  if (item.key === 'auth.google_redirect_url') {
+    return `${window.location.origin}/api/v1/auth/google/callback`
+  }
   return ''
 }
 

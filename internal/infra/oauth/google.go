@@ -24,10 +24,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// ErrNotConfigured is returned when Google sign-in has not been set up. The
-// client credentials are deployment configuration, like the master key: they
-// come from the environment rather than the settings table, because a settings
-// row is stored in plain text and a client secret should not be.
+// ErrNotConfigured is returned when Google sign-in has not been set up.
+// Credentials come from Settings, where the client secret is stored with the
+// same envelope encryption as a platform credential, and fall back to the
+// environment for deployments that would rather configure it there.
 var ErrNotConfigured = errors.New("oauth: google sign-in is not configured")
 
 // ErrInvalidToken covers every way an identity token can fail to convince us.
@@ -66,9 +66,16 @@ type Identity struct {
 	Name          string
 }
 
+// ConfigSource supplies the current configuration.
+//
+// Read per call rather than captured at boot, so credentials entered in
+// Settings take effect immediately — an administrator who has just fixed a
+// mistyped redirect URL should be able to try again, not restart the portal.
+type ConfigSource func(ctx context.Context) Config
+
 // Client performs the authorization-code flow with PKCE.
 type Client struct {
-	Config Config
+	Source ConfigSource
 	HTTP   *http.Client
 
 	mu       sync.RWMutex
@@ -77,12 +84,21 @@ type Client struct {
 }
 
 // New builds a client.
-func New(cfg Config, httpClient *http.Client) *Client {
+func New(source ConfigSource, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
-	return &Client{Config: cfg, HTTP: httpClient}
+	if source == nil {
+		source = func(context.Context) Config { return Config{} }
+	}
+	return &Client{Source: source, HTTP: httpClient}
 }
+
+// Config returns the configuration as it stands now.
+func (c *Client) Config(ctx context.Context) Config { return c.Source(ctx) }
+
+// Enabled reports whether a sign-in could be attempted.
+func (c *Client) Enabled(ctx context.Context) bool { return c.Source(ctx).Enabled() }
 
 // Attempt is the per-sign-in state that has to survive the round trip to
 // Google. It is held server-side and keyed by the state parameter, so a
@@ -113,15 +129,16 @@ func NewAttempt(returnTo string) (Attempt, error) {
 }
 
 // AuthorizeURL is where the browser is sent to sign in.
-func (c *Client) AuthorizeURL(a Attempt) (string, error) {
-	if !c.Config.Enabled() {
+func (c *Client) AuthorizeURL(ctx context.Context, a Attempt) (string, error) {
+	cfg := c.Source(ctx)
+	if !cfg.Enabled() {
 		return "", ErrNotConfigured
 	}
 	challenge := sha256.Sum256([]byte(a.Verifier))
 
 	q := url.Values{}
-	q.Set("client_id", c.Config.ClientID)
-	q.Set("redirect_uri", c.Config.RedirectURL)
+	q.Set("client_id", cfg.ClientID)
+	q.Set("redirect_uri", cfg.RedirectURL)
 	q.Set("response_type", "code")
 	q.Set("scope", "openid email profile")
 	q.Set("state", a.State)
@@ -137,17 +154,18 @@ func (c *Client) AuthorizeURL(a Attempt) (string, error) {
 
 // Exchange turns an authorization code into a verified identity.
 func (c *Client) Exchange(ctx context.Context, code string, a Attempt) (Identity, error) {
-	if !c.Config.Enabled() {
+	cfg := c.Source(ctx)
+	if !cfg.Enabled() {
 		return Identity{}, ErrNotConfigured
 	}
 
 	form := url.Values{}
-	form.Set("client_id", c.Config.ClientID)
-	form.Set("client_secret", c.Config.ClientSecret)
+	form.Set("client_id", cfg.ClientID)
+	form.Set("client_secret", cfg.ClientSecret)
 	form.Set("code", code)
 	form.Set("code_verifier", a.Verifier)
 	form.Set("grant_type", "authorization_code")
-	form.Set("redirect_uri", c.Config.RedirectURL)
+	form.Set("redirect_uri", cfg.RedirectURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, googleTokenURL,
 		strings.NewReader(form.Encode()))
@@ -179,14 +197,14 @@ func (c *Client) Exchange(ctx context.Context, code string, a Attempt) (Identity
 		return Identity{}, fmt.Errorf("%w: no identity token in the response", ErrInvalidToken)
 	}
 
-	return c.verify(ctx, body.IDToken, a.Nonce)
+	return c.verify(ctx, body.IDToken, a.Nonce, cfg.ClientID)
 }
 
 // verify checks the identity token's signature and every claim that matters.
 //
 // The signature is the whole point: without it, anything that can reach the
 // callback could present a token claiming to be anyone.
-func (c *Client) verify(ctx context.Context, raw, nonce string) (Identity, error) {
+func (c *Client) verify(ctx context.Context, raw, nonce, clientID string) (Identity, error) {
 	keys, err := c.signingKeys(ctx, false)
 	if err != nil {
 		return Identity{}, err
@@ -203,7 +221,7 @@ func (c *Client) verify(ctx context.Context, raw, nonce string) (Identity, error
 				return nil, fmt.Errorf("%w: unknown signing key %q", ErrInvalidToken, kid)
 			}
 			return key, nil
-		}, jwt.WithIssuer(googleIssuer), jwt.WithAudience(c.Config.ClientID),
+		}, jwt.WithIssuer(googleIssuer), jwt.WithAudience(clientID),
 			jwt.WithExpirationRequired())
 	}
 

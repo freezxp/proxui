@@ -70,7 +70,7 @@ func (s *Server) handleAuthMethods(w http.ResponseWriter, r *http.Request) {
 	if s.registration.Policy != nil {
 		registration = s.registration.Policy.SelfRegistrationEnabled(r.Context())
 	}
-	google := s.registration.OAuth != nil && s.registration.OAuth.Config.Enabled()
+	google := s.registration.OAuth != nil && s.registration.OAuth.Enabled(r.Context())
 
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"password":     true,
@@ -144,7 +144,7 @@ func (s *Server) writeRegisterError(w http.ResponseWriter, r *http.Request, err 
 
 // handleGoogleStart begins an external sign-in.
 func (s *Server) handleGoogleStart(w http.ResponseWriter, r *http.Request) {
-	if s.registration.OAuth == nil || !s.registration.OAuth.Config.Enabled() {
+	if s.registration.OAuth == nil || !s.registration.OAuth.Enabled(r.Context()) {
 		WriteProblem(w, r, http.StatusNotFound, "auth.provider_unavailable",
 			"Google sign-in is not configured on this portal.")
 		return
@@ -160,7 +160,7 @@ func (s *Server) handleGoogleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := s.registration.OAuth.AuthorizeURL(attempt)
+	target, err := s.registration.OAuth.AuthorizeURL(r.Context(), attempt)
 	if err != nil {
 		s.serverError(w, r, err, "Could not start sign-in.")
 		return
@@ -175,7 +175,7 @@ func (s *Server) handleGoogleStart(w http.ResponseWriter, r *http.Request) {
 // redirect, and a person who clicked "Sign in with Google" should land back
 // where they started, told what went wrong.
 func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
-	if s.registration.OAuth == nil || !s.registration.OAuth.Config.Enabled() {
+	if s.registration.OAuth == nil || !s.registration.OAuth.Enabled(r.Context()) {
 		s.failSignIn(w, r, "unavailable", nil)
 		return
 	}

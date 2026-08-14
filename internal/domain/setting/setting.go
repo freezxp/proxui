@@ -34,12 +34,20 @@ const (
 	KindImage Kind = "image"
 	// KindSelect is a fixed set of choices, rendered as a dropdown.
 	KindSelect Kind = "select"
+	// KindSecret is write-only. It is stored encrypted and never returned by
+	// the API — the UI shows whether one is set and offers to replace it,
+	// which is the same treatment platform credentials get.
+	KindSecret Kind = "secret"
 )
 
 // Numeric reports whether the setting holds a number rather than text.
 func (k Kind) Numeric() bool {
 	return k == KindDuration || k == KindCount || k == KindDays
 }
+
+// Secret reports whether the value must be encrypted at rest and withheld
+// from every read.
+func (k Kind) Secret() bool { return k == KindSecret }
 
 // Definition describes one setting: what it means, and what it may be.
 //
@@ -158,6 +166,23 @@ var Catalogue = []Definition{
 		Help: "Optional. Shown on the sign-in page — an acceptable-use notice, or who to contact for access.",
 	},
 	{
+		Key: "auth.google_client_id", Group: "Google sign-in", Kind: KindText,
+		Label: "Client ID", MaxLength: 200,
+		Help: "From the OAuth client you created in Google Cloud. Ends in .apps.googleusercontent.com.",
+	},
+	{
+		Key: "auth.google_client_secret", Group: "Google sign-in", Kind: KindSecret,
+		Label: "Client secret", MaxLength: 200,
+		Help: "Stored encrypted with the same key as platform credentials, and never shown again.",
+	},
+	{
+		Key: "auth.google_redirect_url", Group: "Google sign-in", Kind: KindText,
+		Label: "Redirect URL", MaxLength: 400,
+		// The single most common failure in this flow, and invisible from the
+		// portal's side: Google compares it character for character.
+		Help: "Must match a redirect URI registered with Google exactly, including scheme, host, port and path.",
+	},
+	{
 		Key: "auth.self_registration", Group: "Access", Kind: KindSelect,
 		Label: "Self-registration", DefaultText: RegistrationDisabled,
 		Options: []Option{
@@ -239,11 +264,13 @@ func Lookup(key string) (Definition, bool) {
 	return Definition{}, false
 }
 
-// Value is a setting as it currently stands.
+// Value is a setting as it currently stands. A secret's contents are never
+// present: HasValue says only whether one is stored.
 type Value struct {
 	Definition
 	Value    int    `json:"value,omitempty"`
 	Text     string `json:"text,omitempty"`
+	HasValue bool   `json:"has_value,omitempty"`
 	Modified bool   `json:"modified"`
 }
 
@@ -256,6 +283,14 @@ func Resolve(stored map[string]json.RawMessage) []Value {
 	out := make([]Value, 0, len(Catalogue))
 	for _, def := range Catalogue {
 		v := Value{Definition: def, Value: def.Default, Text: def.DefaultText}
+		if def.Kind.Secret() {
+			// Presence only. The ciphertext never reaches this layer, so the
+			// caller passes a marker rather than the value.
+			_, present := stored[def.Key]
+			v.HasValue, v.Modified = present, present
+			out = append(out, v)
+			continue
+		}
 		if raw, ok := stored[def.Key]; ok {
 			if def.Kind.Numeric() {
 				var n int
@@ -275,10 +310,14 @@ func Resolve(stored map[string]json.RawMessage) []Value {
 }
 
 // PublicValues is the subset the sign-in page may read unauthenticated.
+//
+// Secrets are excluded structurally rather than by remembering to exclude
+// them: a secret is never public, and the loop refuses to emit one even if a
+// definition were mistakenly marked so.
 func PublicValues(stored map[string]json.RawMessage) map[string]string {
 	out := map[string]string{}
 	for _, v := range Resolve(stored) {
-		if v.Public {
+		if v.Public && !v.Kind.Secret() {
 			out[v.Key] = v.Text
 		}
 	}

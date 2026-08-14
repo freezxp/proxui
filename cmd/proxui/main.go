@@ -249,15 +249,15 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	// Registration and external sign-in. The policy is read per request, so
 	// switching registration off in Settings takes effect at once.
 	settingsRepo := postgres.NewSettingsRepository(pool)
-	registrationPolicy := &appsetting.Policy{Settings: settingsRepo, Log: log}
-	googleClient := oauth.New(oauth.Config{
-		ClientID:     cfg.GoogleClientID,
-		ClientSecret: cfg.GoogleClientSecret,
-		RedirectURL:  cfg.GoogleRedirectURL,
-	}, nil)
-	if googleClient.Config.Enabled() {
-		log.Info().Str("redirect_url", cfg.GoogleRedirectURL).Msg("google sign-in enabled")
+	registrationPolicy := &appsetting.Policy{
+		Settings: settingsRepo, Vault: vault, Log: log,
+		Fallback: oauth.Config{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleClientSecret,
+			RedirectURL:  cfg.GoogleRedirectURL,
+		},
 	}
+	googleClient := oauth.New(registrationPolicy.GoogleConfig, nil)
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
@@ -280,7 +280,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 				Inventory: inventory, Audit: auditLog, Metrics: metrics, Infra: inventory,
 			},
 			Alerts:   httpapi.AlertDeps{Alerts: alertRepo},
-			Settings: httpapi.SettingsDeps{Settings: settingsRepo},
+			Settings: httpapi.SettingsDeps{Settings: settingsRepo, Vault: vault},
 			Registration: httpapi.RegistrationDeps{
 				Register: &command.Register{
 					Users: users, Policy: registrationPolicy, Hasher: hasher,

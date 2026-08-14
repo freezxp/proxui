@@ -164,8 +164,11 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	tokens := crypto.NewTokenIssuer(signingKey, tokenIssuerName, identity.AccessTokenTTL)
 
 	authDeps := httpapi.AuthDeps{
-		Login:    &command.Login{Users: users, Sessions: sessions, Hasher: hasher, Tokens: tokens, Audit: audit, Clock: clock},
-		Refresh:  &command.Refresh{Users: users, Sessions: sessions, Tokens: tokens, Audit: audit, Clock: clock},
+		Login:   &command.Login{Users: users, Sessions: sessions, Hasher: hasher, Tokens: tokens, Audit: audit, Clock: clock},
+		Refresh: &command.Refresh{Users: users, Sessions: sessions, Tokens: tokens, Audit: audit, Clock: clock},
+		ChangePassword: &command.ChangePassword{
+			Users: users, Sessions: sessions, Hasher: hasher, Audit: audit, Clock: clock,
+		},
 		Logout:   &command.Logout{Sessions: sessions, Audit: audit, Clock: clock},
 		Users:    users,
 		Tokens:   tokens,

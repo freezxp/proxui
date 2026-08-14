@@ -25,7 +25,8 @@ cluster.
 | 2.2.1 | Anti-automation on credentials | ✅ | rate limiter returns 429 after 4 failed attempts; measured `401 401 401 401 429 429 …` |
 | 2.4.1 | Passwords stored with an approved KDF | ✅ | argon2id, per-password salt |
 | 2.5.4 | No default or shared accounts | ✅ | the bootstrap admin is created once from the environment and must change its password at first sign-in |
-| 2.7 | Out-of-band recovery | ❌ | **not implemented.** No self-service reset by design; an administrator sets a new password. Documented in [docs/13-ui-design.md](13-ui-design.md) |
+| 2.7 | Out-of-band recovery | ⚠️ | no self-service *reset* by design — there is no email loop to abuse. A signed-in user can change their own password, and an administrator issues a temporary one for anyone locked out |
+| 2.5.5 | Forced change after an administrative reset | ✅ | `must_change_password` is raised on creation and on reset, and the portal refuses everything else until it is cleared (AUTH-08) |
 
 ## V3 Session management
 
@@ -38,7 +39,7 @@ cluster.
 | 3.4.2 | Cookies are `HttpOnly` | ✅ | `Set-Cookie: proxui_rt=…; HttpOnly; SameSite=Strict; Path=/api/v1/auth` |
 | 3.4.3 | `SameSite` set | ✅ | `Strict` |
 | 3.5.3 | Stateless tokens are validated | ✅ | RS256, issuer and expiry checked |
-| 3.7.1 | Re-authentication before sensitive changes | ❌ | **not implemented.** Changing another user's role does not re-prompt. Mitigated by the audit trail, not prevented |
+| 3.7.1 | Re-authentication before sensitive changes | ⚠️ | **partial.** Changing a password requires the current one, so a stolen access token cannot lock its owner out. Changing another user's role still does not re-prompt; mitigated by the audit trail, not prevented |
 
 ## V4 Access control
 

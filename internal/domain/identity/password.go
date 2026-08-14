@@ -14,6 +14,11 @@ const MinPasswordLength = 12
 // ErrWeakPassword is returned when a password fails policy.
 var ErrWeakPassword = errors.New("identity: password does not meet policy")
 
+// ErrPasswordUnchanged rejects a change that changes nothing. A forced change
+// satisfied by re-entering the same password would defeat the point of forcing
+// it (AUTH-08).
+var ErrPasswordUnchanged = errors.New("identity: the new password matches the current one")
+
 // PasswordPolicyError describes why a password was rejected, so the API can
 // return a useful field error instead of a generic refusal.
 type PasswordPolicyError struct{ Reason string }

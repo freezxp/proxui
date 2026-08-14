@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"github.com/freezxp/proxui/internal/app/command"
 	"github.com/freezxp/proxui/internal/domain/identity"
 )
 
@@ -28,12 +29,18 @@ type UserLoader interface {
 // AuthDeps bundles everything the authentication endpoints need. Interfaces,
 // not concrete types, so handler tests need no database.
 type AuthDeps struct {
-	Login    LoginHandler
-	Refresh  RefreshHandler
-	Logout   LogoutHandler
-	Users    UserLoader
-	Tokens   TokenParser
-	Sessions SessionChecker
+	Login          LoginHandler
+	Refresh        RefreshHandler
+	Logout         LogoutHandler
+	ChangePassword PasswordChanger
+	Users          UserLoader
+	Tokens         TokenParser
+	Sessions       SessionChecker
+}
+
+// PasswordChanger lets a signed-in user replace their own password.
+type PasswordChanger interface {
+	Handle(ctx context.Context, in command.ChangePasswordInput) error
 }
 
 // ServerConfig is the constructor input for Server.
@@ -162,6 +169,9 @@ func (s *Server) Routes() http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(s.requireAuth())
 				r.Get("/me", s.handleMe)
+				// Every role, because the account being changed is the
+				// caller's own and the current password must be supplied.
+				r.Post("/password", s.handleChangePassword)
 				r.Post("/logout-all", s.handleLogoutAll)
 			})
 		})

@@ -58,6 +58,7 @@ export function UsersPage() {
 
 function UsersTab() {
   const [editing, setEditing] = useState<User | 'new' | null>(null)
+  const [resetting, setResetting] = useState<User | null>(null)
   const queryClient = useQueryClient()
 
   const users = useQuery({
@@ -143,6 +144,12 @@ function UsersTab() {
                     Edit
                   </button>
                   <button
+                    onClick={() => setResetting(user)}
+                    className="text-xs text-accent hover:underline"
+                  >
+                    Reset password
+                  </button>
+                  <button
                     onClick={() => setActive.mutate({ user, active: !user.is_active })}
                     className="text-xs text-muted hover:underline"
                   >
@@ -154,6 +161,17 @@ function UsersTab() {
           </tbody>
         </table>
       </div>
+
+      {resetting && (
+        <ResetPasswordDrawer
+          user={resetting}
+          onClose={() => setResetting(null)}
+          onDone={() => {
+            setResetting(null)
+            void queryClient.invalidateQueries({ queryKey: ['users'] })
+          }}
+        />
+      )}
 
       {editing && (
         <UserForm
@@ -167,6 +185,116 @@ function UsersTab() {
         />
       )}
     </div>
+  )
+}
+
+/** Generates a temporary password rather than asking an administrator to
+ *  invent one. A human-chosen "temporary" password is usually weak and often
+ *  reused, and this one only has to survive until the user changes it. */
+function generatePassword(): string {
+  const alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes = new Uint32Array(20)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (n) => alphabet[n % alphabet.length]).join('')
+}
+
+function ResetPasswordDrawer({
+  user,
+  onClose,
+  onDone,
+}: {
+  user: User
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [password, setPassword] = useState(generatePassword)
+  const [issued, setIssued] = useState(false)
+  const [error, setError] = useState('')
+
+  const reset = useMutation({
+    mutationFn: () => api.post(`/users/${user.id}/password`, { temp_password: password }),
+    onSuccess: () => setIssued(true),
+    onError: (err) =>
+      setError(err instanceof Error ? err.message : 'Could not reset the password.'),
+  })
+
+  if (issued) {
+    return (
+      <Drawer title="Password reset" onClose={onDone}>
+        <div className="space-y-3">
+          <p className="text-sm">
+            <span className="font-medium">{user.username}</span> can sign in with this password and
+            will be asked to choose their own.
+          </p>
+          <div className="rounded-md border border-border bg-surface-raised p-3">
+            <div className="text-xs uppercase tracking-wide text-muted">Temporary password</div>
+            <div className="font-mono text-sm">{password}</div>
+          </div>
+          <p className="text-xs text-muted">
+            This is the only time it is shown. Their existing sessions have been signed out.
+          </p>
+          <button
+            onClick={onDone}
+            className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white"
+          >
+            Done
+          </button>
+        </div>
+      </Drawer>
+    )
+  }
+
+  return (
+    <Drawer
+      title={`Reset password for ${user.username}`}
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md border border-border px-3 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={() => reset.mutate()}
+            disabled={password.length < 12 || reset.isPending}
+            className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+          >
+            {reset.isPending ? 'Resetting…' : 'Reset password'}
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-muted">
+          This signs {user.username} out everywhere and requires them to choose a new password at
+          their next sign-in. Use it when someone is locked out or a password may have been seen.
+        </p>
+
+        <div className="space-y-1">
+          <label htmlFor="temp-password" className="block text-sm">
+            Temporary password
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="temp-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="flex-1 rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm"
+            />
+            <button
+              onClick={() => setPassword(generatePassword())}
+              className="rounded-md border border-border px-3 py-2 text-sm"
+            >
+              Regenerate
+            </button>
+          </div>
+          <p className="text-xs text-muted">
+            Generated for you. Shown once after the reset, so have somewhere to put it.
+          </p>
+        </div>
+
+        {error && <p className="text-sm text-danger">{error}</p>}
+      </div>
+    </Drawer>
   )
 }
 

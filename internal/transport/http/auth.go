@@ -160,6 +160,66 @@ func (s *Server) handleLogoutAll(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// handleChangePassword lets the signed-in user replace their own password.
+// Every role may do this: it is the only way MustChangePassword is cleared,
+// and an account that cannot change its own password is one an administrator
+// must be involved in every time.
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	p, ok := PrincipalFrom(r.Context())
+	if !ok {
+		WriteProblem(w, r, http.StatusUnauthorized, "auth.missing_token", "Authentication is required.")
+		return
+	}
+
+	var req changePasswordRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		return
+	}
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		WriteProblemFields(w, r, http.StatusUnprocessableEntity, "validation",
+			"Both the current and the new password are required.",
+			map[string]string{"current_password": "required", "new_password": "required"})
+		return
+	}
+
+	err := s.auth.ChangePassword.Handle(r.Context(), command.ChangePasswordInput{
+		Actor: s.actor(r), UserID: p.UserID,
+		CurrentPassword: req.CurrentPassword, NewPassword: req.NewPassword,
+	})
+	if err != nil {
+		s.writePasswordError(w, r, err)
+		return
+	}
+
+	// Every session was revoked, including this one, so the refresh cookie is
+	// cleared rather than left pointing at something dead.
+	s.clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) writePasswordError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, identity.ErrInvalidCredentials):
+		WriteProblemFields(w, r, http.StatusUnauthorized, "auth.invalid_credentials",
+			"That is not your current password.",
+			map[string]string{"current_password": "incorrect"})
+	case errors.Is(err, identity.ErrPasswordUnchanged):
+		WriteProblemFields(w, r, http.StatusUnprocessableEntity, "validation",
+			"The new password must be different from the current one.",
+			map[string]string{"new_password": "unchanged"})
+	case errors.Is(err, identity.ErrWeakPassword):
+		WriteProblemFields(w, r, http.StatusUnprocessableEntity, "validation", err.Error(),
+			map[string]string{"new_password": "policy"})
+	default:
+		s.writeAuthError(w, r, err)
+	}
+}
+
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	p, ok := PrincipalFrom(r.Context())
 	if !ok {

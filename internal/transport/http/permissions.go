@@ -65,6 +65,9 @@ var permissionMap = map[string]Permission{
 	"GET /api/v1/auth/me":          {Access: AccessAuthenticated},
 	"POST /api/v1/auth/logout-all": {Access: AccessAuthenticated},
 
+	"POST /api/v1/auth/password": roles(identity.RoleAdmin, identity.RoleOperator,
+		identity.RoleReadOnly, identity.RoleAuditor),
+
 	"GET /api/v1/users":                    roles(identity.RoleAdmin),
 	"POST /api/v1/users":                   roles(identity.RoleAdmin),
 	"GET /api/v1/users/{userID}":           roles(identity.RoleAdmin),

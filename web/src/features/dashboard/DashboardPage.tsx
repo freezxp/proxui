@@ -35,38 +35,43 @@ export function DashboardPage() {
         />
       </div>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium text-muted">Platforms</h2>
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Datacenter</th>
-                <th className="px-4 py-2 font-medium">Health</th>
-                <th className="px-4 py-2 font-medium">Version</th>
-                <th className="px-4 py-2 text-right font-medium">VMs</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.platforms.map((platform) => (
-                <tr key={platform.id} className="border-t border-border">
-                  <td className="px-4 py-2 font-medium">{platform.name}</td>
-                  <td className="px-4 py-2 text-muted">{platform.datacenter}</td>
-                  <td className={`px-4 py-2 ${HEALTH_STYLES[platform.health] ?? 'text-muted'}`}>
-                    {platform.health}
-                    {platform.breaker_open && (
-                      <span className="ml-2 text-xs text-stale">(backing off)</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-muted">{platform.version ?? '—'}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{platform.vm_count}</td>
+      {/* The server omits this block for roles that should not see the
+          estate's shape, so its absence is the signal rather than a role
+          check repeated here. */}
+      {data.platforms.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium text-muted">Platforms</h2>
+          <div className="overflow-hidden rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Name</th>
+                  <th className="px-4 py-2 font-medium">Datacenter</th>
+                  <th className="px-4 py-2 font-medium">Health</th>
+                  <th className="px-4 py-2 font-medium">Version</th>
+                  <th className="px-4 py-2 text-right font-medium">VMs</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {data.platforms.map((platform) => (
+                  <tr key={platform.id} className="border-t border-border">
+                    <td className="px-4 py-2 font-medium">{platform.name}</td>
+                    <td className="px-4 py-2 text-muted">{platform.datacenter}</td>
+                    <td className={`px-4 py-2 ${HEALTH_STYLES[platform.health] ?? 'text-muted'}`}>
+                      {platform.health}
+                      {platform.breaker_open && (
+                        <span className="ml-2 text-xs text-stale">(backing off)</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-muted">{platform.version ?? '—'}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{platform.vm_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <TopList title="Busiest by CPU" unit="%" entries={data.top_cpu} />

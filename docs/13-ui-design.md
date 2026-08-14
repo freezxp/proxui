@@ -6,13 +6,13 @@
 - **Theme:** light/dark/system toggle in the top bar, persisted per user. Semantic tokens (`bg-surface`, `text-muted`, state colors) so both themes stay consistent. State colors: running=green, stopped=gray, paused=amber, missing/stale=orange (striped badge), deleted=red, unknown=slate.
 - **Responsive:** desktop-first (ops tool) but fully responsive. Breakpoints: ≥1280 full layout with left nav; 768–1279 collapsible nav, tables drop secondary columns; <768 nav becomes bottom sheet, tables become card lists. Console page always full-viewport.
 - **Layout shell:** left sidebar (nav, filtered by role), top bar (global VM search ⌘K, platform-health indicator, theme toggle, user menu), content area. Persistent toast area for WS-pushed events.
-- **Navigation by role:** Dashboard, Inventory, Hosts, Storage, Networks (all) · Audit (admin/auditor) · Platforms, Users & Groups, Notifications, Settings (admin). Hidden ≠ protected: server enforces RBAC regardless.
+- **Navigation by role:** Dashboard, Inventory (all) · Hosts, Storage, Networks (admin/readonly/auditor — an operator works on granted VMs, not the estate behind them) · Audit (admin/auditor) · Platforms, Users & Groups, Notifications, Settings (admin). Hidden ≠ protected: server enforces RBAC regardless.
 
 ## 13.2 Pages
 
 ### Dashboard (`/`)
 - Stat row: Total / Running / Stopped / Other VMs (scoped), active alerts count.
-- Platform health cards: name, DC, health dot, last sync age, VM count; click → platform detail (admin) or filtered inventory.
+- Platform health cards: name, DC, health dot, last sync age, VM count; click → platform detail (admin) or filtered inventory. Omitted entirely for operators, and the per-platform VM count follows the reader's scope.
 - Top-5 CPU and Memory consumers (sparkline + current %) → VM detail.
 - Recent events feed (last 20, scoped, live via WS): state changes, sync issues, fired alerts.
 - Empty state (no grants): "No VMs are visible to your account — contact an administrator."

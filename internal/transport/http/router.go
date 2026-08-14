@@ -240,9 +240,7 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/vms/{vmID}", s.handleGetVM)
 				r.Get("/vms/{vmID}/metrics", s.handleVMMetrics)
 				r.Get("/vms/{vmID}/history", s.handleVMHistory)
-				r.Get("/hosts", s.handleListHosts)
-				r.Get("/storage", s.handleListStorage)
-				r.Get("/networks", s.handleListNetworks)
+
 			})
 
 			// Consoles: operators and admins only, and scoped per VM inside the
@@ -313,6 +311,16 @@ func (s *Server) Routes() http.Handler {
 			// configuration: every role may read it.
 			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor)).
 				Get("/alerts", s.handleListFiringAlerts)
+
+			// Infrastructure describes the estate rather than the VMs in it.
+			// An operator works on the machines they were granted; the nodes,
+			// pools and bridges behind them are not theirs to survey.
+			r.Group(func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor))
+				r.Get("/hosts", s.handleListHosts)
+				r.Get("/storage", s.handleListStorage)
+				r.Get("/networks", s.handleListNetworks)
+			})
 
 			r.Route("/grants", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))

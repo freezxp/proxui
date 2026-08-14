@@ -119,12 +119,11 @@ var permissionMap = map[string]Permission{
 	"DELETE /api/v1/notification-rules/{ruleID}":          roles(identity.RoleAdmin),
 	"GET /api/v1/notification-deliveries":                 roles(identity.RoleAdmin),
 
-	"GET /api/v1/hosts": roles(identity.RoleAdmin, identity.RoleOperator,
-		identity.RoleReadOnly, identity.RoleAuditor),
-	"GET /api/v1/storage": roles(identity.RoleAdmin, identity.RoleOperator,
-		identity.RoleReadOnly, identity.RoleAuditor),
-	"GET /api/v1/networks": roles(identity.RoleAdmin, identity.RoleOperator,
-		identity.RoleReadOnly, identity.RoleAuditor),
+	// Deliberately without RoleOperator: an operator sees the VMs they were
+	// granted, not the estate those VMs sit in.
+	"GET /api/v1/hosts":    roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/storage":  roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/networks": roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
 
 	"GET /api/v1/settings":       roles(identity.RoleAdmin),
 	"PUT /api/v1/settings/{key}": roles(identity.RoleAdmin),

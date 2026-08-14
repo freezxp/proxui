@@ -11,6 +11,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/command"
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/connector"
+	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/domain/inventory"
 )
 
@@ -88,9 +89,29 @@ func (s *Server) handleListPlatforms(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r, err, "Could not list platforms.")
 		return
 	}
+
+	// Non-administrators get names only. The inventory filter needs to label a
+	// VM's platform, and that is all it needs: the endpoint address, health,
+	// version and breaker state describe the estate rather than the machines
+	// someone was granted, and an operator has no use for them.
+	p, _ := PrincipalFrom(r.Context())
+	if p.Role != identity.RoleAdmin {
+		brief := make([]map[string]any, 0, len(platforms))
+		for _, platform := range platforms {
+			brief = append(brief, map[string]any{
+				"id": platform.ID.String(), "name": platform.Name,
+				"datacenter": platform.Datacenter, "type": platform.Type,
+			})
+		}
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"data": brief, "meta": map[string]any{"total": len(brief)},
+		})
+		return
+	}
+
 	out := make([]platformResponse, 0, len(platforms))
-	for _, p := range platforms {
-		out = append(out, toPlatformResponse(p, s.clock))
+	for _, platform := range platforms {
+		out = append(out, toPlatformResponse(platform, s.clock))
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"data": out, "meta": map[string]any{"total": len(out)}})
 }

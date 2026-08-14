@@ -9,6 +9,10 @@ import type { Role } from '@/api/types'
  */
 export const can = {
   viewInventory: (_role: Role) => true,
+  /** Hosts, storage and networks describe the estate rather than the VMs in
+   *  it. An operator works on what they were granted; surveying the nodes
+   *  behind it is an administrator's job. */
+  viewInfrastructure: (role: Role) => role === 'admin' || role === 'readonly' || role === 'auditor',
   openConsole: (role: Role) => role === 'admin' || role === 'operator',
   powerActions: (role: Role) => role === 'admin' || role === 'operator',
   editAnnotations: (role: Role) => role === 'admin' || role === 'operator',

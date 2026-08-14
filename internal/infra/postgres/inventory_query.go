@@ -361,17 +361,36 @@ func (q *InventoryQuery) Dashboard(ctx context.Context, role identity.Role, user
 	}
 	summary.OtherVMs = summary.TotalVMs - summary.RunningVMs - summary.StoppedVMs
 
+	// Platform health is estate-level information: names, datacenters,
+	// versions and whether a cluster is reachable. An operator works on the
+	// VMs they were granted and has no business knowing the shape of the
+	// estate behind them, so they get no platform block at all.
+	summary.Platforms = []ports.PlatformHealth{}
+	if role == identity.RoleOperator {
+		return q.finishDashboard(ctx, summary, role, userID)
+	}
+
+	// The per-platform count follows the caller's scope for the same reason
+	// the VM list does: a scoped reader must not learn how many machines exist
+	// beyond their grants by reading a total.
+	countScope := "v.sync_state <> 'deleted'"
+	countArgs := []any{}
+	if clause, scoped := scopeClause(role, 1); scoped {
+		countArgs = append(countArgs, userID)
+		countScope += " AND " + clause
+	}
+
 	platforms, err := q.db.Query(ctx, `
 		SELECT p.id, p.name, p.datacenter, p.health::text, coalesce(p.detected_version,''),
 		       p.last_seen_at, p.breaker_open_until,
-		       (SELECT count(*) FROM vms v WHERE v.platform_id = p.id AND v.sync_state <> 'deleted')
-		FROM platforms p WHERE p.deleted_at IS NULL ORDER BY p.name`)
+		       (SELECT count(*) FROM vms v
+		         WHERE v.platform_id = p.id AND `+countScope+`)
+		FROM platforms p WHERE p.deleted_at IS NULL ORDER BY p.name`, countArgs...)
 	if err != nil {
 		return ports.DashboardSummary{}, fmt.Errorf("dashboard platforms: %w", err)
 	}
 	defer platforms.Close()
 
-	summary.Platforms = []ports.PlatformHealth{}
 	for platforms.Next() {
 		var (
 			ph           ports.PlatformHealth
@@ -390,6 +409,12 @@ func (q *InventoryQuery) Dashboard(ctx context.Context, role identity.Role, user
 		return ports.DashboardSummary{}, err
 	}
 
+	return q.finishDashboard(ctx, summary, role, userID)
+}
+
+// finishDashboard adds the parts every role sees, whatever their scope.
+func (q *InventoryQuery) finishDashboard(ctx context.Context, summary ports.DashboardSummary, role identity.Role, userID uuid.UUID) (ports.DashboardSummary, error) {
+	var err error
 	summary.TopCPU, err = q.topConsumers(ctx, "cpu_pct", role, userID)
 	if err != nil {
 		return ports.DashboardSummary{}, err

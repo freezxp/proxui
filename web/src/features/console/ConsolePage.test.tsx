@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
@@ -34,6 +34,11 @@ const { FakeRFB } = vi.hoisted(() => {
 
     clipboardPasteFrom(text: string) {
       this.pasted.push(text)
+    }
+
+    keys: Array<{ keysym: number; code: string | null }> = []
+    sendKey(keysym: number, code: string | null) {
+      this.keys.push({ keysym, code })
     }
 
     sendCtrlAltDel() {}
@@ -163,5 +168,102 @@ describe('console clipboard', () => {
 
     vi.unstubAllGlobals()
     vi.stubGlobal('WebSocket', FakeSocket)
+  })
+})
+
+describe('console soft keyboard', () => {
+  beforeEach(() => {
+    FakeRFB.last = null
+  })
+
+  // A touch device has no physical keys to capture, so the hidden field is
+  // what the on-screen keyboard types into. It must be focusable, which rules
+  // out `hidden` and `display: none`.
+  function keyboardField(): HTMLTextAreaElement {
+    const field = document.querySelector<HTMLTextAreaElement>('textarea[aria-hidden="true"]')
+    if (!field) throw new Error('no hidden keyboard field')
+    return field
+  }
+
+  /** What a keyboard does: set the value, put the caret after it, fire input. */
+  function typeInto(field: HTMLTextAreaElement, value: string) {
+    field.value = value
+    field.setSelectionRange(value.length, value.length)
+    fireEvent.input(field, { target: { value } })
+  }
+
+  it('focuses the hidden field so the on-screen keyboard opens', async () => {
+    const person = userEvent.setup()
+    await renderConnectedConsole()
+
+    await person.click(screen.getByRole('button', { name: 'Keyboard' }))
+    expect(document.activeElement).toBe(keyboardField())
+  })
+
+  it('turns typed characters into key events', async () => {
+    const person = userEvent.setup()
+    const rfb = await renderConnectedConsole()
+    await person.click(screen.getByRole('button', { name: 'Keyboard' }))
+
+    const field = keyboardField()
+    typeInto(field, field.value + 'ls')
+
+    // Latin-1 is a one-to-one mapping, so these are the codepoints.
+    expect(rfb.keys.map((k) => k.keysym)).toEqual(['l'.charCodeAt(0), 's'.charCodeAt(0)])
+  })
+
+  // Swipe typing and autocorrect replace whole words rather than sending
+  // keystrokes, and the guest has to receive the deletions that implies.
+  it('reproduces a word the keyboard replaced as backspaces and characters', async () => {
+    const person = userEvent.setup()
+    const rfb = await renderConnectedConsole()
+    await person.click(screen.getByRole('button', { name: 'Keyboard' }))
+
+    const field = keyboardField()
+    const start = field.value
+    typeInto(field, start + 'cd')
+    rfb.keys.length = 0
+    typeInto(field, start + 'ls')
+
+    expect(rfb.keys).toEqual([
+      { keysym: 0xff08, code: 'Backspace' },
+      { keysym: 0xff08, code: 'Backspace' },
+      { keysym: 'l'.charCodeAt(0), code: null },
+      { keysym: 's'.charCodeAt(0), code: null },
+    ])
+  })
+
+  it('sends Enter rather than letting it insert a newline', async () => {
+    const person = userEvent.setup()
+    const rfb = await renderConnectedConsole()
+    await person.click(screen.getByRole('button', { name: 'Keyboard' }))
+
+    const event = fireEvent.keyDown(keyboardField(), { key: 'Enter' })
+
+    expect(rfb.keys).toEqual([{ keysym: 0xff0d, code: 'Enter' }])
+    // Not preventing the default would put a newline in the field and send
+    // nothing to the guest.
+    expect(event).toBe(false)
+  })
+
+  it('offers the keys a phone keyboard does not have', async () => {
+    const person = userEvent.setup()
+    const rfb = await renderConnectedConsole()
+    await person.click(screen.getByRole('button', { name: 'Keyboard' }))
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Esc' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Up' }))
+
+    expect(rfb.keys).toEqual([
+      { keysym: 0xff1b, code: 'Escape' },
+      { keysym: 0xff52, code: 'ArrowUp' },
+    ])
+    // The press must not steal focus: a blur dismisses the on-screen keyboard.
+    expect(document.activeElement).toBe(keyboardField())
+  })
+
+  it('hides the key strip until the keyboard is asked for', async () => {
+    await renderConnectedConsole()
+    expect(screen.queryByRole('group', { name: 'Keys' })).toBeNull()
   })
 })

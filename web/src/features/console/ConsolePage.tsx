@@ -9,6 +9,37 @@ type Phase = 'connecting' | 'connected' | 'disconnected' | 'error'
 
 type Session = { session_id: string; ws_url: string; expires_in: number }
 
+// X keysyms for the keys a phone keyboard either lacks or swallows. noVNC has
+// these in core/input/keysym.js, but the package's export map exposes only its
+// root, so importing them directly would not survive a build.
+const XK_BackSpace = 0xff08
+const XK_Tab = 0xff09
+const XK_Return = 0xff0d
+const XK_Escape = 0xff1b
+const XK_Left = 0xff51
+const XK_Up = 0xff52
+const XK_Right = 0xff53
+const XK_Down = 0xff54
+
+/**
+ * The keysym for a character.
+ *
+ * Latin-1 maps one to one, and everything else goes through the Unicode
+ * plane — the same two rules noVNC's own lookup starts with. Its third rule is
+ * a table of legacy mappings for servers that predate Unicode keysyms, which
+ * is both large and unnecessary here.
+ */
+function keysymFor(codepoint: number): number {
+  if (codepoint >= 0x20 && codepoint <= 0xff) return codepoint
+  return 0x01000000 | codepoint
+}
+
+// A phone keyboard reports almost nothing useful in keydown, so typing is
+// recovered by diffing the value of a hidden field. The field starts full of
+// filler so that a backspace at the start of a session has something to eat
+// and still registers as a keystroke rather than as nothing happening.
+const KEYBOARD_FILLER = '_'.repeat(100)
+
 // The bridge sends these on close; anything else is an unexpected drop
 // (docs/08-api-specification.md §8.4).
 const CLOSE_REASONS: Record<number, string> = {
@@ -46,6 +77,96 @@ export function ConsolePage() {
     noticeTimer.current = window.setTimeout(() => setNotice(''), 2000)
   }, [])
   useEffect(() => () => window.clearTimeout(noticeTimer.current), [])
+
+  // The soft keyboard. A touch device has no physical keys to capture, so a
+  // hidden field is focused to summon the on-screen keyboard and what it types
+  // is translated into RFB key events.
+  const [keyboardOn, setKeyboardOn] = useState(false)
+  const keyboardRef = useRef<HTMLTextAreaElement>(null)
+  const lastInput = useRef(KEYBOARD_FILLER)
+
+  const resetKeyboardField = useCallback(() => {
+    const field = keyboardRef.current
+    if (!field) return
+    field.value = KEYBOARD_FILLER
+    lastInput.current = KEYBOARD_FILLER
+    // Put the caret at the end, so the first keystroke appends rather than
+    // overwriting the filler and reading as a hundred backspaces.
+    field.setSelectionRange(KEYBOARD_FILLER.length, KEYBOARD_FILLER.length)
+  }, [])
+
+  const toggleKeyboard = useCallback(() => {
+    if (keyboardOn) {
+      keyboardRef.current?.blur()
+      setKeyboardOn(false)
+      return
+    }
+    resetKeyboardField()
+    // focus() must happen synchronously in the click handler: iOS only opens
+    // the keyboard for a focus it can attribute to a user gesture.
+    keyboardRef.current?.focus()
+    setKeyboardOn(true)
+  }, [keyboardOn, resetKeyboardField])
+
+  const pressKey = useCallback((keysym: number, code: string) => {
+    rfbRef.current?.sendKey(keysym, code)
+    // Typing through the strip should not dismiss the keyboard.
+    keyboardRef.current?.focus()
+  }, [])
+
+  /**
+   * Turns an edit of the hidden field into key events.
+   *
+   * The field's value is compared with what it was: the shared prefix is
+   * untouched, whatever the old value had beyond it was deleted, and whatever
+   * the new value has beyond it was typed. Autocorrect and swipe typing
+   * replace whole words at once, and this reproduces them as the backspaces
+   * and characters a keyboard would have sent.
+   */
+  const onKeyboardInput = useCallback(() => {
+    const rfb = rfbRef.current
+    const field = keyboardRef.current
+    if (!rfb || !field) return
+
+    const next = field.value
+    const previous = lastInput.current
+    const newLen = Math.max(field.selectionStart ?? next.length, next.length)
+    const oldLen = previous.length
+
+    let typed = newLen - oldLen
+    let deleted = typed < 0 ? -typed : 0
+    for (let i = 0; i < Math.min(oldLen, newLen); i++) {
+      if (next.charAt(i) !== previous.charAt(i)) {
+        typed = newLen - i
+        deleted = oldLen - i
+        break
+      }
+    }
+
+    for (let i = 0; i < deleted; i++) rfb.sendKey(XK_BackSpace, 'Backspace')
+    for (let i = newLen - typed; i < newLen; i++) {
+      const codepoint = next.codePointAt(i)
+      if (codepoint !== undefined) rfb.sendKey(keysymFor(codepoint), null)
+    }
+
+    // The field would otherwise grow without bound over a long session.
+    if (next.length > 2 * KEYBOARD_FILLER.length) resetKeyboardField()
+    else lastInput.current = next
+  }, [resetKeyboardField])
+
+  // Enter and Tab have to be caught here: left alone they insert a newline or
+  // move focus out of the field, and neither reaches the guest.
+  const onKeyboardKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const special: Record<string, [number, string]> = {
+      Enter: [XK_Return, 'Enter'],
+      Tab: [XK_Tab, 'Tab'],
+      Escape: [XK_Escape, 'Escape'],
+    }
+    const match = special[event.key]
+    if (!match) return
+    event.preventDefault()
+    rfbRef.current?.sendKey(match[0], match[1])
+  }, [])
 
   useEffect(() => {
     api
@@ -201,8 +322,11 @@ export function ConsolePage() {
   }, [])
 
   return (
-    <div className="flex h-screen flex-col bg-black">
-      <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2">
+    // 100dvh rather than 100vh: on a phone, 100vh is the height with the
+    // browser's own bars hidden, so the bottom of the console sits underneath
+    // them until the user scrolls.
+    <div className="flex h-[100dvh] flex-col bg-black">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-surface px-3 py-2 sm:px-4">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium">{vm?.name ?? 'Console'}</span>
           {vm && <StateBadge state={vm.state} />}
@@ -210,7 +334,16 @@ export function ConsolePage() {
 
         <ConnectionDot phase={phase} />
 
-        <div className="ml-auto flex items-center gap-2">
+        {/* Scrolls sideways rather than wrapping into three rows of buttons on
+            a narrow screen, which would leave very little console. */}
+        <div className="-mx-3 flex w-full items-center gap-2 overflow-x-auto px-3 sm:mx-0 sm:ml-auto sm:w-auto sm:overflow-visible sm:px-0">
+          <ToolbarButton
+            onClick={toggleKeyboard}
+            pressed={keyboardOn}
+            disabled={phase !== 'connected'}
+          >
+            Keyboard
+          </ToolbarButton>
           <ToolbarButton onClick={ctrlAltDel} disabled={phase !== 'connected'}>
             Ctrl+Alt+Del
           </ToolbarButton>
@@ -276,7 +409,9 @@ export function ConsolePage() {
         {clipboardOpen && (
           <aside
             aria-label="Clipboard"
-            className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-surface p-4"
+            // Full width over the console on a phone, a side panel from `sm`
+            // up: 20rem beside a 360px screen leaves nothing to look at.
+            className="absolute inset-0 z-10 flex flex-col gap-4 overflow-y-auto border-border bg-surface p-4 sm:static sm:z-auto sm:w-80 sm:shrink-0 sm:border-l"
           >
             <div className="space-y-2">
               <label htmlFor="clipboard-out" className="block text-sm font-medium">
@@ -336,10 +471,97 @@ export function ConsolePage() {
             <p aria-live="polite" className="min-h-[2rem] text-xs text-muted">
               {notice}
             </p>
+
+            {/* On a phone the panel covers the console, so it needs its own way
+                back. On a wider screen the toolbar button is still visible. */}
+            <ToolbarButton onClick={() => setClipboardOpen(false)}>
+              <span className="sm:hidden">Back to the console</span>
+              <span className="hidden sm:inline">Close panel</span>
+            </ToolbarButton>
           </aside>
         )}
       </div>
+
+      {/*
+        The field that summons the on-screen keyboard. It has to be focusable,
+        so it cannot be `hidden` or `display: none`; it is instead made
+        invisible and parked out of the way. autoCapitalize and the rest are
+        off because a phone keyboard's helpfulness — capitalising the first
+        letter of a command, correcting a hostname — is wrong in a terminal.
+      */}
+      <textarea
+        ref={keyboardRef}
+        aria-hidden="true"
+        tabIndex={-1}
+        autoCapitalize="off"
+        autoCorrect="off"
+        autoComplete="off"
+        spellCheck={false}
+        onInput={onKeyboardInput}
+        onKeyDown={onKeyboardKeyDown}
+        onBlur={() => setKeyboardOn(false)}
+        className="pointer-events-none absolute left-0 top-0 h-px w-px resize-none border-0 bg-transparent p-0 text-transparent opacity-0 outline-none"
+      />
+
+      {keyboardOn && (
+        <div
+          aria-label="Keys"
+          role="group"
+          className="flex items-center gap-2 overflow-x-auto border-t border-border bg-surface px-3 py-2"
+        >
+          {/* The keys a phone keyboard has no room for, and which a console is
+              close to unusable without. */}
+          <KeyButton onPress={() => pressKey(XK_Escape, 'Escape')}>Esc</KeyButton>
+          <KeyButton onPress={() => pressKey(XK_Tab, 'Tab')}>Tab</KeyButton>
+          <KeyButton onPress={() => pressKey(XK_Return, 'Enter')}>Enter</KeyButton>
+          <KeyButton onPress={() => pressKey(XK_BackSpace, 'Backspace')} label="Backspace">
+            ⌫
+          </KeyButton>
+          <KeyButton onPress={() => pressKey(XK_Left, 'ArrowLeft')} label="Left">
+            ←
+          </KeyButton>
+          <KeyButton onPress={() => pressKey(XK_Down, 'ArrowDown')} label="Down">
+            ↓
+          </KeyButton>
+          <KeyButton onPress={() => pressKey(XK_Up, 'ArrowUp')} label="Up">
+            ↑
+          </KeyButton>
+          <KeyButton onPress={() => pressKey(XK_Right, 'ArrowRight')} label="Right">
+            →
+          </KeyButton>
+        </div>
+      )}
     </div>
+  )
+}
+
+/**
+ * One key on the strip above the soft keyboard.
+ *
+ * It acts on pointerdown with the default prevented, so the press never moves
+ * focus off the hidden field — a blur would dismiss the on-screen keyboard,
+ * and pressing Tab should not close the keyboard you are typing on.
+ */
+function KeyButton({
+  children,
+  onPress,
+  label,
+}: {
+  children: React.ReactNode
+  onPress: () => void
+  label?: string
+}) {
+  return (
+    <button
+      aria-label={label}
+      onPointerDown={(event) => {
+        event.preventDefault()
+        onPress()
+      }}
+      className="min-w-[2.75rem] rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-raised"
+    >
+      {children}
+    </button>
   )
 }
 

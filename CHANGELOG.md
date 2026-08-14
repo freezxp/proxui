@@ -10,6 +10,13 @@
   gets `Secure` whatever the setting says, and one deployment can serve both
   addresses correctly. Clearing the cookie makes the same decision, or the
   browser keeps the cookie it was told to drop.
+- **The console works on a phone.** A **Keyboard** button summons the
+  on-screen keyboard and translates what it types into RFB key events, with a
+  strip of the keys a phone keyboard has no room for — Esc, Tab, Enter,
+  Backspace and the arrows — which a console is close to unusable without. The
+  toolbar scrolls sideways instead of stacking, the clipboard panel takes the
+  full screen below `sm`, and the page is sized in `dvh` so the browser's own
+  bars no longer cut off the bottom of the console.
 - **Copy and paste in the console.** A clipboard panel sends text to the
   guest's clipboard and shows what was copied inside the guest. It moves text
   through a textarea rather than syncing silently, because reading the local

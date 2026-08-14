@@ -20,6 +20,7 @@ func init() {
 		Type:        Type,
 		DisplayName: "Proxmox VE",
 		Version:     Version,
+		Schema:      schema(),
 	}, New)
 }
 

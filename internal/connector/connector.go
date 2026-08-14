@@ -38,6 +38,10 @@ type Info struct {
 	Type        string // registry key, e.g. "proxmox"
 	DisplayName string
 	Version     string
+	// Schema drives the platform form in the UI. A connector that declares it
+	// needs no UI change to be configurable, which is the point of the plugin
+	// framework (docs/09-connector-architecture.md).
+	Schema ConfigSchema
 }
 
 // Config is the non-secret platform configuration supplied by an administrator.

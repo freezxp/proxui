@@ -34,6 +34,36 @@ func init() {
 		Type:        Type,
 		DisplayName: "Mock Platform",
 		Version:     "1.0.0",
+		// The mock declares a schema too, so the form-rendering path is
+		// exercised by something other than the one real connector.
+		Schema: connector.ConfigSchema{
+			EndpointLabel: "Mock endpoint",
+			EndpointHelp:  "Any value; the mock never dials it.",
+			Fields: []connector.Field{
+				{
+					Key: "vm_count", Label: "Simulated VMs", Kind: connector.FieldNumber,
+					Default: 25, Help: "How many guests the fake platform reports.",
+				},
+				{
+					Key: "fault", Label: "Injected fault", Kind: connector.FieldSelect,
+					Help: "Forces a failure mode, for exercising error handling.",
+					Options: []connector.FieldOption{
+						{Value: "", Label: "None"},
+						{Value: "unreachable", Label: "Unreachable"},
+						{Value: "auth", Label: "Authentication failure"},
+						{Value: "permission", Label: "Missing permission"},
+						{Value: "throttled", Label: "Throttled"},
+					},
+				},
+			},
+			Credentials: []connector.CredentialForm{{
+				Kind: "api_token", Label: "API token",
+				Fields: []connector.Field{
+					{Key: "token_id", Label: "Token ID", Kind: connector.FieldText},
+					{Key: "secret", Label: "Secret", Kind: connector.FieldSecret},
+				},
+			}},
+		},
 	}, New)
 }
 

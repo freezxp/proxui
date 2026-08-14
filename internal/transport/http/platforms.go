@@ -222,6 +222,9 @@ func (s *Server) handleListConnectors(w http.ResponseWriter, r *http.Request) {
 	for _, info := range infos {
 		out = append(out, map[string]any{
 			"type": info.Type, "display_name": info.DisplayName, "version": info.Version,
+			// The schema is what lets the UI render a form for a platform it
+			// has never heard of.
+			"schema": info.Schema,
 		})
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"data": out})

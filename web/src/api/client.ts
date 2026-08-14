@@ -16,6 +16,10 @@ export class ApiError extends Error {
     readonly detail: string,
     readonly requestId?: string,
     readonly fields?: Record<string, string>,
+    // The raw body, for the few endpoints whose failure carries a useful
+    // payload rather than only a message — the platform connection test
+    // returns how far it got alongside the reason it stopped.
+    readonly body?: unknown,
   ) {
     super(detail || code)
     this.name = 'ApiError'
@@ -45,9 +49,10 @@ async function parseError(response: Response): Promise<ApiError> {
     return new ApiError(
       response.status,
       body.code ?? 'unknown',
-      body.detail ?? response.statusText,
+      body.detail ?? body.error ?? response.statusText,
       body.request_id,
       body.fields,
+      body,
     )
   } catch {
     return new ApiError(response.status, 'unknown', response.statusText)

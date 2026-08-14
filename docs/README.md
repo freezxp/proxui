@@ -1,12 +1,17 @@
 # ProxUI — VM Access Portal: Technical Design Package
 
+> **Status:** implemented. This package described the system before it was
+> built; it now documents a working portal at v1.0.0-rc.1. Where the
+> implementation deviates from what is written here, an
+> [ADR](adr/) records why — read those alongside the design.
+
 A self-hosted portal giving administrators, infrastructure engineers, and operations teams a single dashboard to view virtual machines (scoped by permission), open VM consoles in the browser, and check VM performance — starting with Proxmox VE, extensible to other platforms via a connector framework.
 
 **Design context (agreed with stakeholder, 2026-08-13):**
 
 | Decision | Choice |
 |---|---|
-| Backend | Go 1.23+ |
+| Backend | Go 1.26 (pinned to 1.26.6; earlier patches carry reachable stdlib vulnerabilities) |
 | Frontend | React 18 + TypeScript |
 | Tenancy | Internal single-organization tool (no SaaS provisions) |
 | Scale target | 1–3 Proxmox clusters, < 500 VMs, tens of users |
@@ -45,6 +50,8 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | 21 | [Risk Assessment](21-risk-assessment.md) | 28 |
 | 22 | [Future Enhancements](22-future-enhancements.md) | 29 |
 | 23 | [AI-Native Development Guide](23-ai-native-development.md) | AI-native docs (with root `CLAUDE.md`) |
+| 24 | [Runbooks](24-runbooks.md) | operational procedures, written for 3am |
+| 25 | [Security Checklist](25-security-checklist.md) | ASVS L2 pass with evidence, including what is not met |
 
 ## How to read this package
 

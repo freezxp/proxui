@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '@/features/auth/useAuth'
 import { can, roleLabel } from '@/lib/permissions'
+import { useBranding } from '@/lib/branding'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { ChangePasswordDialog } from '@/features/auth/ChangePasswordDialog'
 import type { Role } from '@/api/types'
@@ -30,13 +31,24 @@ const NAV: NavItem[] = [
 export function Shell() {
   const { user, logout } = useAuth()
   const [changingPassword, setChangingPassword] = useState(false)
+  const branding = useBranding()
   if (!user) return null
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border bg-surface-raised px-4 py-3">
         <div className="flex items-center gap-3">
-          <span className="text-lg font-semibold">ProxUI</span>
+          {branding['branding.logo'] && (
+            <img
+              src={branding['branding.logo']}
+              alt=""
+              className="h-7 w-auto"
+              // Decorative: the portal name beside it already says what this
+              // is, so a screen reader repeating it would be noise.
+              aria-hidden="true"
+            />
+          )}
+          <span className="text-lg font-semibold">{branding['branding.portal_name']}</span>
           <span className="hidden text-sm text-muted sm:inline">VM access portal</span>
         </div>
 

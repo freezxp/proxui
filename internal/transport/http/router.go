@@ -158,6 +158,10 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/readyz", s.handleReady)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// Branding before authentication: the sign-in page has to render the
+		// portal's own name and logo, and cannot do that after sign-in only.
+		r.Get("/branding", s.handleBranding)
+
 		r.Route("/auth", func(r chi.Router) {
 			// Unauthenticated: these establish a session.
 			// Login is the one endpoint reachable without an account, so it

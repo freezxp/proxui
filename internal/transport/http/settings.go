@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -14,8 +15,8 @@ import (
 
 // SettingsStore persists administrator overrides.
 type SettingsStore interface {
-	All(ctx context.Context) (map[string]int, error)
-	Set(ctx context.Context, key string, value int, by uuid.UUID, at time.Time) error
+	All(ctx context.Context) (map[string]json.RawMessage, error)
+	Set(ctx context.Context, key string, value any, by uuid.UUID, at time.Time) error
 	Reset(ctx context.Context, key string) error
 }
 
@@ -33,8 +34,29 @@ func (s *Server) handleListSettings(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]any{"data": setting.Resolve(stored)})
 }
 
+// handleBranding serves the portal's name, logo and sign-in notice without
+// authentication.
+//
+// The sign-in page has to render before anyone has signed in, so a branded
+// portal that only reveals its name afterwards is not branded. Nothing here is
+// sensitive: it is the text and picture every visitor is meant to see.
+func (s *Server) handleBranding(w http.ResponseWriter, r *http.Request) {
+	stored, err := s.settings.Settings.All(r.Context())
+	if err != nil {
+		// Branding must never be the reason nobody can sign in; fall back to
+		// the built-in defaults.
+		s.log.Warn().Err(err).Msg("could not read branding; serving defaults")
+		stored = map[string]json.RawMessage{}
+	}
+	// Cached briefly: it changes rarely and is fetched on every page load.
+	w.Header().Set("Cache-Control", "public, max-age=60")
+	WriteJSON(w, http.StatusOK, setting.PublicValues(stored))
+}
+
 type settingUpdate struct {
-	Value *int `json:"value"`
+	// Either, depending on the setting's kind. Both absent means "reset".
+	Value *int    `json:"value"`
+	Text  *string `json:"text"`
 }
 
 // handleUpdateSetting stores one value, or clears it back to the default when
@@ -56,25 +78,61 @@ func (s *Server) handleUpdateSetting(w http.ResponseWriter, r *http.Request) {
 	actor := s.actor(r)
 	actorID := actor.UserID
 
-	if req.Value == nil {
+	if req.Value == nil && req.Text == nil {
 		if err := s.settings.Settings.Reset(r.Context(), key); err != nil {
 			s.serverError(w, r, err, "Could not reset the setting.")
 			return
 		}
-		s.auditSetting(r, key, map[string]any{"reset_to_default": def.Default})
+		reset := any(def.Default)
+		if !def.Kind.Numeric() {
+			reset = def.DefaultText
+		}
+		s.auditSetting(r, key, map[string]any{"reset_to_default": reset})
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	if err := def.Validate(*req.Value); err != nil {
-		WriteProblem(w, r, http.StatusUnprocessableEntity, "validation", err.Error())
-		return
+	var (
+		stored  any
+		details map[string]any
+	)
+	switch {
+	case def.Kind.Numeric():
+		if req.Value == nil {
+			WriteProblem(w, r, http.StatusUnprocessableEntity, "validation",
+				"This setting takes a number.")
+			return
+		}
+		if err := def.ValidateNumber(*req.Value); err != nil {
+			WriteProblem(w, r, http.StatusUnprocessableEntity, "validation", err.Error())
+			return
+		}
+		stored, details = *req.Value, map[string]any{"value": *req.Value}
+	default:
+		if req.Text == nil {
+			WriteProblem(w, r, http.StatusUnprocessableEntity, "validation",
+				"This setting takes text.")
+			return
+		}
+		if err := def.ValidateText(*req.Text); err != nil {
+			WriteProblem(w, r, http.StatusUnprocessableEntity, "validation", err.Error())
+			return
+		}
+		stored = *req.Text
+		// A logo is up to 128 KB of base64; recording it in the audit detail
+		// would bury the trail. Its size is the useful fact.
+		if def.Kind == setting.KindImage {
+			details = map[string]any{"bytes": len(*req.Text)}
+		} else {
+			details = map[string]any{"value": *req.Text}
+		}
 	}
-	if err := s.settings.Settings.Set(r.Context(), key, *req.Value, actorID, s.clock()); err != nil {
+
+	if err := s.settings.Settings.Set(r.Context(), key, stored, actorID, s.clock()); err != nil {
 		s.serverError(w, r, err, "Could not store the setting.")
 		return
 	}
-	s.auditSetting(r, key, map[string]any{"value": *req.Value})
+	s.auditSetting(r, key, details)
 	w.WriteHeader(http.StatusNoContent)
 }
 

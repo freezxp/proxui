@@ -3,8 +3,11 @@
 package setting
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 )
 
 // ErrUnknownKey rejects a key the portal does not read, which would otherwise
@@ -14,6 +17,9 @@ var ErrUnknownKey = errors.New("setting: unknown key")
 // ErrOutOfRange rejects a value that would break the thing it configures.
 var ErrOutOfRange = errors.New("setting: value out of range")
 
+// ErrInvalidValue rejects a value of the wrong shape for its setting.
+var ErrInvalidValue = errors.New("setting: value is not valid for this setting")
+
 // Kind is how a value should be entered and shown.
 type Kind string
 
@@ -21,7 +27,17 @@ const (
 	KindDuration Kind = "duration_s"
 	KindCount    Kind = "count"
 	KindDays     Kind = "days"
+	KindText     Kind = "text"
+	// KindImage is a picture the browser can render directly: a same-origin
+	// path, or a data: URI produced by the settings page from a chosen file.
+	// It is stored as text, so the portal still accepts no file uploads.
+	KindImage Kind = "image"
 )
+
+// Numeric reports whether the setting holds a number rather than text.
+func (k Kind) Numeric() bool {
+	return k == KindDuration || k == KindCount || k == KindDays
+}
 
 // Definition describes one setting: what it means, and what it may be.
 //
@@ -34,15 +50,67 @@ type Definition struct {
 	Label   string `json:"label"`
 	Help    string `json:"help"`
 	Kind    Kind   `json:"kind"`
-	Default int    `json:"default"`
-	Min     int    `json:"min"`
-	Max     int    `json:"max"`
+	Default int    `json:"default,omitempty"`
+	Min     int    `json:"min,omitempty"`
+	Max     int    `json:"max,omitempty"`
+	// DefaultText and MaxLength apply to text and image settings.
+	DefaultText string `json:"default_text,omitempty"`
+	MaxLength   int    `json:"max_length,omitempty"`
+	// Public marks a setting the login page needs before anyone has signed in.
+	// Only branding qualifies: a portal that cannot show its own name until
+	// after authentication is not branded.
+	Public bool `json:"-"`
 }
 
-// Validate checks a proposed value.
-func (d Definition) Validate(value int) error {
+// ValidateNumber checks a proposed numeric value.
+func (d Definition) ValidateNumber(value int) error {
+	if !d.Kind.Numeric() {
+		return fmt.Errorf("%w: %s takes text", ErrInvalidValue, d.Label)
+	}
 	if value < d.Min || value > d.Max {
 		return fmt.Errorf("%w: %s must be between %d and %d", ErrOutOfRange, d.Label, d.Min, d.Max)
+	}
+	return nil
+}
+
+// ValidateText checks a proposed text value.
+func (d Definition) ValidateText(value string) error {
+	if d.Kind.Numeric() {
+		return fmt.Errorf("%w: %s takes a number", ErrInvalidValue, d.Label)
+	}
+	if d.MaxLength > 0 && utf8.RuneCountInString(value) > d.MaxLength {
+		return fmt.Errorf("%w: %s must be %d characters or fewer", ErrOutOfRange, d.Label, d.MaxLength)
+	}
+	if d.Kind == KindImage {
+		return validateImage(value)
+	}
+	return nil
+}
+
+// validateImage accepts only what a browser can render without reaching off
+// this origin: a same-origin path, or an inline image.
+//
+// An arbitrary external URL is refused rather than silently failing. The
+// content security policy limits images to 'self' and data:, so a logo hosted
+// elsewhere would be blocked by the browser and look like a broken feature
+// (docs/25-security-checklist.md).
+func validateImage(value string) error {
+	if value == "" {
+		return nil
+	}
+	if strings.HasPrefix(value, "/") {
+		return nil
+	}
+	if !strings.HasPrefix(value, "data:image/") {
+		return fmt.Errorf("%w: a logo must be an uploaded image or a path on this portal; "+
+			"an address on another site would be blocked by the portal's content security policy",
+			ErrInvalidValue)
+	}
+	// SVG can carry script. It is safe inside an <img>, where scripts do not
+	// run, and that is the only way the portal renders a logo — but say so
+	// here so the constraint is not lost if that ever changes.
+	if !strings.Contains(value, ";base64,") {
+		return fmt.Errorf("%w: the image must be base64 encoded", ErrInvalidValue)
 	}
 	return nil
 }
@@ -50,6 +118,21 @@ func (d Definition) Validate(value int) error {
 // Catalogue is every setting the portal reads. Adding one here is what makes
 // it settable; nothing else needs to change.
 var Catalogue = []Definition{
+	{
+		Key: "branding.portal_name", Group: "Branding", Kind: KindText,
+		Label: "Portal name", DefaultText: "ProxUI", MaxLength: 40, Public: true,
+		Help: "Shown in the header, on the sign-in page and in the browser tab.",
+	},
+	{
+		Key: "branding.logo", Group: "Branding", Kind: KindImage,
+		Label: "Logo", MaxLength: 131072, Public: true,
+		Help: "Shown beside the portal name. Wide marks work better than tall ones; it is drawn at 28 pixels high.",
+	},
+	{
+		Key: "branding.login_banner", Group: "Branding", Kind: KindText,
+		Label: "Sign-in notice", MaxLength: 280, Public: true,
+		Help: "Optional. Shown on the sign-in page — an acceptable-use notice, or who to contact for access.",
+	},
 	{
 		Key: "sync.inventory_interval_s", Group: "Synchronization",
 		Label: "Inventory interval", Kind: KindDuration, Default: 60, Min: 30, Max: 3600,
@@ -115,21 +198,45 @@ func Lookup(key string) (Definition, bool) {
 // Value is a setting as it currently stands.
 type Value struct {
 	Definition
-	Value    int  `json:"value"`
-	Modified bool `json:"modified"` // differs from the default
+	Value    int    `json:"value,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Modified bool   `json:"modified"`
 }
 
 // Resolve overlays stored values on the catalogue, so the API always returns
 // every setting with an effective value rather than only the changed ones.
-func Resolve(stored map[string]int) []Value {
+//
+// A stored value that no longer decodes — because a setting changed kind, say —
+// is ignored in favour of the default rather than failing the whole page.
+func Resolve(stored map[string]json.RawMessage) []Value {
 	out := make([]Value, 0, len(Catalogue))
 	for _, def := range Catalogue {
-		value := def.Default
-		modified := false
-		if v, ok := stored[def.Key]; ok {
-			value, modified = v, v != def.Default
+		v := Value{Definition: def, Value: def.Default, Text: def.DefaultText}
+		if raw, ok := stored[def.Key]; ok {
+			if def.Kind.Numeric() {
+				var n int
+				if err := json.Unmarshal(raw, &n); err == nil {
+					v.Value, v.Modified = n, n != def.Default
+				}
+			} else {
+				var s string
+				if err := json.Unmarshal(raw, &s); err == nil {
+					v.Text, v.Modified = s, s != def.DefaultText
+				}
+			}
 		}
-		out = append(out, Value{Definition: def, Value: value, Modified: modified})
+		out = append(out, v)
+	}
+	return out
+}
+
+// PublicValues is the subset the sign-in page may read unauthenticated.
+func PublicValues(stored map[string]json.RawMessage) map[string]string {
+	out := map[string]string{}
+	for _, v := range Resolve(stored) {
+		if v.Public {
+			out[v.Key] = v.Text
+		}
 	}
 	return out
 }

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="exstudios.vm">
+  <title>exstudios.vm</title>
+  <!--
+    An X for the "ex" the name starts with, drawn as two strokes that weave:
+    the pale one breaks where the white one crosses it. That break is the whole
+    idea — one thing running over another is what a hypervisor does, and it is
+    the only detail here that is not a plain letter.
+
+    Pure geometry, no fonts, so it draws identically wherever it is rendered,
+    including inside an <img> where scripts never run. The background travels
+    with the mark so it reads on a light or a dark header without a second file.
+  -->
+  <defs>
+    <linearGradient id="exs-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="15" fill="url(#exs-bg)"/>
+
+  <g stroke-width="7" stroke-linecap="round" fill="none">
+    <!-- Pale diagonal, in two segments so it passes behind the white one. -->
+    <path d="M20 20 L27 27" stroke="#c7d2fe"/>
+    <path d="M37 37 L44 44" stroke="#c7d2fe"/>
+    <!-- White diagonal, unbroken: the one on top. -->
+    <path d="M44 20 L20 44" stroke="#ffffff"/>
+  </g>
+</svg>

@@ -1,11 +1,17 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type { Setting } from '@/api/types'
 
+/** Logos are stored as a data URI in a setting, not uploaded: the file is read
+ *  and encoded in the browser, so the portal still accepts no file uploads and
+ *  needs no storage for them. 128 KB is generous for a mark and small enough
+ *  that a settings row stays a settings row. */
+const MAX_LOGO_BYTES = 128 * 1024
+
 export function SettingsPage() {
   const queryClient = useQueryClient()
-  const [drafts, setDrafts] = useState<Record<string, number>>({})
+  const [drafts, setDrafts] = useState<Record<string, number | string>>({})
   const [error, setError] = useState('')
 
   const settings = useQuery({
@@ -14,16 +20,23 @@ export function SettingsPage() {
   })
 
   const save = useMutation({
-    mutationFn: ({ key, value }: { key: string; value: number | null }) =>
-      api.put(`/settings/${key}`, { value }),
-    onSuccess: (_, { key }) => {
+    mutationFn: ({ item, value }: { item: Setting; value: number | string | null }) => {
+      if (value === null) return api.put(`/settings/${item.key}`, {})
+      return api.put(
+        `/settings/${item.key}`,
+        typeof value === 'number' ? { value } : { text: value },
+      )
+    },
+    onSuccess: (_, { item }) => {
       setError('')
       setDrafts((prev) => {
         const next = { ...prev }
-        delete next[key]
+        delete next[item.key]
         return next
       })
       void queryClient.invalidateQueries({ queryKey: ['settings'] })
+      // The header and the sign-in page read branding from their own query.
+      void queryClient.invalidateQueries({ queryKey: ['branding'] })
     },
     onError: (err) => setError(err instanceof Error ? err.message : 'Could not save the setting.'),
   })
@@ -47,64 +60,172 @@ export function SettingsPage() {
       {error && <p className="text-sm text-danger">{error}</p>}
 
       {[...groups.entries()].map(([group, items]) => (
-        <section key={group} className="space-y-3 rounded-lg border border-border p-4">
+        <section key={group} className="space-y-4 rounded-lg border border-border p-4">
           <h2 className="text-sm font-medium">{group}</h2>
-          <div className="space-y-4">
-            {items.map((item) => {
-              const draft = drafts[item.key] ?? item.value
-              const dirty = draft !== item.value
-              return (
-                <div key={item.key} className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label htmlFor={item.key} className="min-w-56 text-sm">
-                      {item.label}
-                      {/* Saying a value differs from the default is what makes
-                          a settings page auditable at a glance. */}
-                      {item.modified && (
-                        <span className="ml-2 rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
-                          modified
-                        </span>
-                      )}
-                    </label>
-                    <input
-                      id={item.key}
-                      type="number"
-                      value={draft}
-                      min={item.min}
-                      max={item.max}
-                      onChange={(e) =>
-                        setDrafts((prev) => ({ ...prev, [item.key]: Number(e.target.value) }))
-                      }
-                      className="w-32 rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
-                    />
-                    <span className="text-xs text-muted">{unitLabel(item)}</span>
-                    {dirty && (
-                      <button
-                        onClick={() => save.mutate({ key: item.key, value: draft })}
-                        className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white"
-                      >
-                        Save
-                      </button>
-                    )}
-                    {item.modified && !dirty && (
-                      <button
-                        onClick={() => save.mutate({ key: item.key, value: null })}
-                        className="text-xs text-muted hover:underline"
-                      >
-                        Reset to {formatValue(item, item.default)}
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted">
-                    {item.help} Allowed: {formatValue(item, item.min)} to{' '}
-                    {formatValue(item, item.max)}.
-                  </p>
-                </div>
-              )
-            })}
-          </div>
+          {items.map((item) => (
+            <SettingRow
+              key={item.key}
+              item={item}
+              draft={drafts[item.key]}
+              onDraft={(value) => setDrafts((prev) => ({ ...prev, [item.key]: value }))}
+              onSave={(value) => save.mutate({ item, value })}
+              onError={setError}
+            />
+          ))}
         </section>
       ))}
+    </div>
+  )
+}
+
+function SettingRow({
+  item,
+  draft,
+  onDraft,
+  onSave,
+  onError,
+}: {
+  item: Setting
+  draft: number | string | undefined
+  onDraft: (value: number | string) => void
+  onSave: (value: number | string | null) => void
+  onError: (message: string) => void
+}) {
+  if (item.kind === 'image') {
+    return <ImageSetting item={item} onSave={onSave} onError={onError} />
+  }
+
+  const stored = item.kind === 'text' ? (item.text ?? '') : (item.value ?? 0)
+  const current = draft ?? stored
+  const dirty = current !== stored
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={item.key} className="min-w-56 text-sm">
+          {item.label}
+          {item.modified && (
+            <span className="ml-2 rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
+              modified
+            </span>
+          )}
+        </label>
+
+        {item.kind === 'text' ? (
+          <input
+            id={item.key}
+            value={String(current)}
+            maxLength={item.max_length}
+            onChange={(e) => onDraft(e.target.value)}
+            className="w-72 rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
+          />
+        ) : (
+          <>
+            <input
+              id={item.key}
+              type="number"
+              value={Number(current)}
+              min={item.min}
+              max={item.max}
+              onChange={(e) => onDraft(Number(e.target.value))}
+              className="w-32 rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
+            />
+            <span className="text-xs text-muted">{unitLabel(item)}</span>
+          </>
+        )}
+
+        {dirty && (
+          <button
+            onClick={() => onSave(current)}
+            className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white"
+          >
+            Save
+          </button>
+        )}
+        {item.modified && !dirty && (
+          <button onClick={() => onSave(null)} className="text-xs text-muted hover:underline">
+            Reset{item.kind === 'text' ? '' : ` to ${formatValue(item, item.default ?? 0)}`}
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-muted">
+        {item.help}
+        {item.kind !== 'text' &&
+          ` Allowed: ${formatValue(item, item.min ?? 0)} to ${formatValue(item, item.max ?? 0)}.`}
+      </p>
+    </div>
+  )
+}
+
+function ImageSetting({
+  item,
+  onSave,
+  onError,
+}: {
+  item: Setting
+  onSave: (value: string | null) => void
+  onError: (message: string) => void
+}) {
+  const input = useRef<HTMLInputElement>(null)
+  const current = item.text ?? ''
+
+  function choose(file: File | undefined) {
+    if (!file) return
+    if (file.size > MAX_LOGO_BYTES) {
+      onError(`That image is ${Math.round(file.size / 1024)} KB; the limit is 128 KB.`)
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => onSave(String(reader.result))
+    reader.onerror = () => onError('That file could not be read.')
+    // Read as a data URI: the value stored is the image itself, so there is
+    // nothing to serve, back up separately, or lose.
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="min-w-56 text-sm">
+          {item.label}
+          {item.modified && (
+            <span className="ml-2 rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
+              modified
+            </span>
+          )}
+        </span>
+
+        <div className="flex h-12 w-12 items-center justify-center rounded-md border border-border bg-surface">
+          {current ? (
+            <img src={current} alt="Current logo" className="max-h-10 max-w-10" />
+          ) : (
+            <span className="text-[10px] text-muted">none</span>
+          )}
+        </div>
+
+        <input
+          ref={input}
+          type="file"
+          accept="image/png,image/jpeg,image/svg+xml,image/webp"
+          className="hidden"
+          onChange={(e) => choose(e.target.files?.[0])}
+        />
+        <button
+          onClick={() => input.current?.click()}
+          className="rounded-md border border-border px-3 py-1.5 text-sm"
+        >
+          Choose image…
+        </button>
+        {current && (
+          <button onClick={() => onSave(null)} className="text-xs text-danger hover:underline">
+            Remove
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-muted">
+        {item.help} PNG, JPEG, WebP or SVG, up to 128 KB. The image is stored in the portal, so it
+        keeps working without reaching any other site.
+      </p>
     </div>
   )
 }

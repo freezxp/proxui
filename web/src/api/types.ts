@@ -343,10 +343,13 @@ export interface Setting {
   group: string
   label: string
   help: string
-  kind: 'duration_s' | 'count' | 'days'
-  default: number
-  min: number
-  max: number
-  value: number
+  kind: 'duration_s' | 'count' | 'days' | 'text' | 'image'
+  default?: number
+  min?: number
+  max?: number
+  default_text?: string
+  max_length?: number
+  value?: number
+  text?: string
   modified: boolean
 }

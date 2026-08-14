@@ -17,15 +17,16 @@ type SettingsRepository struct{ db *Pool }
 // NewSettingsRepository builds the repository.
 func NewSettingsRepository(db *Pool) *SettingsRepository { return &SettingsRepository{db: db} }
 
-// All returns every stored override.
-func (r *SettingsRepository) All(ctx context.Context) (map[string]int, error) {
+// All returns every stored override, undecoded: a setting may hold a number
+// or a string, and only the catalogue knows which.
+func (r *SettingsRepository) All(ctx context.Context) (map[string]json.RawMessage, error) {
 	rows, err := r.db.Query(ctx, `SELECT key, value FROM settings`)
 	if err != nil {
 		return nil, fmt.Errorf("read settings: %w", err)
 	}
 	defer rows.Close()
 
-	out := map[string]int{}
+	out := map[string]json.RawMessage{}
 	for rows.Next() {
 		var (
 			key string
@@ -34,19 +35,14 @@ func (r *SettingsRepository) All(ctx context.Context) (map[string]int, error) {
 		if err := rows.Scan(&key, &raw); err != nil {
 			return nil, fmt.Errorf("scan setting: %w", err)
 		}
-		var value int
-		if err := json.Unmarshal(raw, &value); err != nil {
-			// A value that is not a number is a value nothing can use; skip it
-			// rather than failing the whole page.
-			continue
-		}
-		out[key] = value
+		out[key] = json.RawMessage(raw)
 	}
 	return out, rows.Err()
 }
 
-// Set stores one override.
-func (r *SettingsRepository) Set(ctx context.Context, key string, value int, by uuid.UUID, at time.Time) error {
+// Set stores one override. The value is marshalled by the caller, which is
+// the layer that knows whether this setting holds a number or a string.
+func (r *SettingsRepository) Set(ctx context.Context, key string, value any, by uuid.UUID, at time.Time) error {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return err

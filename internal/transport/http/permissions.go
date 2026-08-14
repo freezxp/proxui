@@ -58,6 +58,10 @@ var permissionMap = map[string]Permission{
 	"GET /ws/console/{ticketID}": {Access: AccessPublic},
 	"GET /readyz":                {Access: AccessPublic},
 
+	// Branding is public because the sign-in page renders before anyone has
+	// signed in. It exposes only what every visitor is meant to see: the
+	// portal's name, its logo and any notice the administrator set.
+	"GET /api/v1/branding":      {Access: AccessPublic},
 	"POST /api/v1/auth/login":   {Access: AccessPublic},
 	"POST /api/v1/auth/refresh": {Access: AccessPublic},
 	"POST /api/v1/auth/logout":  {Access: AccessPublic},

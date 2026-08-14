@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useAuth } from './useAuth'
+import { useBranding } from '@/lib/branding'
 import { ApiError } from '@/api/client'
 
 export function LoginPage() {
+  const branding = useBranding()
   const { login } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -42,9 +44,25 @@ export function LoginPage() {
         className="w-full max-w-sm space-y-5 rounded-lg border border-border bg-surface-raised p-8 shadow-sm"
       >
         <div>
-          <h1 className="text-xl font-semibold">ProxUI</h1>
+          <div className="flex items-center gap-3">
+            {branding['branding.logo'] && (
+              <img
+                src={branding['branding.logo']}
+                alt=""
+                aria-hidden="true"
+                className="h-9 w-auto"
+              />
+            )}
+            <h1 className="text-xl font-semibold">{branding['branding.portal_name']}</h1>
+          </div>
           <p className="mt-1 text-sm text-muted">Sign in to continue</p>
         </div>
+
+        {branding['branding.login_banner'] && (
+          <p className="rounded-md border border-border bg-surface p-3 text-xs text-muted">
+            {branding['branding.login_banner']}
+          </p>
+        )}
 
         <label className="block space-y-1.5">
           <span className="text-sm font-medium">Username</span>

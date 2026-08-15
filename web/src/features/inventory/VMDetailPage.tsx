@@ -1,8 +1,9 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, ApiError } from '@/api/client'
-import type { HistoryEntry, VMDetail } from '@/api/types'
+import { PowerControls, type PowerAction } from './PowerControls'
+import type { HistoryEntry, VMDetail, VMState } from '@/api/types'
 import { StateBadge } from '@/components/StateBadge'
 import { absoluteTime, bytes, percent, relativeTime, uptime } from '@/lib/format'
 import { useAuth } from '@/features/auth/useAuth'
@@ -17,6 +18,13 @@ const PerformanceTab = lazy(() =>
 
 type Tab = 'overview' | 'performance' | 'history'
 
+const PENDING_LABEL: Record<PowerAction, string> = {
+  start: 'Starting',
+  stop: 'Stopping',
+  shutdown: 'Shutting down',
+  reboot: 'Rebooting',
+}
+
 export function VMDetailPage() {
   const { vmId = '' } = useParams()
   const [params, setParams] = useSearchParams()
@@ -24,11 +32,29 @@ export function VMDetailPage() {
   const range = (params.get('range') as Range) || '24h'
   const { user } = useAuth()
 
+  // A power action returns 202: the platform took the task, the machine has
+  // not changed state yet. Until it does, the page polls faster than its
+  // resting rate so the new state appears without a manual refresh — and gives
+  // up after a while, because an action the platform accepted and then failed
+  // to carry out must not leave the page polling for the rest of the session.
+  const [pending, setPending] = useState<{ action: PowerAction; from: VMState } | null>(null)
+
   const vm = useQuery({
     queryKey: ['vm', vmId],
     queryFn: () => api.get<VMDetail>(`/vms/${vmId}`),
-    refetchInterval: 30_000,
+    refetchInterval: pending ? 2_000 : 30_000,
   })
+
+  const observed = vm.data?.state
+  useEffect(() => {
+    if (!pending) return
+    if (observed && observed !== pending.from) {
+      setPending(null)
+      return
+    }
+    const giveUp = window.setTimeout(() => setPending(null), 90_000)
+    return () => window.clearTimeout(giveUp)
+  }, [pending, observed])
 
   if (vm.isLoading) return <p className="text-sm text-muted">Loading…</p>
 
@@ -74,23 +100,41 @@ export function VMDetailPage() {
           </p>
         </div>
 
-        {user && can.openConsole(user.role) && (
-          <a
-            href={`/console/${detail.id}`}
-            target="_blank"
-            rel="noreferrer"
-            // A console opens in its own tab so that navigating the portal
-            // does not tear down a session someone is working in.
-            className={`rounded-md px-3 py-2 text-sm font-medium ${
-              detail.state === 'running'
-                ? 'bg-accent text-white'
-                : 'pointer-events-none border border-border text-muted opacity-60'
-            }`}
-            title={detail.state === 'running' ? undefined : 'The VM is not running'}
-          >
-            Open console
-          </a>
-        )}
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {user && can.openConsole(user.role) && (
+              <a
+                href={`/console/${detail.id}`}
+                target="_blank"
+                rel="noreferrer"
+                // A console opens in its own tab so that navigating the portal
+                // does not tear down a session someone is working in.
+                className={`rounded-md px-3 py-2 text-sm font-medium ${
+                  detail.state === 'running'
+                    ? 'bg-accent text-white'
+                    : 'pointer-events-none border border-border text-muted opacity-60'
+                }`}
+                title={detail.state === 'running' ? undefined : 'The VM is not running'}
+              >
+                Open console
+              </a>
+            )}
+
+            {user && can.powerActions(user.role) && detail.sync_state !== 'missing' && (
+              <PowerControls
+                vmId={detail.id}
+                state={detail.state}
+                onRequested={(action) => setPending({ action, from: detail.state })}
+              />
+            )}
+          </div>
+
+          {pending && (
+            <p aria-live="polite" className="text-xs text-muted">
+              {PENDING_LABEL[pending.action]} — waiting for the platform.
+            </p>
+          )}
+        </div>
       </div>
 
       <nav className="flex gap-1 border-b border-border">

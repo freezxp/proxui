@@ -10,6 +10,15 @@
   gets `Secure` whatever the setting says, and one deployment can serve both
   addresses correctly. Clearing the cookie makes the same decision, or the
   browser keeps the cookie it was told to drop.
+- **Power actions in the UI.** Start, shut down, reboot and force stop on the
+  VM detail page, for administrators and operators — the API and its audit
+  trail have existed since sprint 10 but nothing called them. Everything that
+  interrupts service confirms first, and force stop says plainly that it is
+  the equivalent of pulling the power lead. The platform answers 202, so the
+  page reports that the request was accepted and polls until the state
+  actually changes rather than showing a state that has not happened yet.
+  Requires `VM.PowerMgmt` on the platform token; without it the portal reports
+  that the credential was refused, and by whom.
 - **The console works on a phone.** A **Keyboard** button summons the
   on-screen keyboard and translates what it types into RFB key events, with a
   strip of the keys a phone keyboard has no room for — Esc, Tab, Enter,

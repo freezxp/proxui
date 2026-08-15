@@ -68,20 +68,6 @@ func (s *Server) writePowerError(w http.ResponseWriter, r *http.Request, err err
 	}
 }
 
-// handleEvents streams live events to the caller, scoped to what they may see.
-func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	if s.events == nil {
-		http.Error(w, "live events are not enabled", http.StatusServiceUnavailable)
-		return
-	}
-	p, ok := PrincipalFrom(r.Context())
-	if !ok {
-		WriteProblem(w, r, http.StatusUnauthorized, "auth.missing_token", "Authentication is required.")
-		return
-	}
-	s.events.ServeHTTP(w, r, p.UserID, p.Role)
-}
-
 // handleSystemInfo reports build and runtime facts for operators.
 func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 	info := map[string]any{

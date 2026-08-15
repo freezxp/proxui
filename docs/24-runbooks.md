@@ -109,6 +109,7 @@ is going stale.
 | "not permitted" (403) | the account has no grant covering this VM | Users & groups → grants |
 | "platform console unavailable" (4004) | the node refused or dropped the console | check the node is up and the token has `VM.Console`. If it fails for *every* container while virtual machines work, the connector is sending a QEMU-only option to LXC — that was a real bug, fixed, and the shape to recognize |
 | black screen, connected | the guest is not producing video | not a portal fault; check the guest |
+| "The platform credential is not allowed to perform power actions." | the API token has `PVEAuditor` + `VM.Console` but not `VM.PowerMgmt` — the portal's request reached Proxmox and Proxmox refused it | grant `VM.PowerMgmt` to the token's role on the cluster (Datacenter → Permissions → API Tokens). Nothing changes in the portal; the next action picks it up |
 
 The portal answers the platform's RFB handshake itself (ADR 0002), so a
 console failure is never a browser credential problem — the browser holds no

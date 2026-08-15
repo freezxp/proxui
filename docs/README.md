@@ -53,6 +53,7 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | 24 | [Runbooks](24-runbooks.md) | operational procedures, written for 3am |
 | 25 | [Security Checklist](25-security-checklist.md) | ASVS L2 pass with evidence, including what is not met |
 | 26 | [Google Sign-in Setup](26-google-sign-in.md) | creating the OAuth client, and the address rules Google enforces |
+| 27 | [Adding a Platform](27-adding-a-platform.md) | the Proxmox token and privileges every feature needs, end to end |
 
 ## How to read this package
 

@@ -109,13 +109,35 @@ is going stale.
 | "not permitted" (403) | the account has no grant covering this VM | Users & groups → grants |
 | "platform console unavailable" (4004) | the node refused or dropped the console | check the node is up and the token has `VM.Console`. If it fails for *every* container while virtual machines work, the connector is sending a QEMU-only option to LXC — that was a real bug, fixed, and the shape to recognize |
 | black screen, connected | the guest is not producing video | not a portal fault; check the guest |
-| "The platform credential is not allowed to perform power actions." | the API token has `PVEAuditor` + `VM.Console` but not `VM.PowerMgmt` — the portal's request reached Proxmox and Proxmox refused it | grant `VM.PowerMgmt` to the token's role on the cluster (Datacenter → Permissions → API Tokens). Nothing changes in the portal; the next action picks it up |
 
 The portal answers the platform's RFB handshake itself (ADR 0002), so a
 console failure is never a browser credential problem — the browser holds no
 platform secret to be wrong.
 
-## 24.4 Google sign-in
+## 24.4 Power actions are refused
+
+**Symptom:** start, shut down, reboot or force stop reports "The platform
+credential is not allowed to perform power actions."
+
+The wording is precise and worth reading literally: the portal's request
+**reached Proxmox, and Proxmox refused it**. Nothing in the portal will change
+that — the account is permitted, the grant is in place, and the API token's
+role simply lacks `VM.PowerMgmt`. The stock recommendation of `PVEAuditor` +
+`VM.Console` does not include it.
+
+Widen the role on the cluster ([docs/27 §27.3](27-adding-a-platform.md)); the
+next action picks it up with no restart and no re-entering the token.
+
+Any other message means the portal decided, not the platform:
+
+| What you see | Cause |
+|---|---|
+| the buttons are not there at all | the account is neither an administrator nor an operator |
+| "This VM is no longer visible to your account." | no grant covers it, or it was removed from the platform |
+| "Too many actions." | the rate limit; wait and retry |
+| the state never changes, no error | the platform accepted the task and then failed it — check the node's task log |
+
+## 24.5 Google sign-in
 
 Setting it up, and what Google will not accept, is
 [docs/26-google-sign-in.md](26-google-sign-in.md). The short version: Google
@@ -123,7 +145,7 @@ refuses a redirect URI on an IP address, on plain HTTP, or on a domain
 without a public suffix — so a portal reached at `http://10.x.x.x:8080` or at
 `something.vm` cannot use it until it has a real name and a certificate.
 
-## 24.5 Notifications are not arriving
+## 24.6 Notifications are not arriving
 
 1. **Notifications → Deliveries.** If entries are `failed`, the reason is
    recorded verbatim from the channel.
@@ -135,7 +157,7 @@ without a public suffix — so a portal reached at `http://10.x.x.x:8080` or at
    immediately and permanently — a missing webhook URL fails identically
    every time, and the log says so rather than retrying into the same wall.
 
-## 24.6 Alerts are noisy, or silent
+## 24.7 Alerts are noisy, or silent
 
 - **Too noisy:** raise the sustained duration so a spike stops qualifying, or
   lengthen the cooldown. A cooldown of zero means *never repeat*, which is a
@@ -147,7 +169,7 @@ without a public suffix — so a portal reached at `http://10.x.x.x:8080` or at
 - **Fires and never resolves:** the metric is still breaching. The firing
   list shows the last value the evaluator saw.
 
-## 24.7 Losing the master key
+## 24.8 Losing the master key
 
 There is no recovery. `PROXUI_MASTER_KEY` decrypts platform credentials and
 notification secrets; nothing else can.
@@ -164,7 +186,7 @@ If it is lost:
 Losing the key costs an afternoon of re-entering credentials. Losing the
 key *and* the database costs the estate's history. Back up both, separately.
 
-## 24.8 Upgrading
+## 24.9 Upgrading
 
 1. Take a backup. Migrations are forward-only.
 2. Deploy the new image. Migrations run on API start under an advisory lock,

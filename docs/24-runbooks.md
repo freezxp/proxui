@@ -125,8 +125,23 @@ that — the account is permitted, the grant is in place, and the API token's
 role simply lacks `VM.PowerMgmt`. The stock recommendation of `PVEAuditor` +
 `VM.Console` does not include it.
 
-Widen the role on the cluster ([docs/27 §27.3](27-adding-a-platform.md)); the
-next action picks it up with no restart and no re-entering the token.
+Find what the token is actually bound to — do not assume a role name:
+
+```bash
+pveum acl list
+```
+
+If it names a role you created, widen it with `pveum role modify`. If it names
+a built-in role (`PVEAuditor`, `PVEVMUser`, anything starting `PVE`), you
+cannot edit it; add a second role alongside, since ACL entries are cumulative:
+
+```bash
+pveum role add ProxUIPower --privs "VM.PowerMgmt"
+pveum acl modify / --tokens 'proxui@pve!portal' --roles ProxUIPower
+```
+
+Full detail in [docs/27 §27.3](27-adding-a-platform.md). The next action picks
+it up with no restart and no re-entering the token.
 
 Any other message means the portal decided, not the platform:
 

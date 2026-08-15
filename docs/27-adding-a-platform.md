@@ -94,17 +94,53 @@ pveum acl modify / --tokens 'proxui@pve!portal' --roles ProxUI
 
 Note the quoting: `!` is history expansion in an interactive bash shell.
 
-### Adding a privilege later
+### Adding a privilege to a platform that already works
 
-Roles are edited in place, so widening one is a single command and the portal
-picks it up on its next call — no restart, no re-entering the token:
+The portal picks up a widened role on its next call — no restart, no
+re-entering the token. But do not guess the role name. `ProxUI` above is a
+name this guide invented; yours is whatever you chose, and it may well be a
+built-in role you never named at all.
+
+**First, find what is actually granted:**
 
 ```bash
-pveum role modify ProxUI --privs "VM.Audit,Sys.Audit,Datastore.Audit,VM.Console,VM.PowerMgmt,VM.GuestAgent.Audit"
+pveum acl list
+```
+
+That prints the path, the user or token, and the role bound to it. Note
+whether the entry names your **user** (`proxui@pve`) or your **token**
+(`proxui@pve!portal`) — with privilege separation on, only an entry naming the
+token counts.
+
+Then, depending on what you find:
+
+**If it names a role you created**, widen it in place:
+
+```bash
+pveum role modify YOUR-ROLE --privs "VM.Audit,Sys.Audit,Datastore.Audit,VM.Console,VM.PowerMgmt,VM.GuestAgent.Audit"
 ```
 
 `role modify` **replaces** the privilege list rather than adding to it, so
-list everything you want, not just the new one.
+list everything you want and not just the new one. `pveum role list` shows
+what a role has now.
+
+**If it names a built-in role** — `PVEAuditor`, `PVEVMUser`, anything
+beginning `PVE` — you cannot edit it. Proxmox refuses, and it is right to:
+those roles are fixed definitions shared by every cluster. ACL entries are
+cumulative, so add a second role alongside rather than replacing anything:
+
+```bash
+pveum role add ProxUIPower --privs "VM.PowerMgmt"
+pveum acl modify / --tokens 'proxui@pve!portal' --roles ProxUIPower
+```
+
+Substituting the identifier `pveum acl list` showed you, and `--users` instead
+of `--tokens` if that is what the existing entry names. The token ends up with
+the union of both roles.
+
+Adding a narrow role beside a built-in one is generally the tidier answer
+anyway: it keeps the extra privilege visible as a deliberate grant rather than
+buried in a long custom list.
 
 ## 27.4 Add it in the portal
 

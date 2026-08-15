@@ -153,7 +153,75 @@ Any other message means the portal decided, not the platform:
 | the platform's own words, e.g. "CT 126 already running" | the request reached Proxmox and it declined — a state conflict, or a config lock held by another task. Not a portal fault and not worth retrying |
 | the state never changes, no error | the platform accepted the task and then failed it — check the node's task log |
 
-## 24.5 Google sign-in
+## 24.5 The portal is unreachable after an edge change
+
+**Symptom:** a published-app change was made and now `vm.example.com` — the
+portal itself — does not answer. You cannot use the portal to fix the portal.
+
+This is the failure the whole published-apps design is arranged around, so it
+should be prevented rather than met. But prevention has a gap worth knowing:
+`PROXUI_PUBLIC_HOSTNAME` is what identifies the portal's own rule, and with it
+unset the guard is off.
+
+**First, check whether the portal is actually down**, or only its route is.
+The portal answers on its own address regardless of any tunnel:
+
+```bash
+curl -s http://<portal-lan-address>:8080/healthz
+```
+
+`{"status":"ok"}` means the process is fine and only the routing is wrong.
+
+### Restoring the routing table without the portal
+
+The snapshot is in the portal's database, and the portal does not need to be
+reachable from outside to read it:
+
+```bash
+psql "$PROXUI_DATABASE_URL" -Atc "
+  SELECT ingress FROM edge_config_snapshots
+  ORDER BY taken_at DESC LIMIT 1;" > /tmp/ingress.json
+```
+
+Then put it back with Cloudflare's API directly — no portal involved:
+
+```bash
+curl -X PUT \
+  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/cfd_tunnel/$TUNNEL_ID/configurations" \
+  -H "Authorization: Bearer $CF_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"config\":{\"ingress\":$(cat /tmp/ingress.json)}}"
+```
+
+The token is the one registered with the provider; it is sealed in the
+database, so use a token from your password manager rather than trying to
+decrypt that one.
+
+**If there is no snapshot**, the Cloudflare dashboard still works —
+Zero Trust → Networks → Tunnels → the tunnel → Public Hostnames. Re-add the
+portal's hostname pointing at its address and port. That is the same fix, done
+by hand.
+
+### The rule that matters
+
+Whatever else is in the table, this one has to be there and has to sit before
+any catch-all:
+
+```
+hostname: <your portal hostname>    service: http://<portal-address>:8080
+```
+
+and the last entry must be a catch-all with no hostname, conventionally
+`http_status:404`. A table with no catch-all, or with rules after it, breaks
+everything else on that tunnel too.
+
+### Afterwards
+
+Set `PROXUI_PUBLIC_HOSTNAME` if it was not set. Without it the portal cannot
+recognise its own rule and every guard that protects it is inert — which is
+almost certainly how the change got through.
+
+## 24.6 Google sign-in
 
 Setting it up, and what Google will not accept, is
 [docs/26-google-sign-in.md](26-google-sign-in.md). The short version: Google
@@ -161,7 +229,7 @@ refuses a redirect URI on an IP address, on plain HTTP, or on a domain
 without a public suffix — so a portal reached at `http://10.x.x.x:8080` or at
 `something.vm` cannot use it until it has a real name and a certificate.
 
-## 24.6 Notifications are not arriving
+## 24.7 Notifications are not arriving
 
 1. **Notifications → Deliveries.** If entries are `failed`, the reason is
    recorded verbatim from the channel.
@@ -173,7 +241,7 @@ without a public suffix — so a portal reached at `http://10.x.x.x:8080` or at
    immediately and permanently — a missing webhook URL fails identically
    every time, and the log says so rather than retrying into the same wall.
 
-## 24.7 Alerts are noisy, or silent
+## 24.8 Alerts are noisy, or silent
 
 - **Too noisy:** raise the sustained duration so a spike stops qualifying, or
   lengthen the cooldown. A cooldown of zero means *never repeat*, which is a
@@ -185,7 +253,7 @@ without a public suffix — so a portal reached at `http://10.x.x.x:8080` or at
 - **Fires and never resolves:** the metric is still breaching. The firing
   list shows the last value the evaluator saw.
 
-## 24.8 Losing the master key
+## 24.9 Losing the master key
 
 There is no recovery. `PROXUI_MASTER_KEY` decrypts platform credentials and
 notification secrets; nothing else can.
@@ -202,7 +270,7 @@ If it is lost:
 Losing the key costs an afternoon of re-entering credentials. Losing the
 key *and* the database costs the estate's history. Back up both, separately.
 
-## 24.9 Upgrading
+## 24.10 Upgrading
 
 1. Take a backup. Migrations are forward-only.
 2. Deploy the new image. Migrations run on API start under an advisory lock,

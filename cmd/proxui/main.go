@@ -166,6 +166,29 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Clock: clock,
 	}
 
+	// The read half of the edge port, shared by the safety commands. Opening
+	// the sealed token happens here so no layer above has to know one exists.
+	edgeReaderFactory := func(ctx context.Context, providerID uuid.UUID) (*cloudflare.Provider, error) {
+		p, err := edgeProviders.Get(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
+		cred, err := edgeProviders.Credential(ctx, providerID, vault)
+		if err != nil {
+			return nil, err
+		}
+		return cloudflare.New(edge.Credentials{Token: cred.Secret, AccountID: p.AccountID}, edge.Options{})
+	}
+
+	edgeSafety := command.EdgeSafetyDeps{
+		Providers: edgeProviders,
+		Factory: func(ctx context.Context, providerID uuid.UUID) (command.EdgeIngressReader, error) {
+			return edgeReaderFactory(ctx, providerID)
+		},
+		Audit: audit, Clock: clock,
+		SelfHostname: cfg.PublicHostname,
+	}
+
 	reconciler := &appsync.Reconciler{
 		Platforms: platforms, Assets: assets, Runs: syncRepo,
 		Clock: clock, Log: log,
@@ -323,6 +346,8 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 				Test:     &command.TestEdgeCredential{EdgeDeps: edgeDeps},
 				Verify:   &command.VerifyEdgeProvider{EdgeDeps: edgeDeps},
 				Tunnels:  &command.ListEdgeTunnels{EdgeDeps: edgeDeps},
+				Snapshot: &command.SnapshotEdgeIngress{EdgeSafetyDeps: edgeSafety},
+				Preview:  &command.PreviewEdgeIngress{EdgeSafetyDeps: edgeSafety},
 				Ingress: &query.EdgeIngress{
 					Providers: edgeProviders,
 					Machines:  inventory,
@@ -330,17 +355,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 					// root, so the query layer has no reason to know a vault
 					// exists. The layer test enforces that.
 					Factory: func(ctx context.Context, providerID uuid.UUID) (query.IngressReader, error) {
-						p, err := edgeProviders.Get(ctx, providerID)
-						if err != nil {
-							return nil, err
-						}
-						cred, err := edgeProviders.Credential(ctx, providerID, vault)
-						if err != nil {
-							return nil, err
-						}
-						return cloudflare.New(edge.Credentials{
-							Token: cred.Secret, AccountID: p.AccountID,
-						}, edge.Options{})
+						return edgeReaderFactory(ctx, providerID)
 					},
 				},
 				Repo: edgeProviders,

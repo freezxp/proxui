@@ -112,13 +112,15 @@ var permissionMap = map[string]Permission{
 	// app puts something on the public internet, which is a statement about
 	// the network's boundary rather than about one machine. An operator's
 	// grant over a VM must not imply it.
-	"GET /api/v1/edge-providers":                      roles(identity.RoleAdmin),
-	"POST /api/v1/edge-providers":                     roles(identity.RoleAdmin),
-	"POST /api/v1/edge-providers/test":                roles(identity.RoleAdmin),
-	"POST /api/v1/edge-providers/{providerID}/verify": roles(identity.RoleAdmin),
-	"GET /api/v1/edge-providers/{providerID}/tunnels": roles(identity.RoleAdmin),
-	"GET /api/v1/edge-providers/{providerID}/ingress": roles(identity.RoleAdmin),
-	"DELETE /api/v1/edge-providers/{providerID}":      roles(identity.RoleAdmin),
+	"GET /api/v1/edge-providers":                        roles(identity.RoleAdmin),
+	"POST /api/v1/edge-providers":                       roles(identity.RoleAdmin),
+	"POST /api/v1/edge-providers/test":                  roles(identity.RoleAdmin),
+	"POST /api/v1/edge-providers/{providerID}/verify":   roles(identity.RoleAdmin),
+	"GET /api/v1/edge-providers/{providerID}/tunnels":   roles(identity.RoleAdmin),
+	"GET /api/v1/edge-providers/{providerID}/ingress":   roles(identity.RoleAdmin),
+	"POST /api/v1/edge-providers/{providerID}/snapshot": roles(identity.RoleAdmin),
+	"POST /api/v1/edge-providers/{providerID}/preview":  roles(identity.RoleAdmin),
+	"DELETE /api/v1/edge-providers/{providerID}":        roles(identity.RoleAdmin),
 
 	"GET /api/v1/connectors":          roles(identity.RoleAdmin),
 	"GET /api/v1/dashboard":           roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),

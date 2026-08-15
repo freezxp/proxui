@@ -20,6 +20,8 @@ type EdgeDeps struct {
 	Verify   *command.VerifyEdgeProvider
 	Tunnels  *command.ListEdgeTunnels
 	Ingress  *query.EdgeIngress
+	Snapshot *command.SnapshotEdgeIngress
+	Preview  *command.PreviewEdgeIngress
 	Repo     ports.EdgeProviderRepository
 }
 
@@ -356,6 +358,128 @@ func (s *Server) handleGetEdgeIngress(w http.ResponseWriter, r *http.Request) {
 			rule.VM = &ingressVMResponse{ID: d.Machine.ID, Name: d.Machine.Name, State: d.Machine.State}
 		}
 		out.Rules = append(out.Rules, rule)
+	}
+	WriteJSON(w, http.StatusOK, out)
+}
+
+// --- safety rails (P3): snapshot and preview, still no writes -------------
+
+type snapshotResponse struct {
+	TunnelID string `json:"tunnel_id"`
+	Version  int    `json:"version"`
+	Rules    int    `json:"rules"`
+}
+
+func (s *Server) handleSnapshotEdgeIngress(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathUUID(w, r, "providerID")
+	if !ok {
+		return
+	}
+	got, err := s.edge.Snapshot.Handle(r.Context(), id, s.actor(r))
+	if err != nil {
+		s.writeEdgeError(w, r, err, healthResponseBody{})
+		return
+	}
+	WriteJSON(w, http.StatusCreated, snapshotResponse{
+		TunnelID: got.TunnelID, Version: got.Version, Rules: got.Rules,
+	})
+}
+
+type previewRequest struct {
+	// Desired is the whole table, in order — the provider's API replaces the
+	// whole array, and a preview shaped differently would preview something
+	// other than what happens.
+	Desired []struct {
+		Hostname string `json:"hostname"`
+		Path     string `json:"path"`
+		Service  string `json:"service"`
+	} `json:"desired"`
+	ReadVersion int `json:"read_version"`
+}
+
+type previewEntryResponse struct {
+	Change    string  `json:"change"`
+	Hostname  string  `json:"hostname"`
+	Path      string  `json:"path,omitempty"`
+	Before    *string `json:"before,omitempty"`
+	After     *string `json:"after,omitempty"`
+	FromIndex int     `json:"from_index"`
+	ToIndex   int     `json:"to_index"`
+}
+
+type previewResponse struct {
+	Safe    bool   `json:"safe"`
+	Refusal string `json:"refusal,omitempty"`
+	// Stale means the table moved since read_version. The diff is still
+	// returned: the caller needs both what it wanted and what changed.
+	Stale          bool                   `json:"stale"`
+	StaleDetail    string                 `json:"stale_detail,omitempty"`
+	CurrentVersion int                    `json:"current_version"`
+	Changes        bool                   `json:"changes"`
+	Added          int                    `json:"added"`
+	Removed        int                    `json:"removed"`
+	Modified       int                    `json:"modified"`
+	Moved          int                    `json:"moved"`
+	Unchanged      int                    `json:"unchanged"`
+	Entries        []previewEntryResponse `json:"entries"`
+}
+
+func (s *Server) handlePreviewEdgeIngress(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathUUID(w, r, "providerID")
+	if !ok {
+		return
+	}
+	var req previewRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		return
+	}
+
+	desired := make([]publish.Rule, 0, len(req.Desired))
+	for _, d := range req.Desired {
+		desired = append(desired, publish.Rule{Hostname: d.Hostname, Path: d.Path, Service: d.Service})
+	}
+
+	got, err := s.edge.Preview.Handle(r.Context(), id, command.PreviewEdgeIngressInput{
+		Actor: s.actor(r), Desired: desired, ReadVersion: req.ReadVersion,
+	})
+	if err != nil {
+		if errors.Is(err, publish.ErrNoTunnel) {
+			WriteProblem(w, r, http.StatusUnprocessableEntity, "edge.no_tunnel",
+				"This provider has no tunnel selected yet.")
+			return
+		}
+		s.writeEdgeError(w, r, err, healthResponseBody{})
+		return
+	}
+
+	out := previewResponse{
+		Safe: got.Plan.Safe(), CurrentVersion: got.CurrentVersion,
+		Changes: got.Plan.TouchesAnything(),
+		Added:   got.Plan.Added, Removed: got.Plan.Removed, Modified: got.Plan.Modified,
+		Moved: got.Plan.Moved, Unchanged: got.Plan.Unchanged,
+		Entries: make([]previewEntryResponse, 0, len(got.Plan.Entries)),
+	}
+	if got.Plan.Refusal != nil {
+		out.Refusal = got.Plan.Refusal.Error()
+	}
+	if got.Stale != nil {
+		out.Stale, out.StaleDetail = true, got.Stale.Error()
+	}
+	for _, e := range got.Plan.Entries {
+		entry := previewEntryResponse{
+			Change: string(e.Change), FromIndex: e.FromIndex, ToIndex: e.ToIndex,
+		}
+		if e.Before != nil {
+			entry.Hostname, entry.Path = e.Before.Hostname, e.Before.Path
+			before := e.Before.Service
+			entry.Before = &before
+		}
+		if e.After != nil {
+			entry.Hostname, entry.Path = e.After.Hostname, e.After.Path
+			after := e.After.Service
+			entry.After = &after
+		}
+		out.Entries = append(out.Entries, entry)
 	}
 	WriteJSON(w, http.StatusOK, out)
 }

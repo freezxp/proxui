@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Safety rails for edge changes, before anything can write** (docs/28 P3).
+  `POST /{id}/snapshot` stores the current routing table verbatim, and
+  `POST /{id}/preview` says exactly what a proposed table would add, remove,
+  change or reorder — and refuses it outright if it would delete or shadow the
+  rule serving this portal. Staleness is detected with the provider's own
+  version counter rather than by guessing. New `PROXUI_PUBLIC_HOSTNAME` tells
+  the portal which rule is its own; without it that guard is inert.
 - **A tunnel's routing table can be read, joined to the VM inventory** (docs/28
   P2). Each rule is annotated with the VM holding its target address, whether
   it points at an address no VM holds any more, and whether it is the rule

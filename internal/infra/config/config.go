@@ -70,6 +70,18 @@ type Config struct {
 	// cookie would never be sent back and nobody could sign in at all.
 	SecureCookies bool
 
+	// PublicHostname is the name this portal is served at from outside — say
+	// "vm.example.com". It is not used for routing; it is used to recognise
+	// the portal's own rule in an edge provider's table so that no change can
+	// delete or shadow it (docs/28, PUB-33).
+	//
+	// Configured rather than taken from the request because the protection has
+	// to hold for an administrator working from the LAN address, who would
+	// otherwise present a Host header that matches nothing in the table and
+	// silently disable the guard. Empty means the portal is not published
+	// through any managed provider, and the guard stays off.
+	PublicHostname string
+
 	// First-run administrator (ADM-03). Ignored once any account exists.
 	AdminUsername    string
 	AdminEmail       string
@@ -110,6 +122,7 @@ func Load() (Config, error) {
 		JWTKeyFile:       env("PROXUI_JWT_KEY_FILE", "secrets/jwt-signing-key.pem"),
 		MasterKeyFile:    env("PROXUI_MASTER_KEY_FILE", "secrets/master.key"),
 		SecureCookies:    envBool("PROXUI_SECURE_COOKIES", true),
+		PublicHostname:   strings.TrimSpace(os.Getenv("PROXUI_PUBLIC_HOSTNAME")),
 		AdminUsername:    env("PROXUI_ADMIN_USERNAME", ""),
 		AdminEmail:       env("PROXUI_ADMIN_EMAIL", ""),
 		AdminDisplayName: env("PROXUI_ADMIN_DISPLAY_NAME", ""),

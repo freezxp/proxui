@@ -271,6 +271,8 @@ func (s *Server) Routes() http.Handler {
 				r.Post("/{providerID}/verify", s.handleVerifyEdgeProvider)
 				r.Get("/{providerID}/tunnels", s.handleListEdgeTunnels)
 				r.Get("/{providerID}/ingress", s.handleGetEdgeIngress)
+				r.Post("/{providerID}/snapshot", s.handleSnapshotEdgeIngress)
+				r.Post("/{providerID}/preview", s.handlePreviewEdgeIngress)
 				r.Delete("/{providerID}", s.handleDeleteEdgeProvider)
 			})
 

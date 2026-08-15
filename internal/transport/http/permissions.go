@@ -108,14 +108,25 @@ var permissionMap = map[string]Permission{
 	"DELETE /api/v1/platforms/{platformID}":        roles(identity.RoleAdmin),
 	"POST /api/v1/platforms/{platformID}/sync":     roles(identity.RoleAdmin),
 	"GET /api/v1/platforms/{platformID}/sync-runs": roles(identity.RoleAdmin),
-	"GET /api/v1/connectors":                       roles(identity.RoleAdmin),
-	"GET /api/v1/dashboard":                        roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
-	"GET /api/v1/vms":                              roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
-	"GET /api/v1/vms/{vmID}":                       roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
-	"GET /api/v1/vms/{vmID}/metrics":               roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
-	"GET /api/v1/vms/{vmID}/history":               roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
-	"POST /api/v1/vms/{vmID}/console":              roles(identity.RoleAdmin, identity.RoleOperator),
-	"POST /api/v1/vms/{vmID}/power":                roles(identity.RoleAdmin, identity.RoleOperator),
+	// Edge providers (ADR 0004). Admin only without exception: publishing an
+	// app puts something on the public internet, which is a statement about
+	// the network's boundary rather than about one machine. An operator's
+	// grant over a VM must not imply it.
+	"GET /api/v1/edge-providers":                      roles(identity.RoleAdmin),
+	"POST /api/v1/edge-providers":                     roles(identity.RoleAdmin),
+	"POST /api/v1/edge-providers/test":                roles(identity.RoleAdmin),
+	"POST /api/v1/edge-providers/{providerID}/verify": roles(identity.RoleAdmin),
+	"GET /api/v1/edge-providers/{providerID}/tunnels": roles(identity.RoleAdmin),
+	"DELETE /api/v1/edge-providers/{providerID}":      roles(identity.RoleAdmin),
+
+	"GET /api/v1/connectors":          roles(identity.RoleAdmin),
+	"GET /api/v1/dashboard":           roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/vms":                 roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/vms/{vmID}":          roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/vms/{vmID}/metrics":  roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/vms/{vmID}/history":  roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
+	"POST /api/v1/vms/{vmID}/console": roles(identity.RoleAdmin, identity.RoleOperator),
+	"POST /api/v1/vms/{vmID}/power":   roles(identity.RoleAdmin, identity.RoleOperator),
 	// The stream itself is authenticated by its ticket, at /ws/events/{id},
 	// outside the API's role gates — the same shape as the console.
 	"POST /api/v1/events/ticket":   roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Cloudflare Tunnel providers can be registered** (ADR 0004, docs/28 P1).
+  Admin-only, read-only: register an account credential, test it, list its
+  tunnels. The token is sealed with the same envelope encryption as a platform
+  credential and is never returned by any read. Nothing here can change a
+  tunnel; publishing lands in a later sprint behind the invariants in
+  `internal/domain/publish`.
+- **The layer import rule is now enforced** rather than only documented. It
+  found eleven existing `app -> infra` violations, frozen as a ratchet that can
+  only shrink.
+
 - **The refresh cookie's `Secure` flag now follows the request.** It was
   decided once at boot, so a portal served over HTTPS with
   `PROXUI_SECURE_COOKIES=false` — the setting that exists so a plain-HTTP LAN

@@ -26,6 +26,8 @@ import (
 	appsetting "github.com/freezxp/proxui/internal/app/setting"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 	"github.com/freezxp/proxui/internal/domain/identity"
+	"github.com/freezxp/proxui/internal/edge"
+	"github.com/freezxp/proxui/internal/edge/cloudflare"
 	"github.com/freezxp/proxui/internal/infra/config"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 	"github.com/freezxp/proxui/internal/infra/logging"
@@ -143,9 +145,24 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		inventory = postgres.NewInventoryQuery(pool)
 		auditLog  = postgres.NewAuditQuery(pool)
 		consoles  = postgres.NewConsoleRepository(pool)
-		tickets   = redisinfra.NewTicketStore(rdb)
-		limiter   = redisinfra.NewRateLimiter(rdb)
+
+		edgeProviders = postgres.NewEdgeProviderRepository(pool)
+		tickets       = redisinfra.NewTicketStore(rdb)
+		limiter       = redisinfra.NewRateLimiter(rdb)
 	)
+
+	// Edge providers (ADR 0004). The factory is injected so the command layer
+	// never imports a concrete provider, which is what keeps its tests free of
+	// a network and lets a second provider be added without touching them.
+	edgeDeps := command.EdgeDeps{
+		Providers: edgeProviders,
+		Vault:     vault,
+		Factory: func(creds edge.Credentials) (command.EdgeProvider, error) {
+			return cloudflare.New(creds, edge.Options{})
+		},
+		Audit: audit,
+		Clock: clock,
+	}
 
 	reconciler := &appsync.Reconciler{
 		Platforms: platforms, Assets: assets, Runs: syncRepo,
@@ -298,6 +315,13 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			},
 			Notify: httpapi.NotifyDeps{
 				Repo: notifyRepo, Dispatcher: dispatcher, Vault: vault,
+			},
+			Edge: httpapi.EdgeDeps{
+				Register: &command.RegisterEdgeProvider{EdgeDeps: edgeDeps},
+				Test:     &command.TestEdgeCredential{EdgeDeps: edgeDeps},
+				Verify:   &command.VerifyEdgeProvider{EdgeDeps: edgeDeps},
+				Tunnels:  &command.ListEdgeTunnels{EdgeDeps: edgeDeps},
+				Repo:     edgeProviders,
 			},
 			Power: httpapi.PowerDeps{
 				Power: &command.Power{

@@ -22,6 +22,10 @@ type Problem struct {
 	Detail    string            `json:"detail,omitempty"`
 	RequestID string            `json:"request_id,omitempty"`
 	Fields    map[string]string `json:"fields,omitempty"`
+	// Body carries endpoint-specific detail that is useful precisely because
+	// the call failed — a connection test's partial results, for instance,
+	// where how far it got is more informative than the error itself.
+	Body any `json:"body,omitempty"`
 }
 
 // WriteProblem renders an RFC 7807 response. code is the machine-readable
@@ -40,6 +44,22 @@ func WriteProblemFields(w http.ResponseWriter, r *http.Request, status int, code
 		Detail:    detail,
 		RequestID: middleware.GetReqID(r.Context()),
 		Fields:    fields,
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(p)
+}
+
+// WriteProblemWithBody renders a problem carrying extra structured detail.
+func WriteProblemWithBody(w http.ResponseWriter, r *http.Request, status int, code, detail string, body any) {
+	p := Problem{
+		Type:      ProblemBaseURI + code,
+		Title:     http.StatusText(status),
+		Status:    status,
+		Code:      code,
+		Detail:    detail,
+		RequestID: middleware.GetReqID(r.Context()),
+		Body:      body,
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)

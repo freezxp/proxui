@@ -90,6 +90,35 @@ type envelope struct {
 type apiError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	// Chain carries the specific cause under a generic wrapper. A malformed
+	// token arrives as 6003 "Invalid request headers" with 6111 "Invalid
+	// format for Authorization header" nested inside, and only the inner one
+	// says what is actually wrong.
+	Chain []apiError `json:"error_chain"`
+}
+
+// authErrorCodes are Cloudflare error codes that mean "your credential is the
+// problem", whatever HTTP status they arrive with.
+//
+// This exists because a malformed token comes back as **HTTP 400**, not 401.
+// Classifying on status alone reports the single most common setup mistake —
+// a truncated or mistyped token — as a generic refusal, sending someone to
+// look at their request instead of their credential.
+var authErrorCodes = map[int]bool{
+	6003:  true, // invalid request headers, wrapping 6111
+	6111:  true, // invalid format for Authorization header
+	9109:  true, // invalid access token
+	10000: true, // authentication error
+}
+
+// hasAuthCode reports whether any error, at any depth, blames the credential.
+func hasAuthCode(errs []apiError) bool {
+	for _, e := range errs {
+		if authErrorCodes[e.Code] || hasAuthCode(e.Chain) {
+			return true
+		}
+	}
+	return false
 }
 
 // Verify checks the credential and reports what it can reach.
@@ -314,6 +343,10 @@ func classify(path string, status int, env envelope) error {
 	case status == http.StatusUnauthorized:
 		return edge.Errorf(edge.ErrAuth, op,
 			"the API token was rejected (HTTP 401)%s", reason)
+	// Checked before the generic status arms: Cloudflare answers 400 for a
+	// malformed token, and "refused the request" would be true but useless.
+	case status != http.StatusForbidden && hasAuthCode(env.Errors):
+		return edge.Errorf(edge.ErrAuth, op, "the API token was rejected%s", reason)
 	case status == http.StatusForbidden:
 		return edge.Errorf(edge.ErrPermission, op,
 			"the API token lacks the permission for %s (HTTP 403)%s", path, reason)
@@ -339,23 +372,28 @@ func describe(errs []apiError) string {
 	if len(errs) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, len(errs))
-	for _, e := range errs {
-		msg := strings.TrimSpace(e.Message)
-		if msg == "" {
-			continue
-		}
-		if e.Code != 0 {
-			parts = append(parts, fmt.Sprintf("%s (code %d)", msg, e.Code))
-			continue
-		}
-		parts = append(parts, msg)
-	}
+	parts := collectMessages(errs)
 	if len(parts) == 0 {
 		return ""
 	}
 	sort.Strings(parts)
 	return ": " + strings.Join(parts, "; ")
+}
+
+// collectMessages flattens Cloudflare's error tree into readable parts.
+func collectMessages(errs []apiError) []string {
+	var parts []string
+	for _, e := range errs {
+		if msg := strings.TrimSpace(e.Message); msg != "" {
+			if e.Code != 0 {
+				parts = append(parts, fmt.Sprintf("%s (code %d)", msg, e.Code))
+			} else {
+				parts = append(parts, msg)
+			}
+		}
+		parts = append(parts, collectMessages(e.Chain)...)
+	}
+	return parts
 }
 
 // opOf turns a path into a short label for errors and metrics, without

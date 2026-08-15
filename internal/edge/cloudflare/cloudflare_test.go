@@ -371,3 +371,46 @@ func containsSubstring(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+// Cloudflare answers a malformed token with HTTP 400, not 401, wrapping the
+// real cause in an error_chain. Classifying on status alone reports the single
+// most common setup mistake as a generic refusal, which sends someone to look
+// at their request instead of their credential.
+func TestAMalformedTokenIsAnAuthFailureNotARefusal(t *testing.T) {
+	f := newFakeCF(t)
+	f.handlers["/user/tokens/verify"] = func() (int, string) {
+		return http.StatusBadRequest, `{"success":false,"result":null,"errors":[
+			{"code":6003,"message":"Invalid request headers","error_chain":[
+				{"code":6111,"message":"Invalid format for Authorization header"}]}]}`
+	}
+
+	health, err := f.provider(t).Verify(context.Background())
+
+	if !errors.Is(err, edge.ErrAuth) {
+		t.Fatalf("got %v, want ErrAuth", err)
+	}
+	if errors.Is(err, edge.ErrRefused) {
+		t.Error("a rejected credential was classified as a refused request")
+	}
+	// Cloudflare answered, so this is not a network problem — and saying it is
+	// sends someone to debug a firewall that is fine.
+	if !health.Reachable {
+		t.Error("reachable = false, but Cloudflare answered with a 400")
+	}
+	// The nested cause is the only part that says what is actually wrong.
+	if !strings.Contains(err.Error(), "Invalid format for Authorization header") {
+		t.Errorf("error = %q, want the chained cause", err)
+	}
+}
+
+// A 403 stays a permission problem: that is a scope to grant, not a token to
+// replace, and they are fixed in different places.
+func TestForbiddenStaysAPermissionProblem(t *testing.T) {
+	f := newFakeCF(t)
+	f.fail("/accounts/acct/cfd_tunnel", http.StatusForbidden, 10000, "Authentication error")
+
+	_, err := f.provider(t).Tunnels(context.Background())
+	if !errors.Is(err, edge.ErrPermission) {
+		t.Fatalf("got %v, want ErrPermission", err)
+	}
+}

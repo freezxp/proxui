@@ -55,6 +55,7 @@ type ServerConfig struct {
 	Inventory InventoryDeps
 	Console   ConsoleDeps
 	Power     PowerDeps
+	Edge      EdgeDeps
 
 	// Events streams live updates; nil disables the endpoint.
 	Events EventStreamer
@@ -102,6 +103,7 @@ type Server struct {
 	inventory     InventoryDeps
 	console       ConsoleDeps
 	power         PowerDeps
+	edge          EdgeDeps
 	notify        NotifyDeps
 	alerts        AlertDeps
 	settings      SettingsDeps
@@ -134,6 +136,7 @@ func NewServer(cfg ServerConfig) *Server {
 		inventory:     cfg.Inventory,
 		console:       cfg.Console,
 		power:         cfg.Power,
+		edge:          cfg.Edge,
 		notify:        cfg.Notify,
 		alerts:        cfg.Alerts,
 		settings:      cfg.Settings,
@@ -255,6 +258,19 @@ func (s *Server) Routes() http.Handler {
 					r.Post("/{platformID}/sync", s.handleSyncPlatform)
 					r.Get("/{platformID}/sync-runs", s.handleListSyncRuns)
 				})
+			})
+
+			// Edge providers: admin only, throughout. Publishing decides what
+			// the outside world can reach, which is a different power from an
+			// operator's grant over a VM (ADR 0004, PUB-40).
+			r.Route("/edge-providers", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/", s.handleListEdgeProviders)
+				r.Post("/", s.handleCreateEdgeProvider)
+				r.Post("/test", s.handleTestEdgeCredential)
+				r.Post("/{providerID}/verify", s.handleVerifyEdgeProvider)
+				r.Get("/{providerID}/tunnels", s.handleListEdgeTunnels)
+				r.Delete("/{providerID}", s.handleDeleteEdgeProvider)
 			})
 
 			r.With(RequireRole(identity.RoleAdmin)).Get("/connectors", s.handleListConnectors)

@@ -17,6 +17,7 @@ import (
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/domain/inventory"
 	"github.com/freezxp/proxui/internal/domain/notify"
+	"github.com/freezxp/proxui/internal/domain/publish"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 )
 
@@ -572,4 +573,38 @@ type NetworkRow struct {
 	CIDR         string    `json:"cidr"`
 	VLANTag      *int      `json:"vlan_tag,omitempty"`
 	SyncState    string    `json:"sync_state"`
+}
+
+// --- edge providers (ADR 0004, docs/28-published-apps.md) ----------------
+
+// EdgeSnapshot is a routing table as it was before a change (PUB-34).
+//
+// Ingress is kept as raw JSON rather than a decoded type: its only job is to
+// be written back verbatim, and decoding it into a shape the portal
+// understands would quietly drop any field the portal does not — which is the
+// one thing a restore must never do.
+type EdgeSnapshot struct {
+	ID      int64
+	Version int
+	Ingress []byte
+	TakenAt time.Time
+}
+
+// EdgeProviderRepository persists edge providers, their credentials and the
+// snapshots that make a change reversible.
+type EdgeProviderRepository interface {
+	Create(ctx context.Context, p *publish.Provider, cred SealedCredential) error
+	Get(ctx context.Context, id uuid.UUID) (*publish.Provider, error)
+	List(ctx context.Context) ([]*publish.Provider, error)
+	Update(ctx context.Context, p *publish.Provider) error
+	RecordHealth(ctx context.Context, id uuid.UUID, health publish.Health,
+		detail string, failures int, breakerUntil time.Time) error
+	Delete(ctx context.Context, id uuid.UUID) error
+
+	Credential(ctx context.Context, providerID uuid.UUID, vault *crypto.Vault) (PlainCredential, error)
+	ReplaceCredential(ctx context.Context, providerID uuid.UUID, cred SealedCredential) error
+
+	SaveSnapshot(ctx context.Context, providerID uuid.UUID, tunnelID string,
+		version int, ingress []byte, takenBy *uuid.UUID) error
+	LatestSnapshot(ctx context.Context, providerID uuid.UUID, tunnelID string) (EdgeSnapshot, error)
 }

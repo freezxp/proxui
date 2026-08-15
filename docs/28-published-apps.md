@@ -259,6 +259,20 @@ Answered by the stakeholder on 2026-08-15, before any code was written.
 | Is this portal published through that same tunnel? | **Yes** | **PUB-33 ships in the first cut, not later.** The portal must refuse to delete, disable or reorder the rule that serves it, and P6's recovery procedure — restoring ingress without the portal — is promoted to P3 alongside the snapshots. |
 | Access policy required, or acknowledgement? | **Warn and acknowledge** (PUB-43 as written) | Access application *management* stays out of scope (§28.7). The portal detects whether a hostname is covered by an existing Access application and shows it, and publishing without one needs an explicit acknowledgement. |
 
+### What the live account actually looks like
+
+Probed 2026-08-15 with a read-only token, against the real account, using the
+provider code rather than curl. Several things the plan had listed as
+assumptions are now facts.
+
+| Finding | Consequence |
+|---|---|
+| **All four tunnels are remotely-managed.** Three have connections; one has none and is still configurable. | PUB-03's refusal path has no live example here, which is exactly why it needs a test rather than a demo. PUB-12 does: a tunnel with zero connections serves nothing while looking perfectly healthy. |
+| **The configuration response carries a `version`, and it increments** — the four tunnels sit at 34, 16, 5 and 2. | Optimistic concurrency is available. PUB-31 can refuse a stale write by comparing versions rather than diffing rule arrays, which is both cheaper and exact. This was the open question in the P0 spike. |
+| **The portal's own rule is in the tunnel**, pointing at its LAN address, fifth of six with the catch-all last. | PUB-33 is not hypothetical. The rule to protect is identifiable by hostname, which is what the invariant already keys on. |
+| **`originRequest` settings are in real use** — `noTLSVerify`, `http2Origin`, `noHappyEyeballs`, `disableChunkedEncoding` — on rules the portal did not create. | PUB-11's byte-for-byte preservation is load-bearing from the first write, not a refinement. Dropping these would silently break working apps. |
+| **A resource-scoped token sees zero accounts from `/accounts`** even though it can read that account's tunnels perfectly well. | The connection test must never discover the account id; the administrator supplies it (PUB-01, as designed). Worth stating because discovery is the obvious thing to reach for and it fails quietly, returning success with an empty list rather than an error. |
+
 Still open, but configuration rather than design:
 
 - **Which DNS zones may the portal write to** (PUB-04). `DNS: Edit` reaches a

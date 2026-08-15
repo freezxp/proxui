@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/command"
 	appnotify "github.com/freezxp/proxui/internal/app/notify"
 	"github.com/freezxp/proxui/internal/app/ports"
+	"github.com/freezxp/proxui/internal/app/query"
 	appsetting "github.com/freezxp/proxui/internal/app/setting"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 	"github.com/freezxp/proxui/internal/domain/identity"
@@ -321,7 +323,27 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 				Test:     &command.TestEdgeCredential{EdgeDeps: edgeDeps},
 				Verify:   &command.VerifyEdgeProvider{EdgeDeps: edgeDeps},
 				Tunnels:  &command.ListEdgeTunnels{EdgeDeps: edgeDeps},
-				Repo:     edgeProviders,
+				Ingress: &query.EdgeIngress{
+					Providers: edgeProviders,
+					Machines:  inventory,
+					// Opening the sealed token stays here, in the composition
+					// root, so the query layer has no reason to know a vault
+					// exists. The layer test enforces that.
+					Factory: func(ctx context.Context, providerID uuid.UUID) (query.IngressReader, error) {
+						p, err := edgeProviders.Get(ctx, providerID)
+						if err != nil {
+							return nil, err
+						}
+						cred, err := edgeProviders.Credential(ctx, providerID, vault)
+						if err != nil {
+							return nil, err
+						}
+						return cloudflare.New(edge.Credentials{
+							Token: cred.Secret, AccountID: p.AccountID,
+						}, edge.Options{})
+					},
+				},
+				Repo: edgeProviders,
 			},
 			Power: httpapi.PowerDeps{
 				Power: &command.Power{

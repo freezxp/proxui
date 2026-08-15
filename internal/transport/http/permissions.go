@@ -117,6 +117,7 @@ var permissionMap = map[string]Permission{
 	"POST /api/v1/edge-providers/test":                roles(identity.RoleAdmin),
 	"POST /api/v1/edge-providers/{providerID}/verify": roles(identity.RoleAdmin),
 	"GET /api/v1/edge-providers/{providerID}/tunnels": roles(identity.RoleAdmin),
+	"GET /api/v1/edge-providers/{providerID}/ingress": roles(identity.RoleAdmin),
 	"DELETE /api/v1/edge-providers/{providerID}":      roles(identity.RoleAdmin),
 
 	"GET /api/v1/connectors":          roles(identity.RoleAdmin),

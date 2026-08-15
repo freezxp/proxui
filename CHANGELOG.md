@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A tunnel's routing table can be read, joined to the VM inventory** (docs/28
+  P2). Each rule is annotated with the VM holding its target address, whether
+  it points at an address no VM holds any more, and whether it is the rule
+  serving this portal. Still read-only.
 - **Cloudflare Tunnel providers can be registered** (ADR 0004, docs/28 P1).
   Admin-only, read-only: register an account credential, test it, list its
   tunnels. The token is sealed with the same envelope encryption as a platform

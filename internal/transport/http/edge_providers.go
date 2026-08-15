@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/freezxp/proxui/internal/app/command"
 	"github.com/freezxp/proxui/internal/app/ports"
+	"github.com/freezxp/proxui/internal/app/query"
 	"github.com/freezxp/proxui/internal/domain/publish"
 	"github.com/freezxp/proxui/internal/edge"
 )
@@ -17,6 +19,7 @@ type EdgeDeps struct {
 	Test     *command.TestEdgeCredential
 	Verify   *command.VerifyEdgeProvider
 	Tunnels  *command.ListEdgeTunnels
+	Ingress  *query.EdgeIngress
 	Repo     ports.EdgeProviderRepository
 }
 
@@ -268,4 +271,91 @@ func (s *Server) writeEdgeError(w http.ResponseWriter, r *http.Request, err erro
 	default:
 		s.serverError(w, r, err, "The request could not be completed.")
 	}
+}
+
+// --- ingress (P2, read-only) ---------------------------------------------
+
+// hostOnly strips any port, since a routing rule names a host and never one.
+func hostOnly(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
+}
+
+type ingressRuleResponse struct {
+	Index    int    `json:"index"`
+	Hostname string `json:"hostname"`
+	Path     string `json:"path,omitempty"`
+	Service  string `json:"service"`
+	Origin   string `json:"origin"`
+	// IsPortal marks the rule that serves this portal. The UI shows it as
+	// protected; nothing may reorder or remove it (PUB-33).
+	IsPortal   bool `json:"is_portal"`
+	IsCatchAll bool `json:"is_catch_all"`
+	// Unmatched means the rule points at an address no known VM holds — the
+	// shape a deleted or re-addressed machine leaves behind.
+	Unmatched bool `json:"unmatched"`
+
+	TargetHost string `json:"target_host,omitempty"`
+	TargetPort int    `json:"target_port,omitempty"`
+
+	VM *ingressVMResponse `json:"vm,omitempty"`
+}
+
+type ingressVMResponse struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+type ingressResponse struct {
+	ProviderID  string                `json:"provider_id"`
+	TunnelID    string                `json:"tunnel_id"`
+	TunnelName  string                `json:"tunnel_name"`
+	Version     int                   `json:"version"`
+	Rules       []ingressRuleResponse `json:"rules"`
+	PortalOwned int                   `json:"portal_owned"`
+	External    int                   `json:"external"`
+	Unmatched   int                   `json:"unmatched"`
+}
+
+func (s *Server) handleGetEdgeIngress(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathUUID(w, r, "providerID")
+	if !ok {
+		return
+	}
+
+	// The host the administrator is reaching the portal at right now, so the
+	// rule serving it can be marked as protected.
+	view, err := s.edge.Ingress.Handle(r.Context(), id, hostOnly(r.Host))
+	if err != nil {
+		if errors.Is(err, publish.ErrNoTunnel) {
+			WriteProblem(w, r, http.StatusUnprocessableEntity, "edge.no_tunnel",
+				"This provider has no tunnel selected yet.")
+			return
+		}
+		s.writeEdgeError(w, r, err, healthResponseBody{})
+		return
+	}
+
+	out := ingressResponse{
+		ProviderID: view.ProviderID.String(), TunnelID: view.TunnelID,
+		TunnelName: view.TunnelName, Version: view.Version,
+		Rules:       make([]ingressRuleResponse, 0, len(view.Rules)),
+		PortalOwned: view.PortalOwned, External: view.External, Unmatched: view.Unmatched,
+	}
+	for _, d := range view.Rules {
+		rule := ingressRuleResponse{
+			Index: d.Index, Hostname: d.Hostname, Path: d.Path, Service: d.Service,
+			Origin: string(d.Origin), IsPortal: d.IsPortal,
+			IsCatchAll: d.Origin == publish.OriginCatchAll, Unmatched: d.Unmatched,
+			TargetHost: d.Target.Host, TargetPort: d.Target.Port,
+		}
+		if d.Machine != nil {
+			rule.VM = &ingressVMResponse{ID: d.Machine.ID, Name: d.Machine.Name, State: d.Machine.State}
+		}
+		out.Rules = append(out.Rules, rule)
+	}
+	WriteJSON(w, http.StatusOK, out)
 }

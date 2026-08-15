@@ -13,6 +13,7 @@ import (
 
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/domain/identity"
+	"github.com/freezxp/proxui/internal/domain/publish"
 )
 
 // InventoryQuery reads inventory for the API. It is deliberately separate from
@@ -499,6 +500,50 @@ func (q *InventoryQuery) AllVMNames(ctx context.Context) (map[uuid.UUID]string, 
 			return nil, fmt.Errorf("scan vm name: %w", err)
 		}
 		out[id] = name
+	}
+	return out, rows.Err()
+}
+
+// MachineAddresses returns every live VM with its addresses.
+//
+// Unscoped by role on purpose: its only caller is the edge panel, which is
+// admin-only, and an address-to-VM lookup that silently omitted machines would
+// report a rule as pointing at nothing when it points at something the caller
+// simply cannot see. That would be a worse answer than no answer.
+//
+// The whole set is loaded rather than queried per address because the design
+// caps this at a few hundred VMs, and a join against a JSON array of addresses
+// is more machinery than the problem deserves.
+func (q *InventoryQuery) MachineAddresses(ctx context.Context) ([]publish.MachineRef, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT id, name, coalesce(ip_addresses, '[]'::jsonb), state, platform_id
+		FROM vms WHERE sync_state <> 'deleted'`)
+	if err != nil {
+		return nil, fmt.Errorf("list machine addresses: %w", err)
+	}
+	defer rows.Close()
+
+	var out []publish.MachineRef
+	for rows.Next() {
+		var (
+			m     publish.MachineRef
+			id    uuid.UUID
+			plat  uuid.UUID
+			addrs []byte
+		)
+		if err := rows.Scan(&id, &m.Name, &addrs, &m.State, &plat); err != nil {
+			return nil, err
+		}
+		m.ID, m.PlatformID = id.String(), plat.String()
+		if len(addrs) > 0 {
+			if err := json.Unmarshal(addrs, &m.Addresses); err != nil {
+				// A VM with unreadable addresses is still a VM; dropping the
+				// whole listing over one bad row would be the wrong trade.
+				m.Addresses = nil
+			}
+		}
+		m.IsReachable = m.State == "running"
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }

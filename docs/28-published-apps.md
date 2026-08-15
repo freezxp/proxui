@@ -1,7 +1,9 @@
 # 28. Published apps — Cloudflare Tunnel management
 
-**Status: proposal.** Nothing here is built. This is the requirement set and
-plan for a panel that publishes internal services through a Cloudflare Tunnel.
+**Status: proposal, unblocked.** Nothing here is built. This is the
+requirement set and plan for a panel that publishes internal services through
+a Cloudflare Tunnel. The three questions that would have changed the shape of
+it are answered in §28.10.
 
 ## 28.1 What this is, and why it is not obvious
 
@@ -55,7 +57,7 @@ not resolve. **Both writes must succeed or neither must stick.**
 |---|---|
 | The PUT **replaces the entire ingress array**. There is no "add one rule". | Every change is read-modify-write over the whole routing table. A stale read silently deletes other people's rules. |
 | The **last rule must be a catch-all** with no hostname, conventionally `service: http_status:404`. Rules match top-down, first match wins. | The portal must always re-emit the catch-all last, and must never let a rule sort after it, or every unmatched request breaks. |
-| Only **remotely-managed** tunnels (`config_src: "cloudflare"`) can be configured by API. A locally-managed tunnel reads `config.yml` on the host and ignores the API entirely. | **If the existing tunnel is locally-managed, none of this works on it.** See §28.9. |
+| Only **remotely-managed** tunnels (`config_src: "cloudflare"`) can be configured by API. A locally-managed tunnel reads `config.yml` on the host and ignores the API entirely. | **If the existing tunnel is locally-managed, none of this works on it.** Confirmed remotely-managed here (§28.10), so this is a check the portal must make for other people's tunnels rather than a live problem. |
 
 **API token scopes required:** `Cloudflare Tunnel: Edit` (or
 `Cloudflare One Connectors Write`) at account level, and `DNS: Edit` on the
@@ -240,28 +242,28 @@ the reuse without the contortion. The `depguard` rules need a matching entry:
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| **The existing tunnel is locally-managed.** Then the API cannot configure it at all, and the feature requires migrating to a remotely-managed tunnel — which means moving config out of `config.yml` and re-pointing every existing app. | **Blocking** | Establish this before any code is written. §28.10 Q1. |
-| **The portal publishes itself through this tunnel.** A bad write takes the portal offline, and the portal is the tool you would use to fix it. | **High** | PUB-33 self-protection, PUB-34 snapshot and revert, and a documented `cloudflared`-side recovery that does not need the portal. |
+| **The portal publishes itself through this tunnel** — confirmed, §28.10. A bad write takes the portal offline, and the portal is the tool you would use to fix it. | **High** | PUB-33 self-protection, PUB-34 snapshot and revert, and a documented `cloudflared`-side recovery that does not need the portal. |
 | Concurrent edits in the Cloudflare dashboard are silently reverted by a stale read-modify-write. | High | PUB-31 conflict detection; refuse rather than merge. |
 | Half-published app after a partial failure. | Medium | PUB-22 rollback; reconciliation detects and reports the inconsistent state. |
 | Exposing an internal service unintentionally. | High | PUB-40 admin-only, PUB-43 explicit acknowledgement, full audit. |
 | Scope: the portal becomes an edge-configuration tool as well as a VM portal. | Medium | Accepted deliberately, recorded in an ADR — this is a real widening of what ProxUI is. |
 | Cloudflare API changes. | Low | Single client package, contract tests against a fake. |
 
-## 28.10 Questions that change the plan
+## 28.10 Decisions
 
-1. **Is the existing tunnel remotely-managed (`config_src: cloudflare`) or
-   locally-managed (`config.yml`)?** If local, the whole feature is blocked
-   until the tunnel is migrated, and that migration is the first sprint rather
-   than an afterthought. Check with
-   `GET /accounts/{account_id}/cfd_tunnel` and read `config_src`.
-2. **Is this portal published through the same tunnel?** If so PUB-33 is a
-   must and ships in the first cut, not later.
-3. **Should publishing require a Cloudflare Access policy**, or is
-   acknowledging the exposure enough? The former is materially more work and
-   materially safer.
-4. **Which zones may the portal write to?** The blast radius of `DNS: Edit` is
-   the whole zone.
+Answered by the stakeholder on 2026-08-15, before any code was written.
+
+| Question | Answer | Consequence |
+|---|---|---|
+| Is the tunnel remotely or locally managed? | **Remotely-managed** (`config_src: cloudflare`) | The API can configure it. The blocking risk in §28.9 does not apply; the plan starts at P1 with no migration sprint. |
+| Is this portal published through that same tunnel? | **Yes** | **PUB-33 ships in the first cut, not later.** The portal must refuse to delete, disable or reorder the rule that serves it, and P6's recovery procedure — restoring ingress without the portal — is promoted to P3 alongside the snapshots. |
+| Access policy required, or acknowledgement? | **Warn and acknowledge** (PUB-43 as written) | Access application *management* stays out of scope (§28.7). The portal detects whether a hostname is covered by an existing Access application and shows it, and publishing without one needs an explicit acknowledgement. |
+
+Still open, but configuration rather than design:
+
+- **Which DNS zones may the portal write to** (PUB-04). `DNS: Edit` reaches a
+  whole zone, so this list is the real write boundary. Decide it when the
+  credential is registered, not now.
 
 ## 28.11 Sprint plan
 
@@ -273,7 +275,7 @@ proves the model is right.
 | **P0 — spike** | Confirm `config_src`, token scopes, conflict semantics of the configurations PUT, and whether Cloudflare returns a usable version for optimistic concurrency. No production code. | The answers to §28.10 are facts, not assumptions. An ADR records the scope widening. |
 | **P1 — provider + credential** | `edge_providers`, envelope-encrypted token, connection test naming missing scopes, tunnel listing with `config_src`. Read-only. | An admin can register an account and see their tunnels; a locally-managed tunnel is refused with a reason. |
 | **P2 — read the world** | Ingress reflection, external-rule marking, tunnel health, sync runs with the existing breaker. Still no writes. | The panel shows the true current state of a real tunnel, including rules the portal did not create. |
-| **P3 — safety rails first** | Snapshots, diff/preview, conflict detection, catch-all and self-protection invariants — all with unit tests, all before anything can write. | The invariants are enforceable and tested against a fake Cloudflare. |
+| **P3 — safety rails first** | Snapshots, diff/preview, conflict detection, catch-all and self-protection invariants — all with unit tests, all before anything can write. Includes the out-of-band recovery procedure, since §28.10 confirms the portal rides the tunnel it edits. | The invariants are enforceable and tested against a fake Cloudflare, and there is a written way to restore ingress with the portal down. |
 | **P4 — publish** | Create, edit, disable, unpublish; ingress + DNS with rollback; full audit. | An app on a VM chosen from inventory is reachable at its hostname, and unpublishing removes both records. |
 | **P5 — UI** | The panel: list, publish from inventory, preview diff, revert, exposure acknowledgement. | An admin does the whole flow in the browser without reading this document. |
 | **P6 — drift and docs** | Drift detection, orphaned-app handling, runbook entry, recovery procedure that does not need the portal. | A rule changed in the Cloudflare dashboard is reported rather than clobbered. |

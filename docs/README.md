@@ -54,6 +54,7 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | 25 | [Security Checklist](25-security-checklist.md) | ASVS L2 pass with evidence, including what is not met |
 | 26 | [Google Sign-in Setup](26-google-sign-in.md) | creating the OAuth client, and the address rules Google enforces |
 | 27 | [Adding a Platform](27-adding-a-platform.md) | the Proxmox token and privileges every feature needs, end to end |
+| 28 | [Published Apps](28-published-apps.md) | **proposal** — managing Cloudflare Tunnel hostnames from the portal |
 
 ## How to read this package
 

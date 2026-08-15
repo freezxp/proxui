@@ -105,7 +105,13 @@ type healthResponseBody struct {
 	Authenticated bool               `json:"authenticated"`
 	MissingScopes []scopeGapResponse `json:"missing_scopes"`
 	Tunnels       []tunnelResponse   `json:"tunnels"`
+	Zones         []zoneResponse     `json:"zones"`
 	Warnings      []string           `json:"warnings"`
+}
+
+type zoneResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type scopeGapResponse struct {
@@ -118,7 +124,11 @@ func toHealthResponse(h edge.Health) healthResponseBody {
 		Reachable: h.Reachable, Authenticated: h.Authenticated,
 		MissingScopes: make([]scopeGapResponse, 0, len(h.MissingScopes)),
 		Tunnels:       toTunnelResponses(h.Tunnels),
+		Zones:         make([]zoneResponse, 0, len(h.Zones)),
 		Warnings:      h.Warnings,
+	}
+	for _, z := range h.Zones {
+		out.Zones = append(out.Zones, zoneResponse{ID: z.ID, Name: z.Name})
 	}
 	for _, g := range h.MissingScopes {
 		out.MissingScopes = append(out.MissingScopes, scopeGapResponse{Scope: g.Scope, Blocks: g.Blocks})

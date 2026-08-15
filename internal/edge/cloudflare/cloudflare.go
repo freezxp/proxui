@@ -167,15 +167,20 @@ func (p *Provider) Verify(ctx context.Context) (edge.Health, error) {
 	}
 
 	// 3. Can it write DNS? Publishing needs a CNAME as well as a rule, and
-	// discovering that at publish time means a half-published app.
-	if err := p.get(ctx, "/zones?per_page=1", nil); err != nil {
-		if !isClass(err, edge.ErrPermission, edge.ErrAuth) {
-			return health, err
-		}
+	// discovering that at publish time means a half-published app. The zones
+	// are kept, not just counted: the administrator picks the write boundary
+	// from them while registering.
+	zones, err := p.Zones(ctx)
+	switch {
+	case err == nil:
+		health.Zones = zones
+	case isClass(err, edge.ErrPermission, edge.ErrAuth):
 		health.MissingScopes = append(health.MissingScopes, edge.ScopeGap{
 			Scope:  "DNS: Edit (zone)",
 			Blocks: "creating the DNS record a published hostname needs; ingress rules alone leave the name unresolvable",
 		})
+	default:
+		return health, err
 	}
 
 	// 4. Say something useful about what was found, since a token with every

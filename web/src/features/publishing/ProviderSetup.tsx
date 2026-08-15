@@ -17,6 +17,7 @@ export function ProviderSetup({ onDone }: { onDone: () => void }) {
   const [token, setToken] = useState('')
   const [health, setHealth] = useState<EdgeHealth | null>(null)
   const [tunnelID, setTunnelID] = useState('')
+  const [zoneIDs, setZoneIDs] = useState<string[]>([])
   const [error, setError] = useState('')
 
   const test = useMutation({
@@ -41,6 +42,7 @@ export function ProviderSetup({ onDone }: { onDone: () => void }) {
         token,
         tunnel_id: tunnelID,
         tunnel_name: tunnel?.name ?? '',
+        allowed_zone_ids: zoneIDs,
       })
     },
     onSuccess: onDone,
@@ -156,13 +158,46 @@ export function ProviderSetup({ onDone }: { onDone: () => void }) {
             <UnusableTunnel key={t.id} tunnel={t} />
           ))}
 
+          {health.zones.length > 0 && (
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Zones this provider may write to</legend>
+              <p className="text-xs text-muted">
+                DNS permission reaches a whole zone, so this list is the real boundary. Nothing can
+                be published to a zone that is not ticked, even though the token could reach it.
+              </p>
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+                {health.zones.map((zone) => (
+                  <label key={zone.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={zoneIDs.includes(zone.id)}
+                      onChange={(e) =>
+                        setZoneIDs((current) =>
+                          e.target.checked
+                            ? [...current, zone.id]
+                            : current.filter((id) => id !== zone.id),
+                        )
+                      }
+                    />
+                    {zone.name}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
           <button
             onClick={() => save.mutate()}
-            disabled={!tunnelID || save.isPending}
+            disabled={!tunnelID || zoneIDs.length === 0 || save.isPending}
             className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
             {save.isPending ? 'Saving…' : 'Save'}
           </button>
+          {tunnelID && zoneIDs.length === 0 && (
+            <p className="text-xs text-muted">
+              Tick at least one zone. A provider with none fails closed on every publish.
+            </p>
+          )}
         </div>
       )}
     </div>

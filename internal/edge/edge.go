@@ -132,7 +132,12 @@ type Health struct {
 	// so the report says what stops working rather than only what is absent.
 	MissingScopes []ScopeGap
 	Tunnels       []Tunnel
-	Warnings      []string
+	// Zones the credential can see. Returned by the connection test so an
+	// administrator can choose the write boundary at the moment they register
+	// the provider — deciding it later means a provider that fails closed on
+	// every publish with no way to fix it from the same screen.
+	Zones    []Zone
+	Warnings []string
 }
 
 // ScopeGap is one missing permission and its consequence.

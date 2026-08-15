@@ -392,11 +392,18 @@ export interface ScopeGap {
   blocks: string
 }
 
+export interface EdgeZone {
+  id: string
+  name: string
+}
+
 export interface EdgeHealth {
   reachable: boolean
   authenticated: boolean
   missing_scopes: ScopeGap[]
   tunnels: EdgeTunnel[]
+  /** Zones the credential can see; the write boundary is chosen from these. */
+  zones: EdgeZone[]
   warnings: string[]
 }
 

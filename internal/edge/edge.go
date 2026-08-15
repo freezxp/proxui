@@ -107,6 +107,23 @@ type Config struct {
 	Origin map[string]any
 }
 
+// Zone is a DNS zone the credential can work with.
+type Zone struct {
+	ID   string
+	Name string
+}
+
+// DNSRecord is a record in a zone. Enough of one to tell a record the portal
+// created from one somebody else made on the same name, which is what stops
+// an unpublish deleting the wrong thing.
+type DNSRecord struct {
+	ID      string
+	Name    string
+	Type    string
+	Content string
+	Proxied bool
+}
+
 // Health is what a connection test found.
 type Health struct {
 	Reachable     bool

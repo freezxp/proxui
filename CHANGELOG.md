@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Publishing an app through a Cloudflare Tunnel** (docs/28 P4). Creates the
+  routing rule and the DNS record together, and rolls the rule back if the DNS
+  write fails — ingress first, because a rule with no DNS record is invisible
+  while a DNS record with no rule serves error 1033 to everyone. Unpublishing
+  removes only the DNS record the portal created. Every write goes through the
+  P3 rails: fresh read, staleness check, whole-table validation, snapshot.
 - **Safety rails for edge changes, before anything can write** (docs/28 P3).
   `POST /{id}/snapshot` stores the current routing table verbatim, and
   `POST /{id}/preview` says exactly what a proposed table would add, remove,

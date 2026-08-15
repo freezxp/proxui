@@ -6,6 +6,7 @@
 package cloudflare
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -290,20 +291,36 @@ func (p *Provider) Ingress(ctx context.Context, tunnelID string) (edge.Config, e
 // --- transport ------------------------------------------------------------
 
 func (p *Provider) get(ctx context.Context, path string, out any) error {
+	return p.do(ctx, http.MethodGet, path, nil, out)
+}
+
+func (p *Provider) do(ctx context.Context, method, path string, body, out any) error {
 	if err := p.limiter.Wait(ctx); err != nil {
-		return edge.Wrap(edge.ErrUnreachable, opOf(path), err)
+		return edge.Wrap(edge.ErrUnreachable, opOf(method, path), err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+path, nil)
+	var payload io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return edge.Wrap(edge.ErrInvalidConfig, opOf(method, path), err)
+		}
+		payload = bytes.NewReader(encoded)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, p.baseURL+path, payload)
 	if err != nil {
-		return edge.Wrap(edge.ErrInvalidConfig, opOf(path), err)
+		return edge.Wrap(edge.ErrInvalidConfig, opOf(method, path), err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Authorization", "Bearer "+p.token)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := p.http.Do(req)
 	if err != nil {
-		return edge.Wrap(edge.ErrUnreachable, opOf(path), err)
+		return edge.Wrap(edge.ErrUnreachable, opOf(method, path), err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
@@ -313,17 +330,17 @@ func (p *Provider) get(ctx context.Context, path string, out any) error {
 	var env envelope
 	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&env)
 
-	if err := classify(path, resp.StatusCode, env); err != nil {
+	if err := classify(method, path, resp.StatusCode, env); err != nil {
 		return err
 	}
 	if decodeErr != nil {
-		return edge.Wrap(edge.ErrRefused, opOf(path), fmt.Errorf("decode response: %w", decodeErr))
+		return edge.Wrap(edge.ErrRefused, opOf(method, path), fmt.Errorf("decode response: %w", decodeErr))
 	}
 	if out == nil || len(env.Result) == 0 || string(env.Result) == "null" {
 		return nil
 	}
 	if err := json.Unmarshal(env.Result, out); err != nil {
-		return edge.Wrap(edge.ErrRefused, opOf(path), fmt.Errorf("decode result: %w", err))
+		return edge.Wrap(edge.ErrRefused, opOf(method, path), fmt.Errorf("decode result: %w", err))
 	}
 	return nil
 }
@@ -335,8 +352,8 @@ func (p *Provider) get(ctx context.Context, path string, out any) error {
 // means Cloudflare answered — the same distinction internal/connector had to
 // learn after a Proxmox 500 spent a release being reported as an unreachable
 // cluster.
-func classify(path string, status int, env envelope) error {
-	op := opOf(path)
+func classify(method, path string, status int, env envelope) error {
+	op := opOf(method, path)
 	reason := describe(env.Errors)
 
 	switch {
@@ -396,14 +413,29 @@ func collectMessages(errs []apiError) []string {
 	return parts
 }
 
-// opOf turns a path into a short label for errors and metrics, without
-// leaking account or tunnel ids into label cardinality.
-func opOf(path string) string {
+// opOf turns a method and path into a short label for errors and metrics,
+// without leaking account or tunnel ids into label cardinality.
+//
+// The method is part of it because reading and writing a routing table use the
+// same path, and an error labelled "get_ingress" for a failed PUT sends whoever
+// reads it looking in the wrong direction.
+func opOf(method, path string) string {
 	switch {
 	case strings.Contains(path, "/configurations"):
+		if method == http.MethodPut {
+			return "put_ingress"
+		}
 		return "get_ingress"
 	case strings.Contains(path, "/cfd_tunnel"):
 		return "list_tunnels"
+	case strings.Contains(path, "/dns_records"):
+		switch method {
+		case http.MethodPost:
+			return "create_dns"
+		case http.MethodDelete:
+			return "delete_dns"
+		}
+		return "find_dns"
 	case strings.HasPrefix(path, "/zones"):
 		return "list_zones"
 	case strings.HasPrefix(path, "/user/tokens"):

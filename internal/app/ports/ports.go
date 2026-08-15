@@ -608,3 +608,15 @@ type EdgeProviderRepository interface {
 		version int, ingress []byte, takenBy *uuid.UUID) error
 	LatestSnapshot(ctx context.Context, providerID uuid.UUID, tunnelID string) (EdgeSnapshot, error)
 }
+
+// PublishedAppRepository persists the apps the portal has published.
+//
+// The live routing rule and DNS record belong to the provider; this records
+// only what the portal decided and what it needs in order to undo it.
+type PublishedAppRepository interface {
+	Create(ctx context.Context, app *publish.App) error
+	Get(ctx context.Context, id uuid.UUID) (*publish.App, error)
+	ListByProvider(ctx context.Context, providerID uuid.UUID) ([]*publish.App, error)
+	Update(ctx context.Context, app *publish.App) error
+	Delete(ctx context.Context, id uuid.UUID, at time.Time) error
+}

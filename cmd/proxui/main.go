@@ -180,6 +180,18 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		return cloudflare.New(edge.Credentials{Token: cred.Secret, AccountID: p.AccountID}, edge.Options{})
 	}
 
+	publishedApps := postgres.NewPublishedAppRepository(pool)
+
+	publishDeps := command.PublishDeps{
+		Providers: edgeProviders,
+		Apps:      publishedApps,
+		Factory: func(ctx context.Context, providerID uuid.UUID) (command.EdgeWriter, error) {
+			return edgeReaderFactory(ctx, providerID)
+		},
+		Audit: audit, Clock: clock,
+		SelfHostname: cfg.PublicHostname,
+	}
+
 	edgeSafety := command.EdgeSafetyDeps{
 		Providers: edgeProviders,
 		Factory: func(ctx context.Context, providerID uuid.UUID) (command.EdgeIngressReader, error) {
@@ -359,6 +371,11 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 					},
 				},
 				Repo: edgeProviders,
+			},
+			Publishing: httpapi.PublishDeps{
+				Publish:   &command.PublishApp{PublishDeps: publishDeps},
+				Unpublish: &command.UnpublishApp{PublishDeps: publishDeps},
+				Apps:      publishedApps,
 			},
 			Power: httpapi.PowerDeps{
 				Power: &command.Power{

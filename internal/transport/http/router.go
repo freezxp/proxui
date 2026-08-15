@@ -45,17 +45,18 @@ type PasswordChanger interface {
 
 // ServerConfig is the constructor input for Server.
 type ServerConfig struct {
-	Log       zerolog.Logger
-	Version   string
-	Readiness *Readiness
-	Auth      AuthDeps
-	Admin     AdminDeps
-	Platforms PlatformDeps
-	Metrics   MetricsDeps
-	Inventory InventoryDeps
-	Console   ConsoleDeps
-	Power     PowerDeps
-	Edge      EdgeDeps
+	Log        zerolog.Logger
+	Version    string
+	Readiness  *Readiness
+	Auth       AuthDeps
+	Admin      AdminDeps
+	Platforms  PlatformDeps
+	Metrics    MetricsDeps
+	Inventory  InventoryDeps
+	Console    ConsoleDeps
+	Power      PowerDeps
+	Edge       EdgeDeps
+	Publishing PublishDeps
 
 	// Events streams live updates; nil disables the endpoint.
 	Events EventStreamer
@@ -104,6 +105,7 @@ type Server struct {
 	console       ConsoleDeps
 	power         PowerDeps
 	edge          EdgeDeps
+	publishing    PublishDeps
 	notify        NotifyDeps
 	alerts        AlertDeps
 	settings      SettingsDeps
@@ -137,6 +139,7 @@ func NewServer(cfg ServerConfig) *Server {
 		console:       cfg.Console,
 		power:         cfg.Power,
 		edge:          cfg.Edge,
+		publishing:    cfg.Publishing,
 		notify:        cfg.Notify,
 		alerts:        cfg.Alerts,
 		settings:      cfg.Settings,
@@ -273,8 +276,13 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/{providerID}/ingress", s.handleGetEdgeIngress)
 				r.Post("/{providerID}/snapshot", s.handleSnapshotEdgeIngress)
 				r.Post("/{providerID}/preview", s.handlePreviewEdgeIngress)
+				r.Get("/{providerID}/apps", s.handleListPublishedApps)
+				r.Post("/{providerID}/apps", s.handlePublishApp)
 				r.Delete("/{providerID}", s.handleDeleteEdgeProvider)
 			})
+
+			r.With(RequireRole(identity.RoleAdmin)).
+				Delete("/published-apps/{appID}", s.handleUnpublishApp)
 
 			r.With(RequireRole(identity.RoleAdmin)).Get("/connectors", s.handleListConnectors)
 

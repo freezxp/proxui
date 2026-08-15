@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -412,5 +413,222 @@ func TestForbiddenStaysAPermissionProblem(t *testing.T) {
 	_, err := f.provider(t).Tunnels(context.Background())
 	if !errors.Is(err, edge.ErrPermission) {
 		t.Fatalf("got %v, want ErrPermission", err)
+	}
+}
+
+// --- write path ----------------------------------------------------------
+
+// recordingCF captures what was sent, so a test can assert on the request body
+// rather than only on the response handling.
+type recordingCF struct {
+	*fakeCF
+	method string
+	body   string
+}
+
+func newRecordingCF(t *testing.T, prefix string, status int, result string) *recordingCF {
+	t.Helper()
+	f := newFakeCF(t)
+	rec := &recordingCF{fakeCF: f}
+	f.handlers[prefix] = func() (int, string) {
+		return status, `{"success":true,"errors":[],"result":` + result + `}`
+	}
+	// Wrap the server so the request body is captured too.
+	f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.method = r.Method
+		if b, err := io.ReadAll(r.Body); err == nil {
+			rec.body = string(b)
+		}
+		if strings.HasPrefix(r.URL.Path, prefix) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":` + result + `}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"success":false,"errors":[{"code":7003,"message":"no route"}]}`))
+	})
+	return rec
+}
+
+// Settings the portal does not understand must be written back exactly as they
+// were read, or a rewrite silently breaks apps the portal did not create.
+func TestReplaceIngressPreservesUnknownSettings(t *testing.T) {
+	rec := newRecordingCF(t, "/accounts/acct/cfd_tunnel/t1/configurations", http.StatusOK, `{}`)
+
+	err := rec.provider(t).ReplaceIngress(context.Background(), "t1", edge.Config{
+		Rules: []edge.Rule{
+			{Hostname: "app.example.com", Service: "http://10.0.0.9:80",
+				Origin: map[string]any{"noTLSVerify": true, "http2Origin": true}},
+			{Service: "http_status:404"},
+		},
+		Origin: map[string]any{"connectTimeout": 30},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceIngress() error = %v", err)
+	}
+	if rec.method != http.MethodPut {
+		t.Errorf("method = %s, want PUT", rec.method)
+	}
+	for _, want := range []string{"noTLSVerify", "http2Origin", "connectTimeout", "http_status:404"} {
+		if !strings.Contains(rec.body, want) {
+			t.Errorf("request body dropped %q: %s", want, rec.body)
+		}
+	}
+	// The catch-all carries no hostname, and sending an empty one would make
+	// Cloudflare treat it as a hostname rule that matches nothing.
+	if strings.Contains(rec.body, `"hostname":""`) {
+		t.Errorf("an empty hostname was sent: %s", rec.body)
+	}
+}
+
+// An empty table would mean the tunnel serves nothing. Refused here so the
+// error names the cause rather than echoing Cloudflare's 400.
+func TestReplaceIngressRefusesAnEmptyTable(t *testing.T) {
+	f := newFakeCF(t)
+	err := f.provider(t).ReplaceIngress(context.Background(), "t1", edge.Config{})
+	if !errors.Is(err, edge.ErrInvalidConfig) {
+		t.Errorf("got %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestReplaceIngressNeedsATunnelID(t *testing.T) {
+	f := newFakeCF(t)
+	err := f.provider(t).ReplaceIngress(context.Background(), "  ", edge.Config{
+		Rules: []edge.Rule{{Service: "http_status:404"}},
+	})
+	if !errors.Is(err, edge.ErrInvalidConfig) {
+		t.Errorf("got %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestCreateTunnelDNSPointsAtTheTunnelAndIsProxied(t *testing.T) {
+	rec := newRecordingCF(t, "/zones/z1/dns_records", http.StatusOK,
+		`{"id":"rec1","name":"app.example.com","type":"CNAME","content":"t1.cfargotunnel.com","proxied":true}`)
+
+	got, err := rec.provider(t).CreateTunnelDNS(context.Background(), "z1", "app.example.com", "t1")
+	if err != nil {
+		t.Fatalf("CreateTunnelDNS() error = %v", err)
+	}
+	if got.ID != "rec1" || got.Content != "t1.cfargotunnel.com" {
+		t.Errorf("record = %+v", got)
+	}
+	if !strings.Contains(rec.body, `"content":"t1.cfargotunnel.com"`) {
+		t.Errorf("body did not point at the tunnel: %s", rec.body)
+	}
+	// Unproxied would publish the cfargotunnel address directly and the tunnel
+	// would never be used, which looks like a DNS problem and is not.
+	if !strings.Contains(rec.body, `"proxied":true`) {
+		t.Errorf("the record was not proxied: %s", rec.body)
+	}
+}
+
+func TestFindDNSRecordReportsAbsence(t *testing.T) {
+	f := newFakeCF(t)
+	f.ok("/zones/z1/dns_records", `[]`)
+
+	_, found, err := f.provider(t).FindDNSRecord(context.Background(), "z1", "app.example.com")
+	if err != nil {
+		t.Fatalf("FindDNSRecord() error = %v", err)
+	}
+	if found {
+		t.Error("an empty result reported a record")
+	}
+}
+
+func TestFindDNSRecordReturnsWhatIsThere(t *testing.T) {
+	f := newFakeCF(t)
+	f.ok("/zones/z1/dns_records",
+		`[{"id":"rec9","name":"app.example.com","type":"CNAME","content":"elsewhere.example.com","proxied":false}]`)
+
+	got, found, err := f.provider(t).FindDNSRecord(context.Background(), "z1", "app.example.com")
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	// Enough detail to tell "somebody else's record" from "ours", which is
+	// what stops the portal deleting a CNAME it did not create.
+	if got.ID != "rec9" || got.Content != "elsewhere.example.com" || got.Proxied {
+		t.Errorf("record = %+v", got)
+	}
+}
+
+func TestDeleteDNSRecordValidatesItsArguments(t *testing.T) {
+	f := newFakeCF(t)
+	p := f.provider(t)
+	for _, c := range [][2]string{{"", "rec1"}, {"z1", ""}, {" ", " "}} {
+		if err := p.DeleteDNSRecord(context.Background(), c[0], c[1]); !errors.Is(err, edge.ErrInvalidConfig) {
+			t.Errorf("DeleteDNSRecord(%q,%q) = %v, want ErrInvalidConfig", c[0], c[1], err)
+		}
+	}
+}
+
+func TestZonesAreSortedAndComplete(t *testing.T) {
+	f := newFakeCF(t)
+	f.ok("/zones", `[{"id":"z2","name":"b.example"},{"id":"z1","name":"a.example"}]`)
+
+	got, err := f.provider(t).Zones(context.Background())
+	if err != nil {
+		t.Fatalf("Zones() error = %v", err)
+	}
+	if len(got) != 2 || got[0].Name != "a.example" {
+		t.Errorf("zones = %+v, want sorted by name", got)
+	}
+}
+
+// A write refused for want of a permission has to say so as a permission
+// problem: the fix is a token scope, not a retry.
+func TestAWriteRefusedForPermissionIsClassifiedAsSuch(t *testing.T) {
+	f := newFakeCF(t)
+	f.fail("/accounts/acct/cfd_tunnel/t1/configurations", http.StatusForbidden, 10000, "Authentication error")
+
+	err := f.provider(t).ReplaceIngress(context.Background(), "t1", edge.Config{
+		Rules: []edge.Rule{{Service: "http_status:404"}},
+	})
+	if !errors.Is(err, edge.ErrPermission) {
+		t.Fatalf("got %v, want ErrPermission", err)
+	}
+	if edge.Retryable(err) {
+		t.Error("a permission failure was marked retryable")
+	}
+}
+
+// Reading and writing a routing table use the same path, so the label has to
+// come from the method too — an error saying "get_ingress" for a failed PUT
+// sends whoever reads it looking in the wrong direction.
+func TestTheOperationLabelDistinguishesReadsFromWrites(t *testing.T) {
+	cases := []struct {
+		method, path, want string
+	}{
+		{http.MethodGet, "/accounts/a/cfd_tunnel/t1/configurations", "get_ingress"},
+		{http.MethodPut, "/accounts/a/cfd_tunnel/t1/configurations", "put_ingress"},
+		{http.MethodGet, "/zones/z1/dns_records?name=x", "find_dns"},
+		{http.MethodPost, "/zones/z1/dns_records", "create_dns"},
+		{http.MethodDelete, "/zones/z1/dns_records/rec1", "delete_dns"},
+		{http.MethodGet, "/accounts/a/cfd_tunnel", "list_tunnels"},
+		{http.MethodGet, "/user/tokens/verify", "verify_token"},
+	}
+	for _, c := range cases {
+		if got := opOf(c.method, c.path); got != c.want {
+			t.Errorf("opOf(%s %s) = %q, want %q", c.method, c.path, got, c.want)
+		}
+	}
+}
+
+// The live account produced exactly this: a token that reads perfectly well,
+// refused on a write with 401 "Not authorized" rather than 403.
+func TestAWriteRefusedWith401IsStillAnAuthClass(t *testing.T) {
+	f := newFakeCF(t)
+	f.fail("/accounts/acct/cfd_tunnel/t1/configurations", http.StatusUnauthorized, 1001, "Not authorized")
+
+	err := f.provider(t).ReplaceIngress(context.Background(), "t1", edge.Config{
+		Rules: []edge.Rule{{Service: "http_status:404"}},
+	})
+	if !errors.Is(err, edge.ErrAuth) {
+		t.Fatalf("got %v, want ErrAuth", err)
+	}
+	// The label must say it was a write, which is what makes the message
+	// actionable at the transport layer.
+	if !strings.Contains(err.Error(), "put_ingress") {
+		t.Errorf("error = %q, want it labelled as a write", err)
 	}
 }

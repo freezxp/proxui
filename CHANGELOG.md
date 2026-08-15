@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A Published apps panel** (docs/28 P5), admin only. Connect a Cloudflare
+  account, see the tunnel's live routing table with each rule joined to the VM
+  behind it, and publish a service by picking a VM and a port. Rules the portal
+  did not create are marked and read-only; the rule serving the portal is
+  labelled; a rule pointing at an address no VM holds is flagged.
 - **Publishing an app through a Cloudflare Tunnel** (docs/28 P4). Creates the
   routing rule and the DNS record together, and rolls the rule back if the DNS
   write fails — ingress first, because a rule with no DNS record is invisible

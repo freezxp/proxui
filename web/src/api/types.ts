@@ -355,3 +355,121 @@ export interface Setting {
   options?: { value: string; label: string }[]
   modified: boolean
 }
+
+// --- edge providers and published apps (docs/28) -------------------------
+
+export interface EdgeProvider {
+  id: string
+  name: string
+  kind: string
+  account_id: string
+  tunnel_id: string
+  tunnel_name: string
+  allowed_zone_ids: string[]
+  is_enabled: boolean
+  /** A credential that works but has no tunnel chosen is a real state. */
+  ready: boolean
+  health: 'unknown' | 'healthy' | 'degraded' | 'unreachable'
+  health_detail: string
+  last_seen_at: string | null
+  created_at: string
+}
+
+export interface EdgeTunnel {
+  id: string
+  name: string
+  remotely_managed: boolean
+  connections: number
+  /** False for a locally-managed or deleted tunnel: the API cannot change it. */
+  manageable: boolean
+  active: boolean
+  /** Why a tunnel is unusable, or why it is idle. */
+  reason?: string
+}
+
+export interface ScopeGap {
+  scope: string
+  blocks: string
+}
+
+export interface EdgeHealth {
+  reachable: boolean
+  authenticated: boolean
+  missing_scopes: ScopeGap[]
+  tunnels: EdgeTunnel[]
+  warnings: string[]
+}
+
+export type RuleOrigin = 'portal' | 'external' | 'catch_all'
+
+export interface IngressRule {
+  index: number
+  hostname: string
+  path?: string
+  service: string
+  origin: RuleOrigin
+  /** Serves this portal; nothing may remove or shadow it. */
+  is_portal: boolean
+  is_catch_all: boolean
+  /** Points at an address no known VM holds — a VM that moved or was deleted. */
+  unmatched: boolean
+  target_host?: string
+  target_port?: number
+  vm?: { id: string; name: string; state: VMState }
+}
+
+export interface IngressView {
+  provider_id: string
+  tunnel_id: string
+  tunnel_name: string
+  /** Carried into a write so a concurrent change is refused, not clobbered. */
+  version: number
+  rules: IngressRule[]
+  portal_owned: number
+  external: number
+  unmatched: number
+}
+
+export type PreviewChange = 'added' | 'removed' | 'modified' | 'moved' | 'unchanged'
+
+export interface PreviewEntry {
+  change: PreviewChange
+  hostname: string
+  path?: string
+  before?: string
+  after?: string
+  from_index: number
+  to_index: number
+}
+
+export interface PreviewResult {
+  safe: boolean
+  refusal?: string
+  stale: boolean
+  stale_detail?: string
+  current_version: number
+  changes: boolean
+  added: number
+  removed: number
+  modified: number
+  moved: number
+  unchanged: number
+  entries: PreviewEntry[]
+}
+
+export interface PublishedApp {
+  id: string
+  provider_id: string
+  hostname: string
+  path?: string
+  service_url: string
+  vm_id?: string
+  vm_port?: number
+  is_enabled: boolean
+  /** False for a DNS record the portal adopted rather than created. */
+  manages_dns: boolean
+  url: string
+  last_applied_at?: string
+  last_error?: string
+  created_at: string
+}

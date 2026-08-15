@@ -9,6 +9,7 @@ import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { VMListPage } from '@/features/inventory/VMListPage'
 import { VMDetailPage } from '@/features/inventory/VMDetailPage'
 import { PlatformsPage } from '@/features/platforms/PlatformsPage'
+import { PublishingPage } from '@/features/publishing/PublishingPage'
 import { UsersPage } from '@/features/admin/UsersPage'
 import { AuditPage } from '@/features/audit/AuditPage'
 import { SettingsPage } from '@/features/admin/SettingsPage'
@@ -54,6 +55,7 @@ const router = createBrowserRouter([
       { path: 'networks', element: <NetworksPage /> },
       { path: 'notifications', element: <NotificationsPage /> },
       { path: 'platforms', element: <PlatformsPage /> },
+      { path: 'publishing', element: <PublishingPage /> },
       { path: 'users', element: <UsersPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: '*', element: <Navigate to="/" replace /> },

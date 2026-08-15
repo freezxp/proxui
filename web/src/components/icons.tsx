@@ -115,6 +115,16 @@ export const IconSettings: Icon = (props) => (
   </Glyph>
 )
 
+export const IconPublishing: Icon = (props) => (
+  <Glyph {...props}>
+    {/* A globe with a link through it: something private, reachable from
+        outside. */}
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3.5 9h17M3.5 15h17" />
+    <path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" />
+  </Glyph>
+)
+
 /** The sidebar's collapse control. Rotated 180° to point the other way. */
 export const IconChevronLeft: Icon = (props) => (
   <Glyph {...props}>

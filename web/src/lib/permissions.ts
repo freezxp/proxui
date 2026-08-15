@@ -22,6 +22,12 @@ export const can = {
   editAnnotations: (role: Role) => role === 'admin' || role === 'operator',
   viewAudit: (role: Role) => role === 'admin' || role === 'auditor',
   managePlatforms: (role: Role) => role === 'admin',
+  /**
+   * Publishing puts a service on the public internet, which is a statement
+   * about the network's boundary rather than about one machine. An operator's
+   * grant over a VM must not imply it (ADR 0004, PUB-40).
+   */
+  publishApps: (role: Role) => role === 'admin',
   manageUsers: (role: Role) => role === 'admin',
   viewConsoleSessions: (role: Role) => role === 'admin',
 }

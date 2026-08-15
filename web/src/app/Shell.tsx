@@ -14,6 +14,7 @@ import {
   IconNetworks,
   IconNotifications,
   IconPlatforms,
+  IconPublishing,
   IconSettings,
   IconStorage,
   IconUsers,
@@ -38,6 +39,7 @@ const NAV: NavItem[] = [
   { to: '/networks', label: 'Networks', icon: IconNetworks, visible: can.viewInfrastructure },
   { to: '/audit', label: 'Audit log', icon: IconAudit, visible: can.viewAudit },
   { to: '/platforms', label: 'Platforms', icon: IconPlatforms, visible: can.managePlatforms },
+  { to: '/publishing', label: 'Published apps', icon: IconPublishing, visible: can.publishApps },
   {
     to: '/notifications',
     label: 'Notifications',

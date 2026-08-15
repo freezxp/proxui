@@ -153,3 +153,36 @@ func TestDescribeFlagsNoPortalRuleWhenNotPublishedHere(t *testing.T) {
 		}
 	}
 }
+
+// A rule the portal published must be recognised as its own. Getting this
+// wrong shows it as external, which means read-only, which means published
+// through the panel and unremovable from it.
+func TestDescribeRecognisesWhatThePortalPublished(t *testing.T) {
+	rules := []Rule{
+		{Hostname: "vm.example.com", Service: "http://10.0.13.10:8080"},
+		{Hostname: "mine.example.com", Service: "http://10.0.13.9:8080"},
+		{Hostname: "mine.example.com", Path: "/v1", Service: "http://10.0.13.9:9000"},
+		{Hostname: "theirs.example.com", Service: "http://10.0.13.7:80"},
+		CatchAll(),
+	}
+	app := &App{Hostname: "mine.example.com"}
+	withPath := &App{Hostname: "mine.example.com", Path: "/v1"}
+	owned := map[string]bool{app.RouteKey(): true, withPath.RouteKey(): true}
+
+	got := Describe(rules, nil, "vm.example.com", owned)
+
+	if got[1].Origin != OriginPortal {
+		t.Errorf("rule 2 origin = %q, want portal", got[1].Origin)
+	}
+	// Path is part of what makes a rule the same rule, so the two must be
+	// distinguished rather than both matching on hostname alone.
+	if got[2].Origin != OriginPortal {
+		t.Errorf("rule 3 origin = %q, want portal", got[2].Origin)
+	}
+	if got[3].Origin != OriginExternal {
+		t.Errorf("rule 4 origin = %q, want external", got[3].Origin)
+	}
+	if got[0].Origin != OriginExternal {
+		t.Errorf("the portal's own rule was not published by the portal; origin = %q", got[0].Origin)
+	}
+}

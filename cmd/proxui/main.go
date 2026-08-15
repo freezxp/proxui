@@ -362,6 +362,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 				Preview:  &command.PreviewEdgeIngress{EdgeSafetyDeps: edgeSafety},
 				Ingress: &query.EdgeIngress{
 					Providers: edgeProviders,
+					Apps:      publishedApps,
 					Machines:  inventory,
 					// Opening the sealed token stays here, in the composition
 					// root, so the query layer has no reason to know a vault

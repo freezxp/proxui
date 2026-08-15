@@ -152,6 +152,34 @@ func (s *Server) handleUnpublishApp(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// missingWritePermission names the permission the failed call needed.
+//
+// Publishing writes to two systems with two different permissions, granted on
+// two different tabs of Cloudflare's token editor. Telling someone to add both
+// when one is already there is the kind of advice that gets ignored, so the
+// operation that actually failed decides the wording.
+func missingWritePermission(err error) string {
+	const nothingChanged = " Nothing was changed."
+
+	var cerr *edge.Error
+	if !errors.As(err, &cerr) {
+		return "Cloudflare refused the change. The API token appears to lack write permission." + nothingChanged
+	}
+	switch cerr.Op {
+	case "put_ingress":
+		return "Cloudflare refused to change the tunnel's routing table. The API token can read " +
+			"this account but not configure the tunnel: add **Account → Cloudflare Tunnel : Edit** " +
+			"to the token." + nothingChanged
+	case "create_dns", "delete_dns", "find_dns":
+		return "Cloudflare refused the DNS change. The API token can reach the tunnel but not the " +
+			"zone: add **Zone → DNS : Edit** for this zone to the token." + nothingChanged
+	default:
+		return "Cloudflare refused the change. The API token can read this account but appears to " +
+			"lack write permission: publishing needs Account → Cloudflare Tunnel : Edit and " +
+			"Zone → DNS : Edit." + nothingChanged
+	}
+}
+
 // writePublishError maps a publishing failure onto a problem response.
 func (s *Server) writePublishError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
@@ -183,11 +211,10 @@ func (s *Server) writePublishError(w http.ResponseWriter, r *http.Request, err e
 		// scope, not only when the token is wrong. Reported as-is, that sends
 		// someone to replace a credential that reads perfectly well. Since the
 		// portal only got this far by reading successfully, a missing scope is
-		// far and away the likelier cause, and it is the one worth naming.
-		WriteProblem(w, r, http.StatusBadGateway, "publish.write_not_permitted",
-			"Cloudflare refused the change. The API token can read this account but appears to lack "+
-				"write permission: publishing needs Cloudflare Tunnel: Edit on the account and "+
-				"DNS: Edit on the zone. Nothing was changed.")
+		// far and away the likelier cause, and it is the one worth naming —
+		// specifically, because the two halves of publishing need different
+		// permissions and are granted in different places.
+		WriteProblem(w, r, http.StatusBadGateway, "publish.write_not_permitted", missingWritePermission(err))
 	default:
 		s.writeEdgeError(w, r, err, healthResponseBody{})
 	}

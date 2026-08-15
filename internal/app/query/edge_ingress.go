@@ -39,6 +39,7 @@ type MachineLister interface {
 // machine holds any more.
 type EdgeIngress struct {
 	Providers ports.EdgeProviderRepository
+	Apps      ports.PublishedAppRepository
 	Machines  MachineLister
 	Factory   IngressReaderFactory
 }
@@ -103,9 +104,17 @@ func (q *EdgeIngress) Handle(ctx context.Context, providerID uuid.UUID, selfHost
 		rules = append(rules, publish.Rule{Hostname: r.Hostname, Path: r.Path, Service: r.Service})
 	}
 
-	// Nothing is portal-owned yet: published_apps arrives with the write path,
-	// so every rule here was put there by someone else and is shown read-only.
-	described := publish.Describe(rules, machines, selfHostname, nil)
+	// Which rules the portal put there. Without this every rule reads as
+	// external, and an app the portal published would be shown read-only with
+	// no way to remove it — published through the panel and unremovable from
+	// it, which is worse than not having the panel.
+	owned := map[string]bool{}
+	if apps, err := q.Apps.ListByProvider(ctx, providerID); err == nil {
+		for _, a := range apps {
+			owned[a.RouteKey()] = true
+		}
+	}
+	described := publish.Describe(rules, machines, selfHostname, owned)
 
 	view := IngressView{
 		ProviderID: provider.ID, TunnelID: provider.TunnelID,

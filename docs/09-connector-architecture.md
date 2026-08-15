@@ -66,7 +66,8 @@ type PowerManager interface {                            // optional
 1. Connectors are **stateless between calls** except for connection pooling; all persistence belongs to the core.
 2. Connectors **never log secrets** and receive credentials already decrypted, scoped to the call.
 3. All methods take `context.Context` and honor cancellation/deadlines (sync engine sets per-call timeouts).
-4. Errors are wrapped in typed classes (`connector.ErrAuth`, `ErrUnreachable`, `ErrPermission`, `ErrThrottled`, `ErrNotSupported`) so the sync engine can choose retry vs. circuit-break vs. surface-to-admin.
+4. Errors are wrapped in typed classes (`connector.ErrAuth`, `ErrUnreachable`, `ErrRefused`, `ErrPermission`, `ErrThrottled`, `ErrNotSupported`) so the sync engine can choose retry vs. circuit-break vs. surface-to-admin.
+   The line between `ErrUnreachable` and `ErrRefused` is whether anything answered: a platform that returns 500 was reached, so classifying it as unreachable both sends an operator to debug a healthy network and marks a permanently-failing call retryable. A connector mapping HTTP status onto these classes should send every `>= 500` to `ErrRefused` and keep `ErrUnreachable` for transport failures.
 5. A connector declares capabilities honestly; the UI hides buttons (console, power) for platforms lacking them.
 
 ## 9.3 Class relationships

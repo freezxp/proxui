@@ -100,6 +100,8 @@ func (s *Server) writeConsoleError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, console.ErrUnsupported), errors.Is(err, connector.ErrNotSupported):
 		WriteProblem(w, r, http.StatusUnprocessableEntity, "console.unsupported",
 			"This platform does not offer that console type.")
+	case errors.Is(err, connector.ErrRefused):
+		WriteProblem(w, r, http.StatusConflict, "platform.refused", platformDetail(err))
 	case errors.Is(err, connector.ErrUnreachable), errors.Is(err, connector.ErrAuth):
 		WriteProblem(w, r, http.StatusBadGateway, "platform.unreachable",
 			"The platform could not be reached to open a console.")

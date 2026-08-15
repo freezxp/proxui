@@ -283,6 +283,8 @@ func (s *Server) writePlatformError(w http.ResponseWriter, r *http.Request, err 
 		WriteProblemFields(w, r, http.StatusUnprocessableEntity, "validation", err.Error(), nil)
 	case errors.Is(err, connector.ErrAuth), errors.Is(err, connector.ErrPermission):
 		WriteProblem(w, r, http.StatusBadGateway, "platform.auth_failed", err.Error())
+	case errors.Is(err, connector.ErrRefused):
+		WriteProblem(w, r, http.StatusBadGateway, "platform.refused", err.Error())
 	case errors.Is(err, connector.ErrUnreachable):
 		WriteProblem(w, r, http.StatusBadGateway, "platform.unreachable", err.Error())
 	default:

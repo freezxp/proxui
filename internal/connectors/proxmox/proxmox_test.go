@@ -488,7 +488,9 @@ func TestErrorClassificationFromStatusCodes(t *testing.T) {
 		{"unauthorized", http.StatusUnauthorized, connector.ErrAuth},
 		{"forbidden", http.StatusForbidden, connector.ErrPermission},
 		{"rate limited", http.StatusTooManyRequests, connector.ErrThrottled},
-		{"server error", http.StatusInternalServerError, connector.ErrUnreachable},
+		// A 5xx means the cluster answered: it is a refusal, not a network
+		// failure, and must not be retried as though the connection dropped.
+		{"server error", http.StatusInternalServerError, connector.ErrRefused},
 		{"not found", http.StatusNotFound, connector.ErrNotSupported},
 	}
 	for _, tt := range tests {

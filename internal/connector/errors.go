@@ -17,6 +17,12 @@ var (
 	ErrPermission = errors.New("connector: insufficient permissions")
 	// ErrThrottled means the platform asked us to slow down.
 	ErrThrottled = errors.New("connector: throttled by platform")
+	// ErrRefused means the platform was reached, understood the request, and
+	// refused it — a VM already in the state being asked for, a lock held by
+	// another task, a full storage pool. Distinct from ErrUnreachable because
+	// retrying cannot help and because telling an operator the platform could
+	// not be reached, when it answered, sends them to debug the network.
+	ErrRefused = errors.New("connector: platform refused the operation")
 	// ErrNotSupported means the platform cannot do this at all.
 	ErrNotSupported = errors.New("connector: capability not supported")
 	// ErrInvalidConfig marks configuration that cannot work.

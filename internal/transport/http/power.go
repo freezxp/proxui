@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/freezxp/proxui/internal/app/command"
@@ -60,12 +61,37 @@ func (s *Server) writePowerError(w http.ResponseWriter, r *http.Request, err err
 		// on the cluster, so say so rather than reporting a generic failure.
 		WriteProblem(w, r, http.StatusBadGateway, "platform.permission_denied",
 			"The platform credential is not allowed to perform power actions.")
+	case errors.Is(err, connector.ErrRefused):
+		// The platform answered and declined — a VM already in the state being
+		// asked for, a config lock held by another task. Its own words are the
+		// whole value here, so they are passed through rather than replaced
+		// with a summary that would send an operator looking in the wrong
+		// place. Nothing in a connector error is secret: credentials never
+		// reach the detail string.
+		WriteProblem(w, r, http.StatusConflict, "platform.refused", platformDetail(err))
 	case errors.Is(err, connector.ErrUnreachable), errors.Is(err, connector.ErrAuth):
 		WriteProblem(w, r, http.StatusBadGateway, "platform.unreachable",
 			"The platform could not be reached.")
 	default:
 		s.serverError(w, r, err, "The power action could not be completed.")
 	}
+}
+
+// platformDetail renders a connector error for an operator.
+//
+// The connector's Detail already carries the platform's own explanation; what
+// is stripped is the class prefix and operation label, which are for logs
+// rather than for someone looking at a dialog.
+func platformDetail(err error) string {
+	var cerr *connector.Error
+	if !errors.As(err, &cerr) || strings.TrimSpace(cerr.Detail) == "" {
+		return "The platform refused the request."
+	}
+	detail := strings.TrimSpace(cerr.Detail)
+	if !strings.HasSuffix(detail, ".") {
+		detail += "."
+	}
+	return strings.ToUpper(detail[:1]) + detail[1:]
 }
 
 // handleSystemInfo reports build and runtime facts for operators.

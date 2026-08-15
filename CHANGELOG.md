@@ -10,6 +10,15 @@
   gets `Secure` whatever the setting says, and one deployment can serve both
   addresses correctly. Clearing the cookie makes the same decision, or the
   browser keeps the cookie it was told to drop.
+- **A platform that answers is no longer reported as unreachable.** Any
+  upstream 5xx was classified `ErrUnreachable` — documented as a network
+  failure, and retryable — with the platform's own explanation discarded in
+  favour of the status code. So Proxmox declining an operation ("VM is already
+  running", "config lock held") read as "The platform could not be reached",
+  sending an operator to debug a healthy network while the sync engine retried
+  a call that could never succeed. A new `connector.ErrRefused` covers reached
+  and declined: 409 rather than 502, no retry, and the platform's message
+  passed through verbatim.
 - **Power actions in the UI.** Start, shut down, reboot and force stop on the
   VM detail page, for administrators and operators — the API and its audit
   trail have existed since sprint 10 but nothing called them. Everything that

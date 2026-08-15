@@ -206,6 +206,10 @@ function powerError(err: unknown): string {
     if (err.code === 'platform.permission_denied')
       return 'The platform credential is not allowed to perform power actions.'
     if (err.code === 'platform.unreachable') return 'The platform could not be reached.'
+    // The platform answered and declined. Its own words are the useful part —
+    // "VM is already running", "config lock held" — so they are shown as sent
+    // rather than flattened into a generic failure.
+    if (err.code === 'platform.refused') return err.detail
     return err.detail || err.message
   }
   return 'The power action could not be sent.'

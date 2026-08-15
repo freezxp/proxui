@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -274,10 +275,55 @@ func classifyStatus(path string, resp *http.Response) error {
 		return connector.Errorf(connector.ErrNotSupported, opFromPath(path),
 			"endpoint %s not found (HTTP 404); the platform version may not support it", path)
 	case resp.StatusCode >= 500:
-		return connector.Errorf(connector.ErrUnreachable, opFromPath(path), "platform returned HTTP %d", resp.StatusCode)
+		// Proxmox answers 500 for an operation it understood and would not
+		// perform — "VM is already running", "config lock held", "storage
+		// full" — as well as for genuine internal faults. It reached us either
+		// way, so this is never ErrUnreachable, and its own words are far more
+		// use than the status code.
+		return connector.Errorf(connector.ErrRefused, opFromPath(path),
+			"platform refused the request (HTTP %d)%s", resp.StatusCode, platformReason(resp))
 	default:
-		return connector.Errorf(connector.ErrUnreachable, opFromPath(path), "unexpected HTTP %d", resp.StatusCode)
+		return connector.Errorf(connector.ErrRefused, opFromPath(path),
+			"unexpected HTTP %d%s", resp.StatusCode, platformReason(resp))
 	}
+}
+
+// platformReason extracts Proxmox's explanation of a failure.
+//
+// It arrives either as a plain `message`, or as an `errors` map keyed by the
+// parameter at fault. Both are worth surfacing verbatim: the whole reason a
+// power action's failure was previously unreadable is that this was thrown
+// away and only the status code kept. Returns "" when there is nothing to add,
+// so callers can append it unconditionally.
+func platformReason(resp *http.Response) string {
+	var body struct {
+		Message string            `json:"message"`
+		Errors  map[string]string `json:"errors"`
+	}
+	// Bounded: an error body is small, and a huge one is its own problem.
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body); err != nil {
+		return ""
+	}
+
+	parts := make([]string, 0, len(body.Errors)+1)
+	if msg := strings.TrimSpace(body.Message); msg != "" {
+		parts = append(parts, msg)
+	}
+	// Map iteration is unordered, and an error that reads differently each
+	// time it is logged is one nobody can search for.
+	keys := make([]string, 0, len(body.Errors))
+	for k := range body.Errors {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s: %s", k, strings.TrimSpace(body.Errors[k])))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return ": " + strings.Join(parts, "; ")
 }
 
 func classifyTransportError(path string, err error) error {

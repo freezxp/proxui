@@ -16,7 +16,8 @@
 | `ErrNotFound` | absent entity | 404 | park |
 | `ErrConflict` | state conflict (e.g. start a running VM) | 409 | drop |
 | `ErrRateLimited` | bucket exceeded | 429 + Retry-After | backoff |
-| `connector.ErrUnreachable` | network/timeout upstream | 502 | retry w/ backoff |
+| `connector.ErrUnreachable` | network/timeout upstream — nothing answered | 502 | retry w/ backoff |
+| `connector.ErrRefused` | upstream answered and declined (5xx): VM already in that state, config lock held, pool full | 409, carrying the platform's own words | **no retry**; retrying cannot succeed |
 | `connector.ErrAuth` | platform rejected credentials | 502 (admin-facing detail) | **no retry**; breaker + notify |
 | `connector.ErrPermission` | token lacks privilege | 502 detail lists missing perms | no retry; notify |
 | `connector.ErrThrottled` | upstream 429 | 503 | longer backoff |

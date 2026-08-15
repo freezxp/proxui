@@ -150,6 +150,7 @@ Any other message means the portal decided, not the platform:
 | the buttons are not there at all | the account is neither an administrator nor an operator |
 | "This VM is no longer visible to your account." | no grant covers it, or it was removed from the platform |
 | "Too many actions." | the rate limit; wait and retry |
+| the platform's own words, e.g. "CT 126 already running" | the request reached Proxmox and it declined — a state conflict, or a config lock held by another task. Not a portal fault and not worth retrying |
 | the state never changes, no error | the platform accepted the task and then failed it — check the node's task log |
 
 ## 24.5 Google sign-in

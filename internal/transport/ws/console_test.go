@@ -235,13 +235,16 @@ func TestBridgeRelaysBothDirections(t *testing.T) {
 	}
 
 	client.Close()
-	waitFor(t, func() bool { return len(h.sessions.closeReasons()) > 0 })
+	// The audit entry is written after the session row is closed, so waiting
+	// for the row alone leaves a window in which the entry is not there yet —
+	// which showed up as a flake under a loaded test run, not as a bug.
+	waitFor(t, func() bool { return h.audit.has("console_session_closed") })
 
 	if h.sessions.connected == 0 {
 		t.Error("the session was never marked connected")
 	}
-	if !h.audit.has("console_session_closed") {
-		t.Error("closing a console was not audited")
+	if len(h.sessions.closeReasons()) == 0 {
+		t.Error("the session was never closed")
 	}
 
 	session, _ := h.sessions.Get(context.Background(), ticket.SessionID)

@@ -16,16 +16,18 @@ const user: CurrentUser = {
 
 function renderMenu(overrides: Partial<Parameters<typeof UserMenu>[0]> = {}) {
   const onChangePassword = vi.fn()
+  const onTwoFactor = vi.fn()
   const onSignOut = vi.fn()
   render(
     <UserMenu
       user={user}
       onChangePassword={onChangePassword}
+      onTwoFactor={onTwoFactor}
       onSignOut={onSignOut}
       {...overrides}
     />,
   )
-  return { onChangePassword, onSignOut }
+  return { onChangePassword, onTwoFactor, onSignOut }
 }
 
 describe('UserMenu', () => {

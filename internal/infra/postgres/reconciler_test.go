@@ -295,6 +295,130 @@ func TestMissingVMRecovers(t *testing.T) {
 	}
 }
 
+// A VM that comes back after being *deleted*, not merely missing.
+//
+// This is the gap TestMissingVMRecovers leaves: recovery after one miss took
+// the update path, but recovery after three took the insert path, because the
+// index the reconciler consults hid deleted rows while the unique constraint
+// on (platform_id, external_id) still saw them. The insert was refused, and
+// because one guest broke the whole transaction, the platform's sync failed on
+// every subsequent run until the row was deleted by hand.
+func TestDeletedVMComesBack(t *testing.T) {
+	f := newSyncFixture(t, map[string]any{"vm_count": 3})
+	ctx := context.Background()
+	f.reconcile(t)
+
+	vms, _ := f.conn.ListVMs(ctx)
+	gone := vms[0]
+	f.conn.RemoveVM(gone.ExternalID)
+	for i := 0; i < inventory.MissingThreshold; i++ {
+		f.reconcile(t)
+	}
+	if got := f.countVMs(t, "deleted"); got != 1 {
+		t.Fatalf("%d deleted VMs after %d misses, want 1", got, inventory.MissingThreshold)
+	}
+
+	// The platform reports it again. This must not fail the run.
+	f.conn.RestoreVMs()
+	result := f.reconcile(t)
+	if result.Status != "success" {
+		t.Fatalf("status = %q after a deleted VM returned, want success", result.Status)
+	}
+	if got := f.countVMs(t, "deleted"); got != 0 {
+		t.Errorf("%d VMs still deleted after the platform reported them again", got)
+	}
+	if got := f.countVMs(t, "active"); got != 3 {
+		t.Errorf("%d active VMs after the return, want 3", got)
+	}
+
+	// One row, not two: the returning VM is the same machine, and a duplicate
+	// would give it a new id, an empty history and none of its portal tags.
+	var rows int
+	if err := f.pool.QueryRow(ctx,
+		`SELECT count(*) FROM vms WHERE platform_id=$1 AND external_id=$2`,
+		f.platform.ID, gone.ExternalID).Scan(&rows); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("%d rows for external_id %s, want 1", rows, gone.ExternalID)
+	}
+
+	// And the return is legible: history says so, and it is announced as a
+	// restoration rather than as a discovery.
+	var restored int
+	if err := f.pool.QueryRow(ctx, `
+		SELECT count(*) FROM asset_state_history h JOIN vms v ON v.id=h.asset_id
+		WHERE v.platform_id=$1 AND v.external_id=$2 AND h.field=$3`,
+		f.platform.ID, gone.ExternalID, inventory.FieldRestored).Scan(&restored); err != nil {
+		t.Fatalf("read history: %v", err)
+	}
+	if restored != 1 {
+		t.Errorf("%d _restored history rows, want 1", restored)
+	}
+
+	var events int
+	if err := f.pool.QueryRow(ctx, `
+		SELECT count(*) FROM events_outbox
+		WHERE event_type='vm.restored' AND payload->>'external_id'=$1
+		  AND payload->>'platform_id'=$2`,
+		gone.ExternalID, f.platform.ID.String()).Scan(&events); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if events != 1 {
+		t.Errorf("%d vm.restored events, want 1", events)
+	}
+}
+
+// A VM that comes back with its shape changed, after deletion. The restored
+// marker must not swallow the ordinary diff.
+func TestDeletedVMComesBackAndKeepsItsPortalFields(t *testing.T) {
+	f := newSyncFixture(t, map[string]any{"vm_count": 2})
+	ctx := context.Background()
+	f.reconcile(t)
+
+	vms, _ := f.conn.ListVMs(ctx)
+	gone := vms[0]
+
+	// Portal-owned data on the row that is about to be swept away.
+	var vmID uuid.UUID
+	if err := f.pool.QueryRow(ctx,
+		`SELECT id FROM vms WHERE platform_id=$1 AND external_id=$2`,
+		f.platform.ID, gone.ExternalID).Scan(&vmID); err != nil {
+		t.Fatalf("find vm: %v", err)
+	}
+	if _, err := f.pool.Exec(ctx,
+		`UPDATE vms SET portal_tags=$2, notes=$3 WHERE id=$1`,
+		vmID, []string{"keep-me"}, "a note somebody wrote"); err != nil {
+		t.Fatalf("set portal fields: %v", err)
+	}
+
+	f.conn.RemoveVM(gone.ExternalID)
+	for i := 0; i < inventory.MissingThreshold; i++ {
+		f.reconcile(t)
+	}
+	f.conn.RestoreVMs()
+	f.reconcile(t)
+
+	// Same row, so the notes and tags are still there. Losing them is what an
+	// insert-instead-of-update would have done, had the constraint allowed it.
+	var (
+		tags  []string
+		notes string
+		id    uuid.UUID
+	)
+	if err := f.pool.QueryRow(ctx,
+		`SELECT id, portal_tags, notes FROM vms WHERE platform_id=$1 AND external_id=$2`,
+		f.platform.ID, gone.ExternalID).Scan(&id, &tags, &notes); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if id != vmID {
+		t.Errorf("the returning VM got a new id; its history and grants are orphaned")
+	}
+	if len(tags) != 1 || tags[0] != "keep-me" || notes != "a note somebody wrote" {
+		t.Errorf("portal-owned fields lost: tags=%v notes=%q", tags, notes)
+	}
+}
+
 // The whole point of the fatal-listing rule: a failing platform must not look
 // like an empty one, or three failures would delete the entire inventory.
 func TestListingFailureDoesNotSweepInventory(t *testing.T) {

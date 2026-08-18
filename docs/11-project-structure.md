@@ -79,6 +79,8 @@ web/
 │   │   ├── dashboard/
 │   │   ├── inventory/       # vm-list, vm-detail (tabs: overview, performance, history, console)
 │   │   ├── console/         # NoVncViewer (lazy), SerialTerminal (lazy), session toolbar
+│   │   ├── auth/           # LoginPage (password + TOTP step), TwoFactorPanel, ChangePasswordDialog
+│   │   ├── shell/           # SshPage (lazy), SshTerminal (xterm.js), FileBrowser (SFTP panel), PortalKeyPanel
 │   │   ├── metrics/         # MetricChart (ECharts wrapper), range logic
 │   │   ├── platforms/       # list, form (schema-driven fields), test-connection, sync history
 │   │   ├── hosts/ storage/ networks/

@@ -26,6 +26,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/app/query"
 	appsetting "github.com/freezxp/proxui/internal/app/setting"
+	"github.com/freezxp/proxui/internal/app/shellreg"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/edge"
@@ -37,6 +38,7 @@ import (
 	"github.com/freezxp/proxui/internal/infra/oauth"
 	"github.com/freezxp/proxui/internal/infra/postgres"
 	redisinfra "github.com/freezxp/proxui/internal/infra/redis"
+	"github.com/freezxp/proxui/internal/infra/sshclient"
 	"github.com/freezxp/proxui/internal/jobs"
 	httpapi "github.com/freezxp/proxui/internal/transport/http"
 	"github.com/freezxp/proxui/internal/transport/ws"
@@ -53,6 +55,12 @@ func (f limiterFunc) Allow(ctx context.Context, bucket string, limit int, window
 
 // tokenIssuerName is the `iss` claim on access tokens.
 const tokenIssuerName = "proxui"
+
+// totpIssuerName labels the portal in an authenticator app. Deliberately not
+// the configurable brand name: an app shows this beside the code, and an entry
+// that renames itself when somebody edits a setting is one whose codes get
+// typed into the wrong form.
+const totpIssuerName = "ProxUI"
 
 // Build metadata, injected via -ldflags at release time.
 var (
@@ -147,9 +155,13 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		inventory = postgres.NewInventoryQuery(pool)
 		auditLog  = postgres.NewAuditQuery(pool)
 		consoles  = postgres.NewConsoleRepository(pool)
+		shells    = postgres.NewShellRepository(pool)
+		hostKeys  = postgres.NewHostKeyStore(pool)
 
 		edgeProviders = postgres.NewEdgeProviderRepository(pool)
+		totpStore     = postgres.NewTOTPRepository(pool)
 		tickets       = redisinfra.NewTicketStore(rdb)
+		mfaChallenges = redisinfra.NewMFAChallengeStore(rdb)
 		limiter       = redisinfra.NewRateLimiter(rdb)
 	)
 
@@ -219,13 +231,29 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	}
 	tokens := crypto.NewTokenIssuer(signingKey, tokenIssuerName, identity.AccessTokenTTL)
 
+	// Second factor (AUTH-04). The command is shared between the sign-in half
+	// and the enrolment half, and the admin reset below, so there is one place
+	// that decides what a valid code is.
+	mfa := &command.MFA{
+		Users: users, TOTP: totpStore, Codec: crypto.TOTPService{Issuer: totpIssuerName},
+		Challenges: mfaChallenges, Hasher: hasher,
+		Issue: &command.IssueSession{
+			Users: users, Sessions: sessions, Tokens: tokens, Audit: audit, Clock: clock,
+		},
+		Vault: vault, Audit: audit, Clock: clock,
+	}
+
 	authDeps := httpapi.AuthDeps{
-		Login:   &command.Login{Users: users, Sessions: sessions, Hasher: hasher, Tokens: tokens, Audit: audit, Clock: clock},
+		Login: &command.Login{
+			Users: users, Sessions: sessions, Hasher: hasher, Tokens: tokens,
+			Audit: audit, Clock: clock, Challenges: mfaChallenges,
+		},
 		Refresh: &command.Refresh{Users: users, Sessions: sessions, Tokens: tokens, Audit: audit, Clock: clock},
 		ChangePassword: &command.ChangePassword{
 			Users: users, Sessions: sessions, Hasher: hasher, Audit: audit, Clock: clock,
 		},
 		Logout:   &command.Logout{Sessions: sessions, Audit: audit, Clock: clock},
+		MFA:      mfa,
 		Users:    users,
 		Tokens:   tokens,
 		Sessions: sessions,
@@ -237,6 +265,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		ResetPassword: &command.ResetPassword{Users: users, Sessions: sessions, Hasher: hasher, Audit: audit, Clock: clock},
 		SetUserGroups: &command.SetUserGroups{Users: users, Access: accessRepo, Audit: audit, Clock: clock},
 		ManageAccess:  &command.ManageAccess{Access: accessRepo, Audit: audit, Clock: clock},
+		MFA:           mfa,
 		Users:         users,
 		Access:        accessRepo,
 		Audit:         audit,
@@ -313,6 +342,18 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	}
 	googleClient := oauth.New(registrationPolicy.GoogleConfig, nil)
 
+	// Live state on page load (docs/10 §10.6). The read model is wrapped
+	// rather than replaced: `vms` stays the reconciler's table, and this adds
+	// an expiring overlay of the fields that go stale in seconds. Every
+	// failure - slow platform, open breaker, Redis down - falls back to the
+	// synced row, so the worst case is the behaviour the portal had before.
+	liveVMs := appsync.NewLive(platforms, redisinfra.NewLiveStateStore(rdb),
+		syncService.Connect, clock, log)
+	liveInventory := &query.LiveInventory{
+		Reader: inventory, Live: liveVMs,
+		Enabled: registrationPolicy.LiveReadsEnabled,
+	}
+
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 	shutdown := make([]func(context.Context) error, 0, 2)
@@ -322,6 +363,28 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 
 	if cfg.Role.RunsAPI() {
 		eventHub.Start(ctx)
+
+		// SSH sessions live in this process's memory, because the credential
+		// that opened them was typed by an operator and deliberately never
+		// stored (SSH-03). The registry is therefore created here rather than
+		// wired from infra, and its sweep is what enforces the idle and
+		// duration limits on sessions with no terminal attached (SSH-07).
+		shellRegistry := shellreg.NewRegistry(clock.Now)
+		// The portal's own SSH key (ADR 0006). The vault is bound in here so
+		// that nothing above the repository has to hold a decryption argument
+		// on its way to a dial.
+		portalKeys := postgres.NewPortalKeyRepository(pool, vault)
+		closeShell := &command.CloseShell{
+			Sessions: shells, Registry: shellRegistry, Audit: audit, Clock: clock,
+		}
+		// A swept or shut-down session still has to be recorded: an audit trail
+		// that only shows the endings someone asked for is not an audit trail.
+		shellRegistry.OnEvict = func(l *shellreg.Live, reason string) {
+			closeShell.Record(context.WithoutCancel(ctx), l, reason)
+		}
+		shellTickets := shellreg.NewTicketStore(clock.Now)
+		go shellRegistry.Run(ctx.Done(), 30*time.Second)
+
 		apiServer := httpapi.NewServer(httpapi.ServerConfig{
 			Log:       log,
 			Version:   version,
@@ -331,7 +394,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Platforms: platformDeps,
 			Metrics:   httpapi.MetricsDeps{Metrics: metrics},
 			Inventory: httpapi.InventoryDeps{
-				Inventory: inventory, Audit: auditLog, Metrics: metrics, Infra: inventory,
+				Inventory: liveInventory, Audit: auditLog, Metrics: metrics, Infra: inventory,
 			},
 			Alerts:   httpapi.AlertDeps{Alerts: alertRepo},
 			Settings: httpapi.SettingsDeps{Settings: settingsRepo, Vault: vault},
@@ -379,8 +442,15 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 				Apps:      publishedApps,
 			},
 			Power: httpapi.PowerDeps{
+				// The synced reader, deliberately: a power action reads the row
+				// only to name the VM and record the state it was in, and then
+				// invalidates the overlay anyway. Reading live here would open a
+				// second connector to the same platform, inside the click the
+				// operator is waiting on, to produce a value discarded two lines
+				// later.
 				Power: &command.Power{
 					Inventory: inventory, Platforms: platforms, Sync: syncService,
+					Live:  liveVMs,
 					Audit: audit, Clock: clock,
 				},
 			},
@@ -390,7 +460,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			SPA:           httpapi.NewSPA(web.Assets()),
 			Console: httpapi.ConsoleDeps{
 				Open: &command.OpenConsole{
-					Inventory: inventory, Sessions: consoles, Tickets: tickets,
+					Inventory: liveInventory, Sessions: consoles, Tickets: tickets,
 					Audit: audit, Clock: clock,
 				},
 				Sessions: consoles,
@@ -402,6 +472,29 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 						Sync: syncService, Clock: clock,
 					},
 					Audit: audit, Clock: clock, Log: log,
+				},
+			},
+			Shell: httpapi.ShellDeps{
+				Open: &command.OpenShell{
+					Inventory: liveInventory, Sessions: shells, HostKeys: hostKeys,
+					Tickets: shellTickets, Registry: shellRegistry,
+					Dialer: sshclient.NewDialer(), Audit: audit, Clock: clock,
+					Keys: portalKeys,
+				},
+				Close: closeShell,
+				Files: &command.ShellFiles{
+					Registry: shellRegistry, Audit: audit, Clock: clock,
+				},
+				Keys: &command.PortalKey{
+					Keys: portalKeys, KeyGen: sshclient.KeyGen{},
+					Registry: shellRegistry, Inventory: inventory,
+					Audit: audit, Clock: clock,
+				},
+				Sessions: shells,
+				HostKeys: hostKeys,
+				Bridge: &ws.ShellBridge{
+					Tickets: shellTickets, Sessions: shells, Registry: shellRegistry,
+					Closer: closeShell, Clock: clock, Log: log,
 				},
 			},
 			SecureCookies: cfg.SecureCookies,

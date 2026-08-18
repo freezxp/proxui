@@ -1,0 +1,26 @@
+[Unit]
+# Host-run API + worker + scheduler; its dependencies (postgres+timescale, redis)
+# live in deploy/compose/docker-compose.dev.yml and are started by ExecStartPre.
+Description=ProxUI portal (api|worker|scheduler)
+Documentation=file:///home/ubuntu/proxui/docs/14-deployment.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/proxui
+EnvironmentFile=/home/ubuntu/proxui/.env
+ExecStartPre=/usr/bin/docker compose -f deploy/compose/docker-compose.dev.yml up -d --wait
+ExecStart=/home/ubuntu/proxui/bin/proxui --role=all
+# The binary drains connections on SIGTERM; give it room to finish.
+KillSignal=SIGTERM
+TimeoutStartSec=300
+TimeoutStopSec=60
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

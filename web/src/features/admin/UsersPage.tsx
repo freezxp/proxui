@@ -64,6 +64,7 @@ export function UsersPage() {
 function UsersTab() {
   const [editing, setEditing] = useState<User | 'new' | null>(null)
   const [resetting, setResetting] = useState<User | null>(null)
+  const [resettingTOTP, setResettingTOTP] = useState<User | null>(null)
   const queryClient = useQueryClient()
 
   const users = useQuery({
@@ -73,6 +74,14 @@ function UsersTab() {
   const groups = useQuery({
     queryKey: ['user-groups'],
     queryFn: () => api.get<{ data: UserGroup[] }>('/user-groups'),
+  })
+
+  // Clearing somebody else's second factor: the lost-phone path (AUTH-04).
+  // Confirmed first, because it leaves the account on its password alone until
+  // its owner enrols again.
+  const resetTOTP = useMutation({
+    mutationFn: (user: User) => api.del(`/users/${user.id}/totp`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   })
 
   const setActive = useMutation({
@@ -139,6 +148,14 @@ function UsersTab() {
                         password pending
                       </span>
                     )}
+                    {user.totp_enabled && (
+                      <span
+                        className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent"
+                        title="This account is protected by an authenticator app."
+                      >
+                        2FA
+                      </span>
+                    )}
                   </div>
                 </td>
                 <td className="space-x-3 px-4 py-2 text-right">
@@ -154,6 +171,14 @@ function UsersTab() {
                   >
                     Reset password
                   </button>
+                  {user.totp_enabled && (
+                    <button
+                      onClick={() => setResettingTOTP(user)}
+                      className="text-xs text-accent hover:underline"
+                    >
+                      Reset 2FA
+                    </button>
+                  )}
                   <button
                     onClick={() => setActive.mutate({ user, active: !user.is_active })}
                     className="text-xs text-muted hover:underline"
@@ -166,6 +191,48 @@ function UsersTab() {
           </tbody>
         </table>
       </div>
+
+      {resettingTOTP && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setResettingTOTP(null)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Reset two-step verification"
+            className="relative w-full max-w-md space-y-3 rounded-lg border border-border bg-surface p-6 shadow-xl"
+          >
+            <h2 className="font-medium">Reset two-step verification</h2>
+            <p className="text-sm text-muted">
+              {resettingTOTP.username} will be able to sign in with their password alone until they
+              enrol an authenticator again. Do this when they have lost the device.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={resetTOTP.isPending}
+                onClick={() => {
+                  resetTOTP.mutate(resettingTOTP)
+                  setResettingTOTP(null)
+                }}
+                className="rounded-md bg-danger px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              >
+                Reset it
+              </button>
+              <button
+                type="button"
+                onClick={() => setResettingTOTP(null)}
+                className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-raised"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {resetting && (
         <ResetPasswordDrawer

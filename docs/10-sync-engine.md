@@ -92,3 +92,44 @@ flowchart LR
 ```
 
 **Rationale (outbox over direct publish):** writing the event in the same transaction as the state change guarantees at-least-once delivery across crashes; Redis pub/sub alone would lose events on restart. Consumers are idempotent (event ids), so at-least-once is safe.
+
+## 10.6 Live state on page load
+
+Sync is a minute wide; a power button is not. An operator who clicks Shut down
+and watches a row that still says *running* for another fifty seconds concludes
+the portal is broken, and clicks again.
+
+So the VM list and the VM detail — the two pages with power buttons — ask the
+platform for current guest state before answering, and overlay it on the synced
+row. On Proxmox that is one `/cluster/resources` call for the whole cluster,
+which is what makes reading on demand affordable at all.
+
+**The overlay never writes to `vms`.** That is the load-bearing rule, not an
+implementation detail. The reconciler decides what changed by diffing that
+table; a live read that updated it first would leave nothing to diff, and the
+`vm.state_changed` events that history and notifications are built on would
+quietly stop. What a live read produces is a view with a TTL, held in Redis
+(`internal/infra/redis/livestate.go`) and applied by
+`internal/app/query.LiveInventory`.
+
+It overlays only what a live read is authoritative about — state and uptime,
+and it zeroes the usage figures on a guest that is not running. Names,
+addresses, tags and `sync_state` are left to the sync: whether a VM has *gone*
+is a judgement made over several runs, not something one read can decide, and a
+guest the read did not mention changes nothing.
+
+**Bounds.** A read is coalesced across concurrent callers, reused for 3 s,
+bounded at 2.5 s, and skipped entirely for a platform whose breaker is open or
+that is disabled. A failed read is recorded as an attempt, so a cluster that is
+down costs one connection per interval rather than one per page load. Every
+failure — slow, unreachable, breaker open, Redis down — degrades to the synced
+row, which is exactly what the portal showed before this existed.
+
+A power action calls `Forget` for its platform, so the page the operator lands
+on next re-reads rather than reusing a snapshot taken moments before they
+acted.
+
+**The switch.** `sync.live_reads` in Settings turns this off without a
+redeploy, and is read per request. It fails *open*: a settings read that errors
+leaves live reads on, because the failure mode of this feature is a slower
+page, never a wrong one.

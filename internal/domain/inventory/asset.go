@@ -21,6 +21,11 @@ const (
 	FieldCreated = "_created"
 	FieldDeleted = "_deleted"
 	FieldMissing = "_missing"
+	// FieldRestored marks a VM the platform started reporting again after it
+	// had been swept away. It is distinct from _created: the row, its history,
+	// its portal tags and its notes all survived, and an operator reading the
+	// tab needs to see the same machine returning rather than a new one.
+	FieldRestored = "_restored"
 )
 
 // VM is a synced virtual machine. Platform-derived fields are overwritten on

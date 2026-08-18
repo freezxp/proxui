@@ -42,6 +42,11 @@ type Power struct {
 	Sync      *appsync.Service
 	Audit     ports.AuditWriter
 	Clock     ports.Clock
+
+	// Live, when wired, is told to forget this platform's cached state after a
+	// successful action, so the page the operator lands on next asks the
+	// platform again instead of reusing a snapshot taken before they acted.
+	Live ports.LiveStateReader
 }
 
 // Handle authorizes and performs the action.
@@ -90,6 +95,10 @@ func (h *Power) Handle(ctx context.Context, in PowerInput) (PowerOutput, error) 
 		// "I tried to stop it and the platform said no" is the useful entry.
 		h.audit(ctx, in, vm.Name, ports.OutcomeFailure, map[string]any{"error": err.Error()})
 		return PowerOutput{}, err
+	}
+
+	if h.Live != nil {
+		h.Live.Forget(ctx, vm.PlatformID)
 	}
 
 	h.audit(ctx, in, vm.Name, ports.OutcomeSuccess, map[string]any{

@@ -13,6 +13,24 @@ export interface CurrentUser {
   must_change_password: boolean
 }
 
+/** A login that stopped at the password because a second factor is enrolled
+ *  (AUTH-04). Not an error: the credentials were right, and the sign-in
+ *  finishes at POST /auth/mfa with a code. */
+export interface MFAChallengeResponse {
+  mfa_required: true
+  mfa_token: string
+  expires_in: number
+}
+
+/** What enrolment hands back — the one moment the seed is readable, so it can
+ *  reach an authenticator app. */
+export interface TOTPEnrollment {
+  secret: string
+  otpauth_url: string
+  digits: number
+  period: number
+}
+
 export interface TokenResponse {
   access_token: string
   token_type: string
@@ -71,6 +89,10 @@ export interface VMListItem {
   host_name?: string
   cpu_pct: number
   mem_pct: number
+  /** When the platform itself last confirmed this state. Absent means the row
+   *  is as the last sync left it (docs/10 §10.6), which the UI says rather
+   *  than implying a freshness it does not have. */
+  live_at?: string
 }
 
 export interface Paged<T> {
@@ -479,4 +501,114 @@ export interface PublishedApp {
   last_applied_at?: string
   last_error?: string
   created_at: string
+}
+
+// --- SSH terminal and file transfer (SSH-01..SSH-10) --------------------
+
+export interface SshHostKey {
+  algorithm: string
+  fingerprint: string
+}
+
+/** What the server hands back once a connection is open and authenticated.
+ *  It never echoes the credential; `ws_url` carries a ticket that is good for
+ *  one attachment and sixty seconds. */
+export interface SshSession {
+  session_id: string
+  ws_url: string
+  expires_in: number
+  address: string
+  ssh_user: string
+  host_key: SshHostKey
+  home: string
+  files_available: boolean
+  files_detail?: string
+}
+
+/** The body of a 409 ssh.host_key_unknown — the fingerprint a human has to
+ *  confirm before the portal will pin it. */
+export interface SshHostKeyPrompt {
+  address: string
+  algorithm: string
+  fingerprint: string
+}
+
+/** The body of a 409 ssh.host_key_mismatch. */
+export interface SshHostKeyMismatch {
+  address: string
+  expected: string
+  got: string
+  first_seen_at: string
+}
+
+export interface RemoteFile {
+  name: string
+  path: string
+  size: number
+  mode: string
+  mode_bits: number
+  is_dir: boolean
+  is_link: boolean
+  target?: string
+  owner?: string
+  group?: string
+  mod_time: string
+}
+
+export interface RemoteListing {
+  path: string
+  /** Empty at the filesystem root, which is where "up" stops. */
+  parent: string
+  data: RemoteFile[]
+}
+
+// --- the portal's own SSH key (SSH-11..SSH-14, ADR 0006) ----------------
+
+/** The portal's key pair, as the API describes it. Only ever the public half:
+ *  the private one lives in the vault and is used server-side to dial. */
+export interface PortalKey {
+  exists: boolean
+  /** A complete authorized_keys line, ready to paste into cloud-init. */
+  public_key?: string
+  algorithm?: string
+  fingerprint?: string
+  created_at?: string
+}
+
+/** One account on one guest whose authorized_keys the portal believes carries
+ *  the key. `stale` means it carries an older key — a rotation left it behind,
+ *  and it will not authenticate. */
+export interface PortalKeyInstall {
+  vm_id: string
+  vm_name?: string
+  ssh_user: string
+  fingerprint: string
+  installed_at: string
+  installed_by: string
+  stale: boolean
+}
+
+/** What the connect form asks before offering key auth for a VM. */
+export interface VMPortalKeyState {
+  data: PortalKeyInstall[]
+  key_exists: boolean
+  fingerprint?: string
+}
+
+export interface SshSessionRecord {
+  id: string
+  user_id: string
+  username: string
+  vm_id: string
+  vm_name: string
+  ssh_user: string
+  address: string
+  client_ip?: string
+  started_at: string
+  connected_at?: string
+  ended_at?: string
+  close_reason?: string
+  bytes_tx: number
+  bytes_rx: number
+  active: boolean
 }

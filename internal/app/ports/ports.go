@@ -6,6 +6,9 @@ package ports
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +21,7 @@ import (
 	"github.com/freezxp/proxui/internal/domain/inventory"
 	"github.com/freezxp/proxui/internal/domain/notify"
 	"github.com/freezxp/proxui/internal/domain/publish"
+	"github.com/freezxp/proxui/internal/domain/shell"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 )
 
@@ -93,6 +97,60 @@ type SessionRepository interface {
 	RevokeFamily(ctx context.Context, familyID uuid.UUID, at time.Time) error
 	RevokeAllForUser(ctx context.Context, userID uuid.UUID, at time.Time) error
 	IsSessionActive(ctx context.Context, sessionID uuid.UUID) (bool, error)
+}
+
+// TOTPService is the second-factor arithmetic (AUTH-04). A port because the
+// RFC 6238 implementation is infrastructure, and because a test needs codes it
+// can predict rather than a real clock's.
+type TOTPService interface {
+	// NewSecret generates a base32 seed for a fresh enrolment.
+	NewSecret() (string, error)
+	// Validate checks a code against the accepted window and reports which
+	// time step matched, so the caller can refuse a step already spent.
+	Validate(secret, code string, now time.Time) (matched int64, ok bool)
+	// URL renders the otpauth:// URI an authenticator app scans.
+	URL(account, secret string) string
+}
+
+// TOTPStore holds enrolment state for an account.
+//
+// Separate from UserRepository, and returning the seed only through its own
+// call, so that the secret never rides along on the user aggregate that
+// handlers pass around and serialize. The one place it is decrypted is the
+// verify path.
+type TOTPStore interface {
+	// Enroll stores a sealed seed, leaving the factor disabled until a code
+	// proves the device holds it.
+	Enroll(ctx context.Context, userID uuid.UUID, sealed crypto.SealedSecret, at time.Time) error
+	// Secret opens the sealed seed. ErrNotFound means nothing is enrolled.
+	Secret(ctx context.Context, userID uuid.UUID, vault *crypto.Vault) (string, error)
+	// Enable turns a confirmed enrolment on, recording the step its
+	// confirming code used so that code cannot immediately be replayed.
+	Enable(ctx context.Context, userID uuid.UUID, step int64, at time.Time) error
+	// Disable clears the seed and the flag together. Half a disabled factor is
+	// worse than either state.
+	Disable(ctx context.Context, userID uuid.UUID, at time.Time) error
+	// LastStep reads the highest step already accepted; nil when none has been.
+	LastStep(ctx context.Context, userID uuid.UUID) (*int64, error)
+	// RecordStep marks a step as spent.
+	RecordStep(ctx context.Context, userID uuid.UUID, step int64, at time.Time) error
+}
+
+// MFAChallengeStore holds logins waiting for their second factor.
+//
+// In Redis rather than Postgres for the same reason console tickets are: these
+// live for minutes, must expire without a cleanup task, and are consumed
+// exactly once.
+type MFAChallengeStore interface {
+	Issue(ctx context.Context, c identity.MFAChallenge) error
+	// Get returns a live challenge. ErrNotFound covers unknown, expired and
+	// already-spent alike.
+	Get(ctx context.Context, id string) (identity.MFAChallenge, error)
+	// Fail records a wrong code and returns the challenge as it now stands.
+	// The store drops it once the attempts are used up.
+	Fail(ctx context.Context, id string) (identity.MFAChallenge, error)
+	// Consume removes a challenge that has been answered correctly.
+	Consume(ctx context.Context, id string) error
 }
 
 // PasswordHasher hashes and verifies passwords.
@@ -192,10 +250,14 @@ const (
 	EventVMCreated      = "vm.created"
 	EventVMStateChanged = "vm.state_changed"
 	EventVMDeleted      = "vm.deleted"
-	EventSyncFailed     = "sync.failed"
-	EventSyncRecovered  = "sync.recovered"
-	EventAlertFiring    = "alert.firing"
-	EventAlertResolved  = "alert.resolved"
+	// EventVMRestored is a VM the portal had swept away turning up again. Not
+	// vm.created: the row, its history and its portal-owned fields all
+	// survived, and an operator who saw the deletion needs to see it undone.
+	EventVMRestored    = "vm.restored"
+	EventSyncFailed    = "sync.failed"
+	EventSyncRecovered = "sync.recovered"
+	EventAlertFiring   = "alert.firing"
+	EventAlertResolved = "alert.resolved"
 
 	SeverityInfo     = "info"
 	SeverityWarning  = "warning"
@@ -354,6 +416,10 @@ type VMListItem struct {
 	HostName     string     `json:"host_name,omitempty"`
 	CPUPct       float64    `json:"cpu_pct"`
 	MemPct       float64    `json:"mem_pct"`
+	// LiveAt is when the platform itself last confirmed this state. Zero means
+	// the row is as the last sync left it, which is what the UI needs in order
+	// to say so rather than implying a freshness it does not have.
+	LiveAt time.Time `json:"live_at,omitempty"`
 }
 
 // VMDetail is the VM detail page's read model.
@@ -363,6 +429,56 @@ type VMDetail struct {
 	Groups      []string       `json:"groups"`
 	Attrs       map[string]any `json:"attrs,omitempty"`
 	FirstSeenAt time.Time      `json:"first_seen_at"`
+}
+
+// LiveVMState is what a live read of a platform reports about one guest.
+//
+// A deliberately thin slice of VMRecord: the fields that go stale in seconds
+// and that an operator acts on. Everything else - names, sizes, addresses,
+// tags - changes on a human timescale and is what the periodic sync is for.
+// Usage figures are deliberately absent: the overlay zeroes them for a stopped
+// guest and otherwise leaves the synced values alone, so carrying them here
+// would only cost cache bytes on every snapshot and invite a reader to trust a
+// number nothing fills in.
+type LiveVMState struct {
+	ExternalID string `json:"external_id"`
+	State      string `json:"state"`
+	UptimeS    int64  `json:"uptime_s"`
+}
+
+// LiveSnapshot is one platform's live states, keyed by external id, with the
+// moment the platform answered.
+type LiveSnapshot struct {
+	PlatformID uuid.UUID              `json:"platform_id"`
+	ReadAt     time.Time              `json:"read_at"`
+	States     map[string]LiveVMState `json:"states"`
+}
+
+// LiveStateStore caches live reads for the seconds they are worth anything.
+//
+// Redis rather than the database on purpose, and this is the load-bearing part
+// of the design: a live read must never write to `vms`. The reconciler decides
+// what changed by diffing that table, and a live read that updated it first
+// would leave the reconciler with nothing to diff - silently ending the
+// vm.state_changed events that history and notifications are built on. The
+// overlay is a view, not a fact.
+type LiveStateStore interface {
+	Put(ctx context.Context, snap LiveSnapshot, ttl time.Duration) error
+	// Get returns ErrNotFound when nothing fresh is cached.
+	Get(ctx context.Context, platformID uuid.UUID) (LiveSnapshot, error)
+	Forget(ctx context.Context, platformID uuid.UUID) error
+}
+
+// LiveStateReader supplies the overlay to the read model. It returns whatever
+// it has: a platform that is unreachable, slow or breaker-open contributes
+// nothing, and the caller falls back to the synced row.
+type LiveStateReader interface {
+	Snapshot(ctx context.Context, platformIDs []uuid.UUID) map[uuid.UUID]LiveSnapshot
+	// Forget drops what is known about a platform, so the next read asks it
+	// again. Called after the portal itself changes something — a power action
+	// makes the snapshot taken three seconds ago wrong, and reusing it would
+	// show the operator the state they just changed.
+	Forget(ctx context.Context, platformID uuid.UUID)
 }
 
 // VMPage is a page of inventory.
@@ -502,6 +618,183 @@ type ConsoleRepository interface {
 type TicketStore interface {
 	Issue(ctx context.Context, t console.Ticket) error
 	Redeem(ctx context.Context, id string) (console.Ticket, error)
+}
+
+// --- SSH terminal and file transfer (SSH-01..SSH-10) --------------------
+
+// SSHCredential is what the operator typed into the connect form.
+//
+// It is passed down to a dialer and then dropped. Nothing persists it: not the
+// database, not Redis, not a log line, not an API response (SSH-03). Go gives
+// no way to wipe a string's backing array, so the mitigation is lifetime
+// rather than erasure — the value exists for the duration of one dial and is
+// never copied into a struct that outlives it.
+type SSHCredential struct {
+	Username   string
+	Password   string
+	PrivateKey string
+	Passphrase string
+}
+
+// SSHTarget is where to connect.
+type SSHTarget struct {
+	Host string
+	Port int
+}
+
+// Address renders the target for a dialer, bracketing IPv6 as the syntax
+// requires.
+func (t SSHTarget) Address() string {
+	return net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
+}
+
+// HostKeyPolicy decides whether the key a guest presented may be trusted. It
+// is consulted during the handshake, which is the only moment the decision can
+// still prevent anything (SSH-04).
+type HostKeyPolicy interface {
+	Check(address, algorithm, fingerprint string, publicKey []byte) error
+}
+
+// TerminalSize is a PTY's dimensions in character cells.
+type TerminalSize struct {
+	Cols int
+	Rows int
+}
+
+// Terminal is an interactive shell on the far end: bytes in, bytes out, and a
+// window that can change size.
+type Terminal interface {
+	io.ReadWriteCloser
+	Resize(cols, rows int) error
+}
+
+// RemoteFS is the file-transfer half of a session (SSH-09). Paths are absolute
+// and interpreted by the guest; the guest's own permissions are the
+// authorization, since anything reachable here is reachable from the terminal
+// in the next panel.
+type RemoteFS interface {
+	List(ctx context.Context, dir string) ([]shell.FileEntry, error)
+	Stat(ctx context.Context, path string) (shell.FileEntry, error)
+	Open(ctx context.Context, path string) (io.ReadCloser, int64, error)
+	Create(ctx context.Context, path string) (io.WriteCloser, error)
+	// Append opens a file for writing at its end, creating it if it is not
+	// there. It exists for authorized_keys (SSH-12): adding a line to a file
+	// the portal does not own must not be able to lose the lines it did not
+	// write, which a truncating Create can do if the write fails halfway.
+	Append(ctx context.Context, path string) (io.WriteCloser, error)
+	Mkdir(ctx context.Context, path string) error
+	Remove(ctx context.Context, path string) error
+	Rename(ctx context.Context, from, to string) error
+	Chmod(ctx context.Context, path string, mode uint32) error
+	// Home is where the browser opens. It is resolved on the guest rather than
+	// assumed to be /home/<user>, which is wrong for root and for any account
+	// with a non-default home.
+	Home(ctx context.Context) (string, error)
+}
+
+// ShellConn is one live, authenticated SSH connection. A single connection
+// carries both the terminal and the file browser: opening a second one would
+// mean asking for the password twice.
+type ShellConn interface {
+	Terminal(size TerminalSize) (Terminal, error)
+	Files() (RemoteFS, error)
+	HostKey() shell.HostKey
+	Close() error
+}
+
+// SSHDialer opens and authenticates a connection to a guest.
+type SSHDialer interface {
+	Dial(ctx context.Context, target SSHTarget, cred SSHCredential, policy HostKeyPolicy) (ShellConn, error)
+}
+
+// ShellSessionRecord is an SSH session as shown to an administrator.
+type ShellSessionRecord struct {
+	ID          uuid.UUID `json:"id"`
+	UserID      uuid.UUID `json:"user_id"`
+	Username    string    `json:"username"`
+	VMID        uuid.UUID `json:"vm_id"`
+	VMName      string    `json:"vm_name"`
+	SSHUser     string    `json:"ssh_user"`
+	Address     string    `json:"address"`
+	ClientIP    string    `json:"client_ip,omitempty"`
+	StartedAt   time.Time `json:"started_at"`
+	ConnectedAt time.Time `json:"connected_at,omitempty"`
+	EndedAt     time.Time `json:"ended_at,omitempty"`
+	CloseReason string    `json:"close_reason,omitempty"`
+	BytesTx     int64     `json:"bytes_tx"`
+	BytesRx     int64     `json:"bytes_rx"`
+	Active      bool      `json:"active"`
+}
+
+// ShellRepository records SSH sessions (SSH-06).
+type ShellRepository interface {
+	Create(ctx context.Context, s *shell.Session) error
+	MarkConnected(ctx context.Context, id uuid.UUID, at time.Time) error
+	Close(ctx context.Context, id uuid.UUID, reason string, tx, rx int64, at time.Time) error
+	Get(ctx context.Context, id uuid.UUID) (*shell.Session, error)
+	List(ctx context.Context, activeOnly bool, limit int) ([]ShellSessionRecord, error)
+}
+
+// HostKeyStore pins one host key per VM (SSH-04). Per VM rather than per
+// address, because a guest that gets a new lease is the same machine and
+// should not silently become a new trust decision.
+type HostKeyStore interface {
+	// Get returns ErrNotFound when this VM has never been connected to.
+	Get(ctx context.Context, vmID uuid.UUID) (shell.HostKey, error)
+	Trust(ctx context.Context, key shell.HostKey) error
+	Forget(ctx context.Context, vmID uuid.UUID) error
+}
+
+// SSHKeyGenerator makes the portal's key pair.
+//
+// A port for one function because generating an OpenSSH key means speaking the
+// SSH wire formats, and the layering keeps that library in one infrastructure
+// package. It also lets a test generate something cheap instead of real
+// entropy.
+type SSHKeyGenerator interface {
+	Generate(comment string) (privatePEM string, key shell.PortalKey, err error)
+}
+
+// PortalKeyStore holds the portal's own SSH key pair and the record of where
+// its public half has been installed (SSH-11..SSH-14, ADR 0006).
+//
+// The private half crosses this boundary as a string, sealed at rest by the
+// same vault as a platform credential. Get deliberately does not return it:
+// the two reads are separate so that everything drawing a settings page or a
+// connect form takes the one that cannot leak a secret, and only the dial path
+// takes the other.
+type PortalKeyStore interface {
+	// Get returns the public record. ErrNotFound means no key exists yet.
+	Get(ctx context.Context) (shell.PortalKey, error)
+	// PrivateKey opens the sealed private half for one dial.
+	PrivateKey(ctx context.Context) (string, error)
+	// Replace writes a newly generated pair over whatever was there, which is
+	// what both first generation and rotation are.
+	Replace(ctx context.Context, key shell.PortalKey, privatePEM string) error
+	// Delete removes the pair. Installs on guests are left alone: the portal
+	// cannot reach a guest to tidy up without a credential for it, and a row
+	// claiming an install that was never removed is more honest than one
+	// deleted to make the table look tidy.
+	Delete(ctx context.Context) error
+
+	// Installs lists where the key is believed to be, newest first.
+	Installs(ctx context.Context, vmID uuid.UUID) ([]shell.KeyInstall, error)
+	// RecordInstall notes that the key is now in an account's authorized_keys.
+	RecordInstall(ctx context.Context, in shell.KeyInstall) error
+	// ForgetInstall drops the record for one account on one VM.
+	ForgetInstall(ctx context.Context, vmID uuid.UUID, sshUser string) error
+}
+
+// ShellTicketStore holds one-time terminal tickets.
+//
+// Deliberately not the Redis store the console uses. A console ticket names a
+// VM the portal can reach on its own authority, so it survives a restart
+// harmlessly; an SSH ticket names a live connection that exists only in one
+// process's memory, and writing it anywhere shared would create a reference to
+// something the reader cannot have.
+type ShellTicketStore interface {
+	Issue(ctx context.Context, t shell.Ticket) error
+	Redeem(ctx context.Context, id string) (shell.Ticket, error)
 }
 
 // DeliveryRecord is one row of the notification delivery log (NOTIF-03).

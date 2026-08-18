@@ -51,7 +51,18 @@ CREATE TABLE users (
     role                user_role NOT NULL DEFAULT 'readonly',
     is_active           boolean NOT NULL DEFAULT true,
     must_change_password boolean NOT NULL DEFAULT true,
-    totp_secret_enc     bytea,                        -- envelope-encrypted; NULL = not enrolled
+    -- Envelope-encrypted TOTP seed, five columns like every other sealed
+    -- secret (migration 00018 replaced the single bytea this originally
+    -- reserved, which could not hold a wrapped data key). Present with
+    -- totp_enabled false = enrolment started but unconfirmed.
+    totp_ciphertext     bytea,
+    totp_nonce          bytea,
+    totp_dek_wrapped    bytea,
+    totp_dek_nonce      bytea,
+    totp_key_version    int NOT NULL DEFAULT 1,
+    -- Highest RFC 6238 step already accepted, so a code cannot be replayed
+    -- inside the ±1-step window it stays arithmetically valid for.
+    totp_last_step      bigint,
     totp_enabled        boolean NOT NULL DEFAULT false,
     failed_login_count  int NOT NULL DEFAULT 0,
     locked_until        timestamptz,

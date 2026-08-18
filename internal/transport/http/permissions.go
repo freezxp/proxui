@@ -60,7 +60,12 @@ var permissionMap = map[string]Permission{
 	// Authorization header on a WebSocket. The ticket names the user whose
 	// events the socket will carry, so it is also the scoping.
 	"GET /ws/events/{ticketID}": {Access: AccessPublic},
-	"GET /readyz":               {Access: AccessPublic},
+	// And the SSH terminal. Its ticket is stronger than the other two: it
+	// names a connection that is already open and authenticated, so it is
+	// single-use, sixty seconds long, and held only in this process's memory
+	// (SSH-05).
+	"GET /ws/ssh/{ticketID}": {Access: AccessPublic},
+	"GET /readyz":            {Access: AccessPublic},
 
 	// Branding is public because the sign-in page renders before anyone has
 	// signed in. It exposes only what every visitor is meant to see: the
@@ -73,8 +78,12 @@ var permissionMap = map[string]Permission{
 	"GET /api/v1/auth/google/start":    {Access: AccessPublic},
 	"GET /api/v1/auth/google/callback": {Access: AccessPublic},
 	"POST /api/v1/auth/login":          {Access: AccessPublic},
-	"POST /api/v1/auth/refresh":        {Access: AccessPublic},
-	"POST /api/v1/auth/logout":         {Access: AccessPublic},
+	// The second half of a login. Public for the same reason login is: the
+	// caller has proved a password but has no session yet, and the challenge
+	// id plus a code from the enrolled device is the whole credential.
+	"POST /api/v1/auth/mfa":     {Access: AccessPublic},
+	"POST /api/v1/auth/refresh": {Access: AccessPublic},
+	"POST /api/v1/auth/logout":  {Access: AccessPublic},
 
 	"GET /api/v1/auth/me":          {Access: AccessAuthenticated},
 	"POST /api/v1/auth/logout-all": {Access: AccessAuthenticated},
@@ -85,11 +94,24 @@ var permissionMap = map[string]Permission{
 	"POST /api/v1/auth/password": roles(identity.RoleAdmin, identity.RoleOperator,
 		identity.RoleReadOnly, identity.RoleAuditor, identity.RoleNewUser),
 
+	// Enrolling a second factor is every role's business, including a
+	// brand-new account: the account being changed is the caller's own, and
+	// one that cannot add a factor without an administrator is one that
+	// mostly will not have one (AUTH-04).
+	"POST /api/v1/auth/me/totp": roles(identity.RoleAdmin, identity.RoleOperator,
+		identity.RoleReadOnly, identity.RoleAuditor, identity.RoleNewUser),
+	"POST /api/v1/auth/me/totp/confirm": roles(identity.RoleAdmin, identity.RoleOperator,
+		identity.RoleReadOnly, identity.RoleAuditor, identity.RoleNewUser),
+	// Removing one needs the account's password, checked in the command.
+	"DELETE /api/v1/auth/me/totp": roles(identity.RoleAdmin, identity.RoleOperator,
+		identity.RoleReadOnly, identity.RoleAuditor, identity.RoleNewUser),
+
 	"GET /api/v1/users":                    roles(identity.RoleAdmin),
 	"POST /api/v1/users":                   roles(identity.RoleAdmin),
 	"GET /api/v1/users/{userID}":           roles(identity.RoleAdmin),
 	"PUT /api/v1/users/{userID}":           roles(identity.RoleAdmin),
 	"POST /api/v1/users/{userID}/password": roles(identity.RoleAdmin),
+	"DELETE /api/v1/users/{userID}/totp":   roles(identity.RoleAdmin),
 	"PUT /api/v1/users/{userID}/groups":    roles(identity.RoleAdmin),
 
 	"GET /api/v1/user-groups":                      roles(identity.RoleAdmin),
@@ -138,6 +160,55 @@ var permissionMap = map[string]Permission{
 	"POST /api/v1/events/ticket":   roles(identity.RoleAdmin, identity.RoleOperator, identity.RoleReadOnly, identity.RoleAuditor),
 	"GET /api/v1/system/info":      roles(identity.RoleAdmin),
 	"GET /api/v1/console-sessions": roles(identity.RoleAdmin),
+
+	// SSH (SSH-01, SSH-09, SSH-10). The same role gate as the console, because
+	// it is the same power over the same machines by a different door. What
+	// the gate cannot express is that every file route also has to belong to
+	// the caller — a signed-in operator holding someone else's session id must
+	// get nothing — so the registry checks ownership on each call and the RBAC
+	// matrix test only proves the outer fence.
+	"POST /api/v1/vms/{vmID}/ssh":            roles(identity.RoleAdmin, identity.RoleOperator),
+	"DELETE /api/v1/vms/{vmID}/ssh-host-key": roles(identity.RoleAdmin),
+	"GET /api/v1/ssh-sessions":               roles(identity.RoleAdmin),
+	"DELETE /api/v1/ssh-sessions/{sessionID}": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+	"GET /api/v1/ssh-sessions/{sessionID}/files": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+	"DELETE /api/v1/ssh-sessions/{sessionID}/files": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+	"GET /api/v1/ssh-sessions/{sessionID}/files/content": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+	"POST /api/v1/ssh-sessions/{sessionID}/files/content": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+	"POST /api/v1/ssh-sessions/{sessionID}/files/mkdir": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+	"POST /api/v1/ssh-sessions/{sessionID}/files/rename": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+	"POST /api/v1/ssh-sessions/{sessionID}/files/chmod": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+
+	// The portal's own SSH key (SSH-11..SSH-14, ADR 0006).
+	//
+	// Reading the public half is an operator's business: they are the ones who
+	// paste it into a cloud-init template, and it is public by construction.
+	// Holding the pair — generating, rotating, destroying it — is an
+	// administrator's, because a rotation silently invalidates every install
+	// in the estate and the list of those installs is a map of where the key
+	// opens a door.
+	//
+	// Installing and removing it run over an SSH session the caller already
+	// authenticated: the registry refuses a session that is not theirs, so the
+	// grant being exercised is one they already had.
+	"GET /api/v1/ssh-key": roles(identity.RoleAdmin, identity.RoleOperator),
+	"GET /api/v1/vms/{vmID}/ssh-key": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+	"POST /api/v1/ssh-key":         roles(identity.RoleAdmin),
+	"DELETE /api/v1/ssh-key":       roles(identity.RoleAdmin),
+	"GET /api/v1/ssh-key/installs": roles(identity.RoleAdmin),
+	"POST /api/v1/ssh-sessions/{sessionID}/portal-key": roles(identity.RoleAdmin,
+		identity.RoleOperator),
+	"DELETE /api/v1/ssh-sessions/{sessionID}/portal-key": roles(identity.RoleAdmin,
+		identity.RoleOperator),
 	"PUT /api/v1/vms/{vmID}/tags":  roles(identity.RoleAdmin, identity.RoleOperator),
 	"PUT /api/v1/vms/{vmID}/notes": roles(identity.RoleAdmin, identity.RoleOperator),
 

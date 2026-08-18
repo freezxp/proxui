@@ -33,9 +33,12 @@ type AuthDeps struct {
 	Refresh        RefreshHandler
 	Logout         LogoutHandler
 	ChangePassword PasswordChanger
-	Users          UserLoader
-	Tokens         TokenParser
-	Sessions       SessionChecker
+	// MFA is the second factor (AUTH-04): completing a challenged sign-in,
+	// and the caller's own enrolment.
+	MFA      MFAHandler
+	Users    UserLoader
+	Tokens   TokenParser
+	Sessions SessionChecker
 }
 
 // PasswordChanger lets a signed-in user replace their own password.
@@ -54,6 +57,7 @@ type ServerConfig struct {
 	Metrics    MetricsDeps
 	Inventory  InventoryDeps
 	Console    ConsoleDeps
+	Shell      ShellDeps
 	Power      PowerDeps
 	Edge       EdgeDeps
 	Publishing PublishDeps
@@ -103,6 +107,7 @@ type Server struct {
 	metrics       MetricsDeps
 	inventory     InventoryDeps
 	console       ConsoleDeps
+	shell         ShellDeps
 	power         PowerDeps
 	edge          EdgeDeps
 	publishing    PublishDeps
@@ -137,6 +142,7 @@ func NewServer(cfg ServerConfig) *Server {
 		metrics:       cfg.Metrics,
 		inventory:     cfg.Inventory,
 		console:       cfg.Console,
+		shell:         cfg.Shell,
 		power:         cfg.Power,
 		edge:          cfg.Edge,
 		publishing:    cfg.Publishing,
@@ -173,6 +179,10 @@ func (s *Server) Routes() http.Handler {
 	// The live event stream, for the same reason: a browser cannot put an
 	// Authorization header on a WebSocket, so the ticket is the credential.
 	r.Get("/ws/events/{ticketID}", s.handleEventsWS)
+	// The SSH terminal, for the same reason again. Its ticket additionally
+	// names the live connection to attach to, which exists only in the memory
+	// of this process (SSH-05).
+	r.Get("/ws/ssh/{ticketID}", s.handleShellWS)
 
 	r.Get("/healthz", s.handleLive)
 	r.Get("/readyz", s.handleReady)
@@ -197,6 +207,10 @@ func (s *Server) Routes() http.Handler {
 			// Login is the one endpoint reachable without an account, so it
 			// carries the strictest limit.
 			r.With(s.loginRateLimit()).Post("/login", s.handleLogin)
+			// The second half of a login, and reachable without a session for
+			// the same reason login is. Rate limited identically: it is a
+			// six-digit secret, and the limit is most of what stops guessing.
+			r.With(s.loginRateLimit()).Post("/mfa", s.handleVerifyMFA)
 			r.Post("/refresh", s.handleRefresh)
 			r.Post("/logout", s.handleLogout)
 
@@ -207,6 +221,11 @@ func (s *Server) Routes() http.Handler {
 				// caller's own and the current password must be supplied.
 				r.Post("/password", s.handleChangePassword)
 				r.Post("/logout-all", s.handleLogoutAll)
+				// Enrolling, confirming and removing the caller's own factor.
+				// Every role, because the account being changed is their own.
+				r.Post("/me/totp", s.handleBeginTOTP)
+				r.Post("/me/totp/confirm", s.handleConfirmTOTP)
+				r.Delete("/me/totp", s.handleDisableTOTP)
 			})
 		})
 
@@ -224,6 +243,9 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/{userID}", s.handleGetUser)
 				r.Put("/{userID}", s.handleUpdateUser)
 				r.Post("/{userID}/password", s.handleResetPassword)
+				// The lost-phone path: clearing somebody else's second factor
+				// (AUTH-04). Audited against both accounts.
+				r.Delete("/{userID}/totp", s.handleResetUserTOTP)
 				r.Put("/{userID}/groups", s.handleSetUserGroups)
 			})
 
@@ -307,6 +329,54 @@ func (s *Server) Routes() http.Handler {
 				Post("/vms/{vmID}/power", s.handlePower)
 			r.With(RequireRole(identity.RoleAdmin)).
 				Get("/console-sessions", s.handleListConsoleSessions)
+
+			// SSH terminals: the same gate as the console, and scoped per VM
+			// inside the command. Opening one costs a live connection to a
+			// guest, so it carries the console's rate limit too (SSH-01).
+			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator),
+				s.rateLimit("ssh", consoleLimit, consoleWindow)).
+				Post("/vms/{vmID}/ssh", s.handleOpenShell)
+			// Forgetting a pinned host key is an administrator's decision,
+			// deliberately away from the connect form (SSH-04).
+			r.With(RequireRole(identity.RoleAdmin)).
+				Delete("/vms/{vmID}/ssh-host-key", s.handleForgetHostKey)
+
+			r.Route("/ssh-sessions", func(r chi.Router) {
+				// Every route below resolves the session through the registry,
+				// which refuses one that is not the caller's. The role gate is
+				// the outer fence; ownership is the real check (SSH-10).
+				r.With(RequireRole(identity.RoleAdmin)).Get("/", s.handleListShellSessions)
+
+				r.Group(func(r chi.Router) {
+					r.Use(RequireRole(identity.RoleAdmin, identity.RoleOperator))
+					r.Delete("/{sessionID}", s.handleCloseShell)
+					r.Get("/{sessionID}/files", s.handleListShellFiles)
+					r.Delete("/{sessionID}/files", s.handleDeleteShellFile)
+					r.Get("/{sessionID}/files/content", s.handleDownloadShellFile)
+					r.Post("/{sessionID}/files/content", s.handleUploadShellFile)
+					r.Post("/{sessionID}/files/mkdir", s.handleShellMkdir)
+					r.Post("/{sessionID}/files/rename", s.handleShellRename)
+					r.Post("/{sessionID}/files/chmod", s.handleShellChmod)
+					// Installing the portal's key runs over the caller's own
+					// session, with that guest account's permissions (SSH-12).
+					r.Post("/{sessionID}/portal-key", s.handleInstallPortalKey)
+					r.Delete("/{sessionID}/portal-key", s.handleRemovePortalKey)
+				})
+			})
+
+			// The portal's own SSH key (SSH-11..SSH-14, ADR 0006). Reading the
+			// public half is an operator's business; holding the pair is an
+			// administrator's.
+			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator)).
+				Get("/ssh-key", s.handleGetPortalKey)
+			r.With(RequireRole(identity.RoleAdmin, identity.RoleOperator)).
+				Get("/vms/{vmID}/ssh-key", s.handleVMKeyInstalls)
+			r.With(RequireRole(identity.RoleAdmin)).
+				Post("/ssh-key", s.handleGeneratePortalKey)
+			r.With(RequireRole(identity.RoleAdmin)).
+				Delete("/ssh-key", s.handleDeletePortalKey)
+			r.With(RequireRole(identity.RoleAdmin)).
+				Get("/ssh-key/installs", s.handleListKeyInstalls)
 
 			// Portal-owned annotations: operators may edit what they can see.
 			r.Group(func(r chi.Router) {

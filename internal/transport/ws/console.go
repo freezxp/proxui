@@ -65,18 +65,28 @@ func (b *ConsoleBridge) upgrader() *websocket.Upgrader {
 		// A console is a cross-origin target worth protecting: a page on
 		// another site must not be able to open one using the visitor's
 		// cookies (docs/15-security-design.md §15.6).
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				return true // non-browser client, e.g. a test or CLI
+		CheckOrigin: originAllowed(b.AllowedOrigins),
+	}
+}
+
+// originAllowed builds the CheckOrigin every upgrade in this package uses.
+//
+// One function rather than one per bridge: this is a security boundary, and a
+// boundary with three copies is a boundary with three chances to drift — which
+// it already had, the event stream's copy having quietly ignored the configured
+// origins altogether.
+func originAllowed(allowed []string) func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // non-browser client, e.g. a test or CLI
+		}
+		for _, a := range allowed {
+			if origin == a {
+				return true
 			}
-			for _, allowed := range b.AllowedOrigins {
-				if origin == allowed {
-					return true
-				}
-			}
-			return sameOrigin(origin, r)
-		},
+		}
+		return sameOrigin(origin, r)
 	}
 }
 

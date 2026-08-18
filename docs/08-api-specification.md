@@ -22,16 +22,16 @@ Base path **`/api/v1`**. JSON everywhere. OpenAPI 3.1 is the source of truth, ge
 
 | Method & URI | Roles | Description |
 |---|---|---|
-| POST `/auth/login` | — | Body `{username, password}` → `200 {access_token, expires_in, mfa_required?, mfa_token?}` + refresh cookie. 401 invalid, 423 locked, 429 throttled |
-| POST `/auth/mfa` | — | `{mfa_token, code}` → same success shape as login |
+| POST `/auth/login` | — | Body `{username, password}` → `200 {access_token, expires_in}` + refresh cookie, or `200 {mfa_required: true, mfa_token, expires_in}` and **no cookie and no token** when a second factor is enrolled (AUTH-04). 401 invalid, 423 locked, 429 throttled |
+| POST `/auth/mfa` | — | `{mfa_token, code}` → same success shape as login. `401 auth.invalid_code` (try again), `401 auth.mfa_challenge_expired` (the challenge is spent or timed out — start from the password). Five wrong codes end the challenge |
 | POST `/auth/refresh` | cookie | Rotates refresh cookie → `{access_token, expires_in}`. 401 on invalid/reused (family revoked) |
 | POST `/auth/logout` | any | Revokes current session family → 204 |
 | POST `/auth/logout-all` | any | Revokes all own sessions → 204 |
 | GET `/auth/me` | any | `{id, username, display_name, role, groups[], totp_enabled, must_change_password}` |
 | PUT `/auth/me/password` | any | `{current_password, new_password}` → 204. 422 policy violation |
-| POST `/auth/me/totp` | any | Begin enrollment → `{secret, otpauth_url}` (QR rendered client-side) |
-| POST `/auth/me/totp/confirm` | any | `{code}` → 204; TOTP now required |
-| DELETE `/auth/me/totp` | any | `{password}` → 204 |
+| POST `/auth/me/totp` | any | Begin enrollment → `{secret, otpauth_url, digits, period}` (QR rendered client-side). The factor is **not** live until confirmed; calling again replaces an unconfirmed enrollment. `409 auth.totp_already_enabled` over a working one |
+| POST `/auth/me/totp/confirm` | any | `{code}` → 204; TOTP now required. The confirming code is spent, so it cannot double as the first sign-in code |
+| DELETE `/auth/me/totp` | any | `{password}` → 204. The password is required: without it an unlocked screen would be enough to strip the factor |
 
 **Example — login:**
 
@@ -79,6 +79,67 @@ Set-Cookie: proxui_rt=…; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth
 | GET `/console-sessions?active=true` | admin | List sessions (active or historical, filterable by user/vm/time) |
 | DELETE `/console-sessions/{id}` | admin | Force-close a live session → 204. Audited |
 
+## 8.4a SSH terminal and files
+
+Design: [29-ssh-terminal.md](29-ssh-terminal.md). Unlike the console, the
+connection is opened and authenticated during the POST — the credential exists
+only for that request — so a wrong password is a 401 on JSON rather than a
+WebSocket that closes for unexplained reasons.
+
+| Method & URI | Roles | Description |
+|---|---|---|
+| POST `/vms/{id}/ssh` | operator (scoped) | `{username, password?, private_key?, passphrase?, use_portal_key?, host?, port?, accept_host_key?}` → `201 {session_id, ws_url, expires_in: 60, address, ssh_user, host_key: {algorithm, fingerprint}, home, files_available, files_detail?}`. The credential is never echoed back |
+| WS `/ws/ssh/{ticket}` | ticketed | One-time upgrade, one terminal per session. Binary frames are terminal bytes; text frames are control — only `{"type":"resize","cols":N,"rows":N}`. Close codes: 4000 idle, 4001 max duration, 4002 admin-forced, 4003 upstream lost, 4005 session gone |
+| DELETE `/ssh-sessions/{id}` | operator (own), admin (any) | Close a session → 204 |
+| GET `/ssh-sessions?active=true` | admin | List sessions, active or historical |
+| DELETE `/vms/{id}/ssh-host-key` | admin | Forget the pinned host key so a rebuilt guest can be trusted again → 204. Audited |
+| GET `/ssh-sessions/{id}/files?path=` | operator (own) | `200 {path, parent, data: [{name, path, size, mode, mode_bits, is_dir, is_link, target?, owner, group, mod_time}]}`. Empty `path` opens the account's home directory as the guest reports it |
+| GET `/ssh-sessions/{id}/files/content?path=` | operator (own) | Streams the file as `application/octet-stream` with `Content-Disposition: attachment` — never rendered on the portal's origin |
+| POST `/ssh-sessions/{id}/files/content?path=&name=` | operator (own) | Body is the file itself, streamed to the guest → `201 {path, bytes}`. `name` must be a plain entry name; max 2 GiB |
+| POST `/ssh-sessions/{id}/files/mkdir` | operator (own) | `{path, name}` → `201 {path}` |
+| POST `/ssh-sessions/{id}/files/rename` | operator (own) | `{path, to}` → 204. Both absolute, so a rename is also a move |
+| POST `/ssh-sessions/{id}/files/chmod` | operator (own) | `{path, mode}` where mode is octal, e.g. `"644"` → 204 |
+| DELETE `/ssh-sessions/{id}/files?path=` | operator (own) | Deletes a file or an empty directory → 204. Not recursive, by design |
+
+`use_portal_key: true` authenticates with the portal's own key instead of
+anything typed; the request carries a boolean, never key material.
+
+**Problem codes:** `ssh.host_key_unknown` (409, body `{address, algorithm,
+fingerprint}` — show it and re-POST with `accept_host_key`),
+`ssh.host_key_mismatch` (409, body `{address, expected, got, first_seen_at}` —
+refused; accepting the new fingerprint does not override it),
+`ssh.auth_failed` (401), `ssh.unreachable` (502), `ssh.not_running` (409),
+`ssh.no_address` (422), `ssh.credential_required` (400), `ssh.bad_key` (400),
+`ssh.no_sftp` (422 — the terminal still works), `ssh.session_gone` (404),
+`ssh.too_many_sessions` (429), `ssh.bad_path` (400), `ssh.no_such_file` (404),
+`ssh.permission_denied` (403), `ssh.already_exists` (409),
+`ssh.no_portal_key` (409 — nothing generated yet),
+`ssh.bad_authorized_keys` (422 — the file on the guest is not readable as text,
+or is implausibly large).
+
+A session id belongs to one user: another signed-in operator presenting it gets
+the same 404 as one that never existed.
+
+### 8.4b The portal's SSH key
+
+Design: [ADR 0006](adr/0006-portal-owned-ssh-key.md). One key pair, held by the
+portal. The private half appears in no response; the public half is not a
+secret and is meant to be copied.
+
+| Method & URI | Roles | Description |
+|---|---|---|
+| GET `/ssh-key` | operator | `200 {exists: false}` or `200 {exists: true, public_key, algorithm, fingerprint, created_at}`. "Not generated yet" is a normal state, not a 404 |
+| POST `/ssh-key` | admin | Generate, or rotate if one exists → `201` with the same shape. Audited as `ssh_portal_key_created` or `ssh_portal_key_rotated`, the latter carrying the previous fingerprint and the number of installs it invalidated |
+| DELETE `/ssh-key` | admin | Forget the pair → 204. Lines already on guests are left behind; the count is audited |
+| GET `/ssh-key/installs` | admin | `200 {data: [{vm_id, vm_name, ssh_user, fingerprint, installed_at, installed_by, stale}]}` — every account the key was installed into. `stale` means it carries a key the portal no longer holds |
+| GET `/vms/{id}/ssh-key` | operator (scoped) | `200 {data: [...], key_exists, fingerprint?}` — the same rows for one VM, which is what lets the connect form offer key auth only where it will work |
+| POST `/ssh-sessions/{id}/portal-key` | operator (own) | Install the public half into `authorized_keys` for the account this session is signed in as → `201` with the install row. Appends; installing twice changes nothing |
+| DELETE `/ssh-sessions/{id}/portal-key` | operator (own) | Take the portal's line back out → 204. Only its own line; the record is forgotten either way |
+
+Install and removal run over a session the caller already authenticated, so the
+authorization is one they already had, and the write carries that guest
+account's permissions rather than any privilege of the portal's.
+
 ## 8.5 Platform management
 
 | Method & URI | Roles | Description |
@@ -107,7 +168,7 @@ Set-Cookie: proxui_rt=…; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth
 | POST `/users` | admin | `{username, email, display_name, role, groups[], temp_password}` → 201; `must_change_password` set |
 | GET/PUT `/users/{id}` | admin | Update role/groups/active/display; deactivate revokes sessions |
 | POST `/users/{id}/reset-password` | admin | → `{temp_password}` (shown once); revokes sessions |
-| DELETE `/users/{id}/totp` | admin | Reset MFA → 204 |
+| DELETE `/users/{id}/totp` | admin | Reset MFA → 204. The lost-phone path; audited against both accounts |
 
 ## 8.7 Audit
 

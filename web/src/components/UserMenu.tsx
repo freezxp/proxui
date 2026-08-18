@@ -16,10 +16,12 @@ const THEMES: { value: Theme; label: string }[] = [
 export function UserMenu({
   user,
   onChangePassword,
+  onTwoFactor,
   onSignOut,
 }: {
   user: CurrentUser
   onChangePassword: () => void
+  onTwoFactor: () => void
   onSignOut: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -122,6 +124,14 @@ export function UserMenu({
           </div>
 
           <MenuItem onClick={choose(onChangePassword)}>Change password</MenuItem>
+          <MenuItem onClick={choose(onTwoFactor)}>
+            Two-step verification
+            {user.totp_enabled && (
+              <span className="ml-2 rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
+                on
+              </span>
+            )}
+          </MenuItem>
           <MenuItem onClick={choose(onSignOut)} tone="danger">
             Sign out
           </MenuItem>

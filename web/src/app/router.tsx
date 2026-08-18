@@ -24,6 +24,24 @@ const ConsolePage = lazy(() =>
   import('@/features/console/ConsolePage').then((m) => ({ default: m.ConsolePage })),
 )
 
+// xterm.js is the same story as noVNC: only an SSH session needs it, so it is
+// fetched when one is opened (NFR-P5).
+const SshPage = lazy(() => import('@/features/shell/SshPage').then((m) => ({ default: m.SshPage })))
+
+function LazySsh() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center bg-[#0b0f17] text-sm text-white/70">
+          Loading terminal…
+        </div>
+      }
+    >
+      <SshPage />
+    </Suspense>
+  )
+}
+
 function LazyConsole() {
   return (
     <Suspense
@@ -42,6 +60,9 @@ const router = createBrowserRouter([
   // The console owns the whole viewport: no sidebar, no top bar, so it lives
   // beside the shell rather than inside it (docs/13-ui-design.md §13.2).
   { path: '/console/:vmId', element: <LazyConsole /> },
+  // The SSH terminal owns the viewport for the same reason, and lives in its
+  // own tab so navigating the portal cannot tear down a live session.
+  { path: '/ssh/:vmId', element: <LazySsh /> },
   {
     path: '/',
     element: <Shell />,

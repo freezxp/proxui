@@ -2,7 +2,16 @@
 <html lang="en" class="h-full">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      interactive-widget=resizes-content: when the soft keyboard opens, shrink
+      the page rather than sliding it under the keyboard, so a full-screen
+      page's bottom key bar stays on screen. Chrome honours it; Safari does
+      not, which is why useViewportHeight() measures instead of trusting it.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <title>ProxUI</title>
   </head>
   <body class="h-full">

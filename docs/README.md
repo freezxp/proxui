@@ -16,6 +16,7 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | Tenancy | Internal single-organization tool (no SaaS provisions) |
 | Scale target | 1–3 Proxmox clusters, < 500 VMs, tens of users |
 | Console access | Backend WebSocket proxy (noVNC/xterm.js) |
+| Guest shell access | Backend SSH bridge (xterm.js + SFTP); guest credential typed per session, never stored ([ADR 0005](adr/0005-ssh-credentials-are-never-stored.md)). The portal holds one key of its own, installed per account by an operator ([ADR 0006](adr/0006-portal-owned-ssh-key.md)) |
 | Authentication | Built-in (argon2id + JWT, optional TOTP) |
 | Platform auth | Proxmox API tokens, PVE 8.x–9.x (verified against 9.2) |
 | Metrics retention | 1 year+ (TimescaleDB) |
@@ -55,6 +56,7 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | 26 | [Google Sign-in Setup](26-google-sign-in.md) | creating the OAuth client, and the address rules Google enforces |
 | 27 | [Adding a Platform](27-adding-a-platform.md) | the Proxmox token and privileges every feature needs, end to end |
 | 28 | [Published Apps](28-published-apps.md) | **proposal** — managing Cloudflare Tunnel hostnames from the portal |
+| 29 | [SSH Terminal](29-ssh-terminal.md) | in-browser SSH with a file browser, and why the credential is never kept |
 
 ## How to read this package
 

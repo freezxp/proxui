@@ -103,3 +103,29 @@ func (p *Policy) SelfRegistrationEnabled(ctx context.Context) bool {
 	}
 	return false
 }
+
+// LiveReadsEnabled reports whether inventory reads should ask the platform for
+// current state before answering (docs/10 §10.6).
+//
+// Fails *open*, unlike the registration switch, and for the same reasoning
+// applied to a different risk: the failure here is a page that shows what the
+// last sync found, which is the behaviour the portal had before live reads
+// existed and is never dangerous. Treating an unreadable setting as "off"
+// would quietly turn the feature off during exactly the database wobble
+// nobody is watching for.
+func (p *Policy) LiveReadsEnabled(ctx context.Context) bool {
+	if p == nil || p.Settings == nil {
+		return true
+	}
+	stored, err := p.Settings.All(ctx)
+	if err != nil {
+		p.Log.Error().Err(err).Msg("could not read the live-reads setting; leaving it on")
+		return true
+	}
+	for _, v := range domain.Resolve(stored) {
+		if v.Key == "sync.live_reads" {
+			return v.Text != domain.LiveReadsOff
+		}
+	}
+	return true
+}

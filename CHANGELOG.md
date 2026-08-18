@@ -2,6 +2,153 @@
 
 ## Unreleased
 
+- **An SSH terminal, with a file browser** (docs/29, ADR 0005, SSH-01..10).
+  Operators and admins get a real shell on a guest — scrollback, copy and
+  paste, resize — instead of driving it through the hypervisor's console, plus
+  an SFTP panel beside it: browse, drag-and-drop upload with progress,
+  download, mkdir, rename, chmod, delete.
+
+  The credential is typed per session and kept nowhere: not in Postgres, not in
+  Redis, not in a log line, not in a response. That is the decision the rest of
+  the design falls out of — a session cannot be rebuilt, so the open connection
+  lives in the memory of the process that opened it, a restart ends every
+  session, and a load-balanced `--role=api` deployment would need session
+  affinity (the single-binary default does not).
+
+  Host keys are pinned per VM at the moment an operator confirms the
+  fingerprint, as OpenSSH does. A changed key is refused outright and cannot be
+  clicked past; clearing a pin is an admin-only endpoint. The portal negotiates
+  the host key algorithms OpenSSH prefers, in its order, so the fingerprint it
+  shows is the one the operator's own `ssh` shows them.
+
+  The address is chosen from what the platform reported, skipping loopback,
+  link-local and container-bridge addresses that would hang rather than fail.
+  An operator may name a different one, and it is checked against that same
+  list: the portal reaches far more network than a grant over one VM implies.
+
+  Copy and paste degrade to a panel on a plain-HTTP origin, where the browser
+  offers no clipboard API at all — the LAN deployment this portal documents.
+
+- **On-screen keys in the SSH terminal** (docs/29 §29.7a, SSH-08): Esc, Tab,
+  Ctrl, Alt, arrows, Home/End, PgUp/PgDn, and one-tap `^C ^D ^Z ^L ^R`. A
+  phone's keyboard has none of them, which left the browser terminal readable
+  but not usable — no history recall, no completion, no way to stop a runaway
+  command. The bar defaults on for touch and toggles from the toolbar
+  everywhere else.
+
+  Modifiers are sticky rather than held, since a touchscreen cannot chord: Ctrl
+  arms, the next keystroke spends it, and an armed modifier shows as pressed.
+  Cursor keys are encoded in the form the guest is currently asking for —
+  application cursor mode in vim and less — and modifiers travel as a
+  parameter, so Ctrl+Left jumps a word instead of printing `^[[D`.
+
+  Fixed: the bar did not appear on the phone it exists for. It is the last row
+  of a full-height page, and the SSH page was still sized in `100vh` — the
+  height with the browser's own bars hidden — so the bar sat under them on a
+  page that does not scroll. Worse, neither `100vh` nor `100dvh` shrinks when
+  the soft keyboard opens, which put the bar behind the very keyboard it is
+  there to complete. Both pages now measure `visualViewport` and size
+  themselves to what is actually on screen, and the console's key strip was
+  hidden the same way.
+
+- **Live VM state on page load** (docs/10 §10.6). The VM list and detail pages
+  now ask the platform for current power state instead of showing what the last
+  sync found up to a minute ago — so the Shut down and Reboot buttons reflect
+  the machine as it is, and a state change appears in seconds rather than at
+  the next sync tick.
+
+  It is an overlay, not a second copy of the inventory: the live read never
+  writes to `vms`. The reconciler decides what changed by diffing that table,
+  and a live read that updated it first would leave nothing to diff — silently
+  ending the `vm.state_changed` events that history and notifications are built
+  on. Only state and uptime are overlaid; names, tags and whether a VM has gone
+  missing stay the sync's judgement.
+
+  On Proxmox a read is one `/cluster/resources` call for the whole cluster,
+  coalesced across concurrent viewers, reused for 3 s, bounded at 2.5 s, and
+  skipped for a platform whose breaker is open. A cluster that is down costs
+  one attempt per interval, not one per page load, and every failure falls back
+  to the synced row — the behaviour the portal had before. A power action drops
+  the cached snapshot for its platform so the next page is a real read.
+
+  `sync.live_reads` in Settings turns it off without a redeploy, and fails open.
+
+- **Fixed a data race in the SSH terminal.** The stdout/stderr merge pipe was
+  built lazily on first read, under one `sync.Once`, while Close read the same
+  fields under another — two Onces guarding the same fields exclude nothing. A
+  browser closing its socket during the first read could see a half-written
+  pipe writer and then never close it, stranding the copy goroutines until the
+  session sweep. The pipe is built at construction now. Found by `-race`, and
+  it reproduced in two runs out of six.
+
+- **Two-step verification** (AUTH-04, docs/15 §15.1), the TOTP the design has
+  specified since day one and nothing implemented.
+
+  RFC 6238, six digits, thirty seconds, written against the RFC's own published
+  test vectors rather than taken from a dependency — the vectors are the reason
+  it can be trusted, and they are in the test file. Any authenticator app
+  works; the QR code is drawn in the browser from the otpauth URL, so the seed
+  reaches no other origin, and the key is shown as text beside it for anything
+  that cannot scan.
+
+  What makes it worth having is the closed failure modes, each with a test:
+
+  - **A code works exactly once.** A correct code stays arithmetically correct
+    for up to ninety seconds across the accepted window, so the step it matched
+    is recorded and a repeat is refused — one glance over a shoulder is not a
+    sign-in.
+  - **The password alone mints nothing.** A challenged login returns no token,
+    no cookie, and records no success; the session, the cleared failure count
+    and the last-login stamp all wait for the code.
+  - **Guessing is bounded.** Five attempts per challenge, the challenge dies
+    with the fifth, and it expires after five minutes regardless. The verify
+    endpoint carries login's rate limit.
+  - **Enrolment is inert until confirmed.** A badly scanned QR is a retry, not
+    an account locked out of its own portal.
+  - **Turning it off costs the password**, or an unlocked screen would be
+    enough to remove it.
+  - **An account disabled mid-sign-in does not get in** — the checks run again
+    at the code step, not only at the password.
+
+  The seed is sealed with the same envelope encryption as a platform
+  credential. Migration 00018 replaces the single `totp_secret_enc` column the
+  original schema reserved, which could never have held a wrapped data key and
+  was never written to.
+
+  Admins get the lost-phone path: `DELETE /users/{id}/totp`, audited against
+  both accounts, with a 2FA badge in the user list showing who has one.
+
+- **The portal can hold one SSH key of its own** (docs/29.8a, ADR 0006,
+  SSH-11..14), so connecting stops meaning typing a password every time.
+
+  Ed25519, generated by the portal, private half sealed with the same envelope
+  encryption as a platform credential and returned by nothing. An operator
+  connects with a password once, clicks Install portal key, and the public half
+  goes into that account's `authorized_keys` over the session they already
+  authenticated — with that account's permissions, so the portal gains no reach
+  it was not given. The line can also be copied out of Settings and pasted into
+  cloud-init for a guest nobody has a password on.
+
+  ADR 0005 is amended, not overturned: a guest password is still used once and
+  dropped. What is stored is the portal's own credential, whose blast radius is
+  the accounts somebody deliberately installed it into, and whose revocation is
+  deleting one line — offered in the same toolbar that installed it.
+
+  Rotating replaces the single pair and invalidates every install at once; the
+  confirmation says so and names the count, and the installs left behind are
+  listed as stale rather than quietly relabelled. Generating, rotating,
+  deleting and the estate-wide install list are admin-only; reading the public
+  key is not, because pasting it is a supported install path.
+
+  Connecting with it sends `use_portal_key: true` and no key material, and
+  every session open and denial now records which method was used.
+
+  One bug worth naming, caught by the end-to-end test rather than by review:
+  the install first opened `authorized_keys` with the SFTP append flag and
+  trusted the server to honour it. A server that ignores the flag takes the
+  client's offset — zero — and overwrites from the start, erasing every key
+  already in the file. It seeks to the end now, and two tests pin it.
+
 - **A Published apps panel** (docs/28 P5), admin only. Connect a Cloudflare
   account, see the tunnel's live routing table with each rule joined to the VM
   behind it, and publish a service by picking a VM and a port. Rules the portal

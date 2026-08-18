@@ -1,14 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api, setAccessToken, setUnauthenticatedHandler, refreshSession } from '@/api/client'
-import type { CurrentUser, TokenResponse } from '@/api/types'
+import type { CurrentUser, MFAChallengeResponse, TokenResponse } from '@/api/types'
 
 interface AuthState {
   user: CurrentUser | null
   /** True until the first refresh attempt settles, so the router does not
    *  bounce a returning user to the login page before their cookie is tried. */
   loading: boolean
-  login: (username: string, password: string) => Promise<void>
+  /** Signs in. Returns a challenge when the account has a second factor
+   *  enrolled, in which case no session exists yet and `verifyMFA` finishes
+   *  the job (AUTH-04). */
+  login: (username: string, password: string) => Promise<MFAChallengeResponse | null>
+  /** Completes a challenged sign-in with a code from the authenticator app. */
+  verifyMFA: (mfaToken: string, code: string) => Promise<void>
   registerAccount: (input: RegisterInput) => Promise<void>
   logout: () => Promise<void>
   reload: () => Promise<void>
@@ -49,9 +54,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (username: string, password: string) => {
-      const token = await api.post<TokenResponse>(
+      const result = await api.post<TokenResponse | MFAChallengeResponse>(
         '/auth/login',
         { username, password },
+        { skipRefresh: true },
+      )
+      // A challenge is a 200 with no token: the password was right and the
+      // sign-in is half done. Nothing is stored, and the caller shows the code
+      // form rather than treating it as a failure.
+      if ('mfa_required' in result) return result
+      setAccessToken(result.access_token)
+      await loadUser()
+      return null
+    },
+    [loadUser],
+  )
+
+  const verifyMFA = useCallback(
+    async (mfaToken: string, code: string) => {
+      const token = await api.post<TokenResponse>(
+        '/auth/mfa',
+        { mfa_token: mfaToken, code },
         { skipRefresh: true },
       )
       setAccessToken(token.access_token)
@@ -82,8 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, login, registerAccount, logout, reload: loadUser }),
-    [user, loading, login, registerAccount, logout, loadUser],
+    () => ({ user, loading, login, verifyMFA, registerAccount, logout, reload: loadUser }),
+    [user, loading, login, verifyMFA, registerAccount, logout, loadUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -4,6 +4,7 @@ import RFB from '@novnc/novnc'
 import { api, ApiError } from '@/api/client'
 import type { VMDetail } from '@/api/types'
 import { StateBadge } from '@/components/StateBadge'
+import { useViewportHeight } from '@/lib/viewport'
 
 type Phase = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -315,6 +316,7 @@ export function ConsolePage() {
   }, [incoming, flash])
 
   const [fullscreen, setFullscreen] = useState(false)
+  const viewportHeight = useViewportHeight()
   useEffect(() => {
     const onChange = () => setFullscreen(Boolean(document.fullscreenElement))
     document.addEventListener('fullscreenchange', onChange)
@@ -324,8 +326,13 @@ export function ConsolePage() {
   return (
     // 100dvh rather than 100vh: on a phone, 100vh is the height with the
     // browser's own bars hidden, so the bottom of the console sits underneath
-    // them until the user scrolls.
-    <div className="flex h-[100dvh] flex-col bg-black">
+    // them until the user scrolls. 100dvh still does not shrink when the soft
+    // keyboard opens, which is precisely when the key strip below has to be
+    // visible, so the measured visual viewport wins where it is available.
+    <div
+      className="flex h-[100dvh] flex-col bg-black"
+      style={viewportHeight === null ? undefined : { height: viewportHeight }}
+    >
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-surface px-3 py-2 sm:px-4">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium">{vm?.name ?? 'Console'}</span>

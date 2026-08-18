@@ -10,18 +10,28 @@ export function LoginPage({ onRegister }: { onRegister: () => void }) {
   // The Google callback redirects here with a reason when it could not
   // finish, rather than rendering a page of its own.
   const ssoError = new URLSearchParams(window.location.search).get('sso')
-  const { login } = useAuth()
+  const { login, verifyMFA } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Set once the password has been accepted and a code is owed (AUTH-04).
+  // Holding it here rather than routing to a second page keeps the half-signed
+  // -in state in one component, where it dies with a reload as it should.
+  const [mfaToken, setMfaToken] = useState<string | null>(null)
+  const [code, setCode] = useState('')
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      await login(username, password)
+      const challenge = await login(username, password)
+      if (challenge) {
+        setMfaToken(challenge.mfa_token)
+        setCode('')
+        return
+      }
     } catch (err) {
       // The server deliberately does not say which half was wrong; repeating
       // its message keeps the UI from inventing a distinction that would help
@@ -40,6 +50,95 @@ export function LoginPage({ onRegister }: { onRegister: () => void }) {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function onVerify(event: React.FormEvent) {
+    event.preventDefault()
+    if (!mfaToken) return
+    setBusy(true)
+    setError(null)
+    try {
+      await verifyMFA(mfaToken, code)
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'auth.mfa_challenge_expired') {
+        // The challenge is gone — too many wrong codes, or too long spent
+        // looking for the phone. There is nothing to retry against, so the
+        // form goes back to the password rather than to a prompt that will
+        // never accept anything again.
+        setMfaToken(null)
+        setPassword('')
+        setError('That sign-in attempt expired. Sign in again.')
+      } else if (err instanceof ApiError && err.status === 429) {
+        setError('Too many attempts. Wait a moment and try again.')
+      } else if (err instanceof ApiError) {
+        setError('That code is not valid. Check your authenticator app and try again.')
+      } else {
+        setError('Could not reach the portal.')
+      }
+      setCode('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (mfaToken) {
+    return (
+      <div className="flex min-h-full items-center justify-center px-4">
+        <form
+          onSubmit={onVerify}
+          className="w-full max-w-sm space-y-5 rounded-lg border border-border bg-surface-raised p-8 shadow-sm"
+        >
+          <div>
+            <h1 className="text-xl font-semibold">Two-step verification</h1>
+            <p className="mt-1 text-sm text-muted">
+              Enter the 6-digit code from your authenticator app.
+            </p>
+          </div>
+
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Code</span>
+            <input
+              autoFocus
+              // one-time-code lets a phone offer the code from its keyboard,
+              // which is most of what makes this bearable on mobile.
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-center font-mono text-lg tracking-[0.4em] outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            />
+          </label>
+
+          {error && (
+            <p role="alert" className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={busy || code.length !== 6}
+            className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {busy ? 'Verifying…' : 'Verify'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMfaToken(null)
+              setPassword('')
+              setError(null)
+            }}
+            className="w-full text-center text-sm text-muted hover:underline"
+          >
+            Cancel
+          </button>
+        </form>
+      </div>
+    )
   }
 
   return (

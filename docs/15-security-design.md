@@ -10,7 +10,7 @@ Threat-model framing: the portal concentrates access to hypervisors, so *it* bec
 | Password policy | ≥12 chars, no composition theater; offline check against bundled top-1M breached list; deny username-in-password |
 | Access token | JWT **RS256** (key pair generated at install, private key file-mounted; JWKS endpoint internal); 15 min TTL; claims: `sub`, `role`, `sid`, `iat/exp`, `jti`. Verified per request + `sid` checked against a Redis revocation set (deactivation is immediate, not TTL-delayed) |
 | Refresh token | 256-bit random, SHA-256 hash stored; httpOnly+Secure+SameSite=Strict cookie scoped `/api/v1/auth`; **rotation with family reuse-detection** (an attacker replaying a stolen rotated token kills the whole family and raises a `security` event) |
-| MFA | TOTP (RFC 6238), secret envelope-encrypted at rest, ±1 step window, rate-limited verify; admin reset audited |
+| MFA | TOTP (RFC 6238, SHA-1/6 digits/30 s, pinned to the RFC's own test vectors), seed envelope-encrypted at rest, ±1 step window with the accepted step recorded so no code works twice, enrolment inert until confirmed, five attempts per challenge, challenge expires in 5 min, verify rate-limited as strictly as login; disabling costs the account password; admin reset audited against both accounts |
 | Lockout | 5 fails / 15 min → 15 min lock (per-account) + per-IP login throttle (per-IP alone is defeatable behind NAT; both are needed) |
 | Bootstrap | first-run admin from `PROXUI_ADMIN_*` env/secret; forced password change + MFA prompt on first login |
 

@@ -25,11 +25,18 @@ func NewAssetRepository(db *Pool) *AssetRepository { return &AssetRepository{db:
 // The reconciler holds this in memory for one run: at the scale ProxUI targets
 // this is a few hundred small rows, and it turns per-asset lookups into one
 // query (docs/10-sync-engine.md §10.3).
+//
+// Deleted rows are included, and that is load-bearing rather than incidental.
+// A soft delete leaves the row in place, so `(platform_id, external_id)` is
+// still taken; an index that hid those rows told the reconciler to INSERT a VM
+// that already existed, and the unique constraint refused it. One guest
+// returning after three missed runs then failed the whole platform's sync, on
+// every run, until somebody deleted the row by hand.
 func (r *AssetRepository) LoadVMIndex(ctx context.Context, platformID uuid.UUID) (map[string]ports.StoredAsset, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT external_id, id, content_hash, sync_state, missing_count, name, state::text,
 		       coalesce(host_id::text,''), cpu_cores, memory_bytes, disk_bytes
-		FROM vms WHERE platform_id = $1 AND sync_state <> 'deleted'`, platformID)
+		FROM vms WHERE platform_id = $1`, platformID)
 	if err != nil {
 		return nil, fmt.Errorf("load vm index: %w", err)
 	}
@@ -109,6 +116,15 @@ func (r *AssetRepository) UpsertVM(ctx context.Context, tx ports.Querier, platfo
 	}
 
 	changes := diffVM(*existing, rec, hostID)
+	if existing.SyncState == inventory.SyncDeleted {
+		// The UPDATE below revives the row anyway — sync_state back to active,
+		// deleted_at cleared. Saying so explicitly matters because a guest that
+		// comes back unchanged produces no other field change, and the history
+		// tab would otherwise show it deleted and never heard from again.
+		changes = append([]inventory.FieldChange{
+			{Field: inventory.FieldRestored, New: rec.Name},
+		}, changes...)
+	}
 	_, err = tx.Exec(ctx, `
 		UPDATE vms SET host_id=$2, name=$3, vm_type=$4, state=$5, cpu_cores=$6,
 			memory_bytes=$7, disk_bytes=$8, uptime_s=$9, ip_addresses=$10,

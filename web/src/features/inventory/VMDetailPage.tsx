@@ -92,7 +92,11 @@ export function VMDetailPage() {
           </Link>
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-semibold">{detail.name}</h1>
-            <StateBadge state={detail.state} stale={detail.sync_state === 'missing'} />
+            <StateBadge
+              state={detail.state}
+              stale={detail.sync_state === 'missing'}
+              liveAt={detail.live_at}
+            />
           </div>
           <p className="text-sm text-muted">
             {detail.vm_type} · {detail.external_id} · {detail.platform_name}
@@ -117,6 +121,30 @@ export function VMDetailPage() {
                 title={detail.state === 'running' ? undefined : 'The VM is not running'}
               >
                 Open console
+              </a>
+            )}
+
+            {user && can.openSsh(user.role) && (
+              <a
+                href={`/ssh/${detail.id}`}
+                target="_blank"
+                rel="noreferrer"
+                // Its own tab, for the same reason as the console: a live
+                // session must survive navigating the portal (SSH-01).
+                className={`rounded-md border px-3 py-2 text-sm font-medium ${
+                  detail.state === 'running' && detail.ip_addresses.length > 0
+                    ? 'border-border hover:bg-surface-raised'
+                    : 'pointer-events-none border-border text-muted opacity-60'
+                }`}
+                title={
+                  detail.state !== 'running'
+                    ? 'The VM is not running'
+                    : detail.ip_addresses.length === 0
+                      ? 'No address is known for this VM yet — it needs the guest agent'
+                      : undefined
+                }
+              >
+                SSH
               </a>
             )}
 

@@ -164,12 +164,9 @@ func vmIDFrom(event ports.DomainEvent) uuid.UUID {
 
 // ServeHTTP upgrades a subscriber and streams events for the connection's life.
 func (h *EventHub) ServeHTTP(w http.ResponseWriter, r *http.Request, userID uuid.UUID, role identity.Role) {
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			return origin == "" || sameOrigin(origin, r)
-		},
-	}
+	// Same-origin only: unlike the console and terminal bridges the event
+	// stream has no configurable allow-list, so it passes none.
+	upgrader := websocket.Upgrader{CheckOrigin: originAllowed(nil)}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return

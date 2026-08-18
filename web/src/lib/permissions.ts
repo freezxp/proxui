@@ -18,6 +18,9 @@ export const can = {
    *  behind it is an administrator's job. */
   viewInfrastructure: (role: Role) => role === 'admin' || role === 'readonly' || role === 'auditor',
   openConsole: (role: Role) => role === 'admin' || role === 'operator',
+  /** SSH is the same power over the same machines by a different door, so it
+   *  carries the same gate as the console (SSH-01). */
+  openSsh: (role: Role) => role === 'admin' || role === 'operator',
   powerActions: (role: Role) => role === 'admin' || role === 'operator',
   editAnnotations: (role: Role) => role === 'admin' || role === 'operator',
   viewAudit: (role: Role) => role === 'admin' || role === 'auditor',
@@ -30,6 +33,7 @@ export const can = {
   publishApps: (role: Role) => role === 'admin',
   manageUsers: (role: Role) => role === 'admin',
   viewConsoleSessions: (role: Role) => role === 'admin',
+  viewSshSessions: (role: Role) => role === 'admin',
 }
 
 export function roleLabel(role: Role): string {

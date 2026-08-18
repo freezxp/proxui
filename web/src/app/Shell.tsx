@@ -5,6 +5,7 @@ import { can } from '@/lib/permissions'
 import { useBranding } from '@/lib/branding'
 import { UserMenu } from '@/components/UserMenu'
 import { ChangePasswordDialog } from '@/features/auth/ChangePasswordDialog'
+import { TwoFactorDialog } from '@/features/auth/TwoFactorPanel'
 import {
   IconAudit,
   IconChevronLeft,
@@ -89,6 +90,7 @@ function useCollapsed(): [boolean, () => void] {
 export function Shell() {
   const { user, logout } = useAuth()
   const [changingPassword, setChangingPassword] = useState(false)
+  const [managingTwoFactor, setManagingTwoFactor] = useState(false)
   const [collapsed, toggleCollapsed] = useCollapsed()
   const branding = useBranding()
   if (!user) return null
@@ -114,9 +116,12 @@ export function Shell() {
         <UserMenu
           user={user}
           onChangePassword={() => setChangingPassword(true)}
+          onTwoFactor={() => setManagingTwoFactor(true)}
           onSignOut={() => void logout()}
         />
       </header>
+
+      {managingTwoFactor && <TwoFactorDialog onClose={() => setManagingTwoFactor(false)} />}
 
       {changingPassword && (
         <ChangePasswordDialog

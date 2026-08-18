@@ -21,9 +21,13 @@ type AdminDeps struct {
 	ResetPassword *command.ResetPassword
 	SetUserGroups *command.SetUserGroups
 	ManageAccess  *command.ManageAccess
-	Users         ports.UserRepository
-	Access        ports.AccessRepository
-	Audit         ports.AuditWriter
+	// MFA resets another account's second factor: the lost-phone path
+	// (AUTH-04). It lives here rather than with the self-service enrolment
+	// because it is an administrator acting on somebody else's account.
+	MFA    *command.MFA
+	Users  ports.UserRepository
+	Access ports.AccessRepository
+	Audit  ports.AuditWriter
 }
 
 // --- payloads ----------------------------------------------------------

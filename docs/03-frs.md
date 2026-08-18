@@ -9,7 +9,7 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 | AUTH-01 | M | Users authenticate with username + password; passwords hashed with argon2id (see security doc for parameters). Google (OpenID Connect) was added later — see [ADR 0003](adr/0003-self-registration-and-google-sign-in.md). |
 | AUTH-02 | M | Successful login issues a short-lived JWT access token (15 min) and a rotating refresh token (7 days, httpOnly secure cookie). |
 | AUTH-03 | M | Refresh tokens are single-use; reuse of a rotated token revokes the whole session family and raises a security event. |
-| AUTH-04 | S | Users may enroll TOTP (RFC 6238); when enrolled, login requires the 6-digit code. Admin can reset a user's TOTP. |
+| AUTH-04 | S | Users may enroll TOTP (RFC 6238); when enrolled, login requires the 6-digit code. Enrolment is not live until a code confirms it. A code is accepted once — the step it matched is recorded, so it cannot be replayed inside its window. A challenge allows five attempts and expires in 5 minutes; the password step alone issues no session. Disabling requires the account password; admin can reset a user's TOTP, audited against both accounts. |
 | AUTH-05 | M | 5 failed logins within 15 min locks the account for 15 min; lockout and failures are audited and raise security events. |
 | AUTH-06 | M | Admin can deactivate a user; deactivation immediately revokes all sessions. |
 | AUTH-07 | M | Logout revokes the refresh session; "logout everywhere" revokes all of the user's sessions. |
@@ -82,6 +82,27 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 | CONS-04 | M | Sessions are recorded in audit: user, VM, start, end, duration, close reason. Admin can list and force-close active sessions. |
 | CONS-05 | M | Idle console sessions close after 30 min (configurable); hard cap 8 h. |
 | CONS-06 | C | Serial console via xterm.js (`termproxy`) for VMs with serial devices; LXC support. |
+
+## 3.6a SSH terminal and file transfer (SSH)
+
+Design: [29-ssh-terminal.md](29-ssh-terminal.md) · Credential decisions: [ADR 0005](adr/0005-ssh-credentials-are-never-stored.md) (guest credentials are never stored) and [ADR 0006](adr/0006-portal-owned-ssh-key.md) (the portal owns one key)
+
+| ID | Pri | Requirement |
+|---|---|---|
+| SSH-01 | M | SSH button on VM detail (and list row) for Operator/Admin opens an xterm.js terminal in the portal, scoped per VM by the same grants as the console. |
+| SSH-02 | M | The portal connects from the server to an address the platform reported for that VM; the browser never reaches the guest. A host that is not in that list is refused — the portal is not an SSH proxy to the rest of the network. |
+| SSH-03 | M | Credentials (username + password, or private key and optional passphrase) are supplied per session and held only in the memory of the process serving it: never in Postgres, Redis, a log line, or any API response. |
+| SSH-04 | M | Host keys are pinned per VM on first use, after the operator confirms the fingerprint. A changed key is refused outright; clearing a pin is an admin-only, audited action on a separate endpoint. |
+| SSH-05 | M | The terminal WebSocket is authorized by a one-time ticket bound to user + VM + session, expiring unused in 60 s. One terminal per session. |
+| SSH-06 | M | Sessions are recorded: user, VM, SSH username, address, start, end, duration, close reason, bytes. Admin can list and force-close. Every ending is recorded, including swept and shutdown ones. |
+| SSH-07 | M | Idle sessions close after 30 min; hard cap 8 h — enforced server-side, including for a session with no terminal attached. |
+| SSH-08 | M | Copy and paste both ways, including on a plain-HTTP origin where the asynchronous clipboard API does not exist. |
+| SSH-09 | S | SFTP file browser over the same connection: list, download, upload (drag-and-drop, streamed, with progress), mkdir, rename, delete, chmod. A guest without SFTP still gets a terminal. |
+| SSH-10 | M | Every file endpoint resolves the session for the calling user; another user's session id yields the same 404 as one that does not exist. Writes and transfers are audited with path and byte count; listing is not. |
+| SSH-11 | S | The portal holds one Ed25519 key pair of its own. The private half is sealed with the same envelope encryption as a platform credential and is never returned by any endpoint; the public half is readable by an operator, because pasting it into cloud-init is a supported way to install it. Generating, rotating and deleting it are admin-only and audited. |
+| SSH-12 | S | An operator can install the public half into `authorized_keys` for the account an open session is signed in as — over that session, with that account's permissions. The write appends and never truncates: keys already in the file survive it. `~/.ssh` is created at 0700 and `authorized_keys` set to 0600, because sshd ignores a file anyone else can write. Installing twice is a no-op. |
+| SSH-13 | S | A connect can ask for the portal key instead of a typed credential. The request carries a boolean, never key material; the private half is read from the vault after the caller has been shown to be allowed on that VM. Every session open and every denial records which method was used. |
+| SSH-14 | S | Removing the key from an account is available to the operator over the same session, takes out only the portal's own line, and forgets the install record either way. Rotation invalidates every install at once; those left behind are listed as stale rather than shown as working. |
 
 ## 3.7 Performance (PERF)
 

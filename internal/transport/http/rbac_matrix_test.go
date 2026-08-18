@@ -16,9 +16,11 @@ import (
 
 	"github.com/freezxp/proxui/internal/app/command"
 	"github.com/freezxp/proxui/internal/app/ports"
+	"github.com/freezxp/proxui/internal/app/shellreg"
 	"github.com/freezxp/proxui/internal/domain/access"
 	"github.com/freezxp/proxui/internal/domain/console"
 	"github.com/freezxp/proxui/internal/domain/identity"
+	"github.com/freezxp/proxui/internal/domain/shell"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 )
 
@@ -114,6 +116,7 @@ func matrixServer(role identity.Role) *Server {
 			Users:    &fakeUserLoader{user: testUser()},
 			Tokens:   roleTokenParser{role: role, userID: uuid.New()},
 			Sessions: &fakeSessionChecker{active: true},
+			MFA:      stubMFA{},
 		},
 		Metrics: MetricsDeps{Metrics: stubMetrics{}},
 		Console: ConsoleDeps{
@@ -126,14 +129,38 @@ func matrixServer(role identity.Role) *Server {
 		Inventory: InventoryDeps{
 			Inventory: stubInventory{}, Audit: stubAudit{}, Metrics: stubMetrics{},
 		},
+		// Wired with a dialer that reaches nothing: the matrix measures who is
+		// allowed through the gate, and a handler that panicked on a nil
+		// dependency would be indistinguishable from one that let them.
+		Shell: ShellDeps{
+			Open: &command.OpenShell{
+				Inventory: stubInventory{}, Sessions: stubShell{}, HostKeys: stubHostKeys{},
+				Tickets: shellreg.NewTicketStore(clock.Now), Registry: shellreg.NewRegistry(clock.Now),
+				Dialer: refusingDialer{}, Audit: audit, Clock: clock,
+			},
+			Close: &command.CloseShell{Sessions: stubShell{}, Registry: shellreg.NewRegistry(clock.Now), Audit: audit, Clock: clock},
+			Files: &command.ShellFiles{Registry: shellreg.NewRegistry(clock.Now), Audit: audit, Clock: clock},
+			Keys: &command.PortalKey{
+				Keys: stubPortalKey{}, KeyGen: stubKeyGen{},
+				Registry: shellreg.NewRegistry(clock.Now), Inventory: stubInventory{},
+				Audit: audit, Clock: clock,
+			},
+			Sessions: stubShell{},
+			HostKeys: stubHostKeys{},
+		},
 		Admin: AdminDeps{
 			CreateUser:    &command.CreateUser{Users: users, Access: accessRepo, Hasher: noopHasher{}, Audit: audit, Clock: clock},
 			UpdateUser:    &command.UpdateUser{Users: users, Sessions: sessions, Audit: audit, Clock: clock},
 			ResetPassword: &command.ResetPassword{Users: users, Sessions: sessions, Hasher: noopHasher{}, Audit: audit, Clock: clock},
 			SetUserGroups: &command.SetUserGroups{Users: users, Access: accessRepo, Audit: audit, Clock: clock},
 			ManageAccess:  &command.ManageAccess{Access: accessRepo, Audit: audit, Clock: clock},
-			Users:         users,
-			Access:        accessRepo,
+			MFA: &command.MFA{
+				Users: users, TOTP: stubTOTPStore{}, Codec: stubTOTPCodec{},
+				Challenges: stubChallenges{}, Hasher: noopHasher{},
+				Vault: matrixVault(), Audit: audit, Clock: clock,
+			},
+			Users:  users,
+			Access: accessRepo,
 		},
 	})
 }
@@ -188,6 +215,90 @@ func (stubInventory) SetPortalTags(context.Context, uuid.UUID, []string) error {
 func (stubInventory) SetNotes(context.Context, uuid.UUID, string) error        { return nil }
 func (stubInventory) Dashboard(context.Context, identity.Role, uuid.UUID) (ports.DashboardSummary, error) {
 	return ports.DashboardSummary{}, nil
+}
+
+// stubPortalKey answers as a portal that has never generated a key: the
+// authorization gate is what this file measures, and "no key yet" is the state
+// every one of these routes has to survive without a panic.
+type stubPortalKey struct{}
+
+func (stubPortalKey) Get(context.Context) (shell.PortalKey, error) {
+	return shell.PortalKey{}, ports.ErrNotFound
+}
+func (stubPortalKey) PrivateKey(context.Context) (string, error)             { return "", ports.ErrNotFound }
+func (stubPortalKey) Replace(context.Context, shell.PortalKey, string) error { return nil }
+func (stubPortalKey) Delete(context.Context) error                           { return nil }
+func (stubPortalKey) Installs(context.Context, uuid.UUID) ([]shell.KeyInstall, error) {
+	return nil, nil
+}
+func (stubPortalKey) RecordInstall(context.Context, shell.KeyInstall) error  { return nil }
+func (stubPortalKey) ForgetInstall(context.Context, uuid.UUID, string) error { return nil }
+
+// stubKeyGen hands back a fixed pair rather than burning entropy on a test
+// that never dials anything.
+type stubKeyGen struct{}
+
+func (stubKeyGen) Generate(comment string) (string, shell.PortalKey, error) {
+	return "-----BEGIN OPENSSH PRIVATE KEY-----\nnot-a-real-key\n-----END OPENSSH PRIVATE KEY-----\n",
+		shell.PortalKey{
+			PublicKey:   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyForTheMatrix " + comment,
+			Algorithm:   "ssh-ed25519",
+			Fingerprint: "SHA256:matrix",
+		}, nil
+}
+
+// The second factor, stubbed to the state every one of its routes has to
+// survive: nothing enrolled, no challenge outstanding (AUTH-04).
+type stubMFA struct{}
+
+func (stubMFA) Begin(context.Context, command.Actor) (command.EnrollTOTPOutput, error) {
+	return command.EnrollTOTPOutput{Secret: "JBSWY3DPEHPK3PXP", OTPAuthURL: "otpauth://totp/x"}, nil
+}
+func (stubMFA) Confirm(context.Context, command.Actor, string) error { return nil }
+func (stubMFA) Disable(context.Context, command.Actor, string) error { return nil }
+func (stubMFA) Verify(context.Context, command.VerifyMFAInput) (command.LoginOutput, error) {
+	return command.LoginOutput{}, identity.ErrMFAChallengeNotFound
+}
+
+type stubTOTPStore struct{}
+
+func (stubTOTPStore) Enroll(context.Context, uuid.UUID, crypto.SealedSecret, time.Time) error {
+	return nil
+}
+func (stubTOTPStore) Secret(context.Context, uuid.UUID, *crypto.Vault) (string, error) {
+	return "", ports.ErrNotFound
+}
+func (stubTOTPStore) Enable(context.Context, uuid.UUID, int64, time.Time) error { return nil }
+func (stubTOTPStore) Disable(context.Context, uuid.UUID, time.Time) error       { return nil }
+func (stubTOTPStore) LastStep(context.Context, uuid.UUID) (*int64, error)       { return nil, nil }
+func (stubTOTPStore) RecordStep(context.Context, uuid.UUID, int64, time.Time) error {
+	return nil
+}
+
+type stubTOTPCodec struct{}
+
+func (stubTOTPCodec) NewSecret() (string, error)                       { return "JBSWY3DPEHPK3PXP", nil }
+func (stubTOTPCodec) Validate(string, string, time.Time) (int64, bool) { return 0, false }
+func (stubTOTPCodec) URL(string, string) string                        { return "otpauth://totp/x" }
+
+type stubChallenges struct{}
+
+func (stubChallenges) Issue(context.Context, identity.MFAChallenge) error { return nil }
+func (stubChallenges) Get(context.Context, string) (identity.MFAChallenge, error) {
+	return identity.MFAChallenge{}, ports.ErrNotFound
+}
+func (stubChallenges) Fail(context.Context, string) (identity.MFAChallenge, error) {
+	return identity.MFAChallenge{}, ports.ErrNotFound
+}
+func (stubChallenges) Consume(context.Context, string) error { return nil }
+
+func matrixVault() *crypto.Vault {
+	key := make([]byte, crypto.MasterKeySize)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	v, _ := crypto.NewVault(key, 1)
+	return v
 }
 
 type stubAudit struct{}
@@ -323,4 +434,34 @@ func TestPermissionAllows(t *testing.T) {
 			t.Errorf("authenticated permission denied %s", r)
 		}
 	}
+}
+
+// stubShell, stubHostKeys and refusingDialer keep the SSH routes answerable in
+// the matrix without an sshd anywhere near it.
+type stubShell struct{}
+
+func (stubShell) Create(context.Context, *shell.Session) error              { return nil }
+func (stubShell) MarkConnected(context.Context, uuid.UUID, time.Time) error { return nil }
+func (stubShell) Close(context.Context, uuid.UUID, string, int64, int64, time.Time) error {
+	return nil
+}
+func (stubShell) Get(context.Context, uuid.UUID) (*shell.Session, error) {
+	return nil, ports.ErrNotFound
+}
+func (stubShell) List(context.Context, bool, int) ([]ports.ShellSessionRecord, error) {
+	return nil, nil
+}
+
+type stubHostKeys struct{}
+
+func (stubHostKeys) Get(context.Context, uuid.UUID) (shell.HostKey, error) {
+	return shell.HostKey{}, ports.ErrNotFound
+}
+func (stubHostKeys) Trust(context.Context, shell.HostKey) error { return nil }
+func (stubHostKeys) Forget(context.Context, uuid.UUID) error    { return nil }
+
+type refusingDialer struct{}
+
+func (refusingDialer) Dial(context.Context, ports.SSHTarget, ports.SSHCredential, ports.HostKeyPolicy) (ports.ShellConn, error) {
+	return nil, shell.ErrUnreachable
 }

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type { Setting } from '@/api/types'
+import { PortalKeyPanel } from '@/features/shell/PortalKeyPanel'
 
 /** Logos are stored as a data URI in a setting, not uploaded: the file is read
  *  and encoded in the browser, so the portal still accepts no file uploads and
@@ -58,6 +59,8 @@ export function SettingsPage() {
       </div>
 
       {error && <p className="text-sm text-danger">{error}</p>}
+
+      <PortalKeyPanel />
 
       {[...groups.entries()].map(([group, items]) => (
         <section key={group} className="space-y-4 rounded-lg border border-border p-4">

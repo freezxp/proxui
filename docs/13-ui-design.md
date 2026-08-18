@@ -32,6 +32,36 @@
 - Full-viewport noVNC canvas; slim toolbar: VM name + state badge, connection quality, Ctrl-Alt-Del, clipboard paste, fullscreen, disconnect.
 - States: connecting spinner → connected; idle-timeout warning at 28 min with "stay connected"; clear error panels (VM stopped · platform unreachable · session expired) each with a retry path.
 - Serial console (v1.x) renders xterm.js in the same shell.
+- SSH opens its own full-viewport page at `/ssh/:vmId`, in a new tab for the
+  same reason the console does: navigating the portal must not tear down a live
+  session. A connect form first, then a terminal with an optional file panel
+  docked to the right (docs/29).
+- The connect form offers **Portal key** as a third method wherever the portal
+  holds a key and it is installed for the account being typed — preselected
+  there, and only as an opening nudge, so choosing a method by hand is not
+  undone by editing the username. Where it is not installed, the choice still
+  appears and says what to do about it. The terminal toolbar carries **Install
+  portal key** / **Remove portal key** for the account the session is signed in
+  as, which is the only place the install can happen (docs/29.8a, ADR 0006).
+- Settings carries the **Portal SSH key** panel, admin only in practice: the
+  fingerprint, the copyable public key line, generate / rotate / delete, and
+  the list of every account it is installed on with stale ones marked. Rotate
+  and delete both confirm with the consequence spelled out and the number of
+  installs affected, because neither is reversible and neither is visible from
+  the portal once done.
+
+### Second factor (AUTH-04)
+- Sign-in is two screens when a factor is enrolled: password, then a 6-digit
+  field with `autocomplete="one-time-code"` so a phone offers the code from its
+  keyboard. A wrong code keeps the screen and clears the field; a dead
+  challenge says so and returns to the password, because there is nothing left
+  to retry against.
+- Enrolment lives in a dialog off the user menu, beside Change password: a QR
+  drawn client-side, the key in text for anything that cannot scan it, and a
+  code field that must be right before the factor turns on. Removing it asks
+  for the account password in the dialog.
+- The user list carries a 2FA badge and, for accounts that have one, a **Reset
+  2FA** action behind a confirmation that says what it costs.
 
 ### Platform Management (`/platforms`, admin)
 - List: name, type, DC, endpoint, health, VM/host counts, last sync, enabled toggle.

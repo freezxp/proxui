@@ -141,6 +141,12 @@ func validateImage(value string) error {
 	return nil
 }
 
+// Choices for sync.live_reads.
+const (
+	LiveReadsOn  = "on"
+	LiveReadsOff = "off"
+)
+
 // Catalogue is every setting the portal reads. Adding one here is what makes
 // it settable; nothing else needs to change.
 var Catalogue = []Definition{
@@ -200,6 +206,22 @@ var Catalogue = []Definition{
 		Key: "sync.inventory_interval_s", Group: "Synchronization",
 		Label: "Inventory interval", Kind: KindDuration, Default: 60, Min: 30, Max: 3600,
 		Help: "How often each platform is asked what it has. Applies to platforms without their own override.",
+	},
+	{
+		Key: "sync.live_reads", Group: "Synchronization", Kind: KindSelect,
+		Label: "Live state on page load", DefaultText: LiveReadsOn,
+		Options: []Option{
+			{Value: LiveReadsOn, Label: "On — ask the platform when a page is opened"},
+			{Value: LiveReadsOff, Label: "Off — show what the last sync found"},
+		},
+		// The switch exists because the failure mode is a slow portal rather
+		// than a wrong one, and the hour you need to turn this off is the hour
+		// you least want to be redeploying. A live read is one call per
+		// platform, shared between concurrent viewers and reused for a few
+		// seconds, and any failure falls back to the synced row.
+		Help: "Whether opening the VM list or a VM asks the platform for current power state, " +
+			"instead of showing what the last sync found. Falls back to synced data " +
+			"if the platform is slow or unreachable.",
 	},
 	{
 		Key: "sync.metrics_interval_s", Group: "Synchronization",

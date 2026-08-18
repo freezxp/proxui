@@ -185,6 +185,10 @@ func describe(e Event) (subject, body string) {
 	case "vm.deleted":
 		subject = fmt.Sprintf("VM removed: %s", orUnknown(name))
 		body = fmt.Sprintf("%s is no longer present on %s.", orUnknown(name), orUnknown(platform))
+	case "vm.restored":
+		subject = fmt.Sprintf("VM is back: %s", orUnknown(name))
+		body = fmt.Sprintf("%s is being reported by %s again, after the portal had recorded it as removed.",
+			orUnknown(name), orUnknown(platform))
 	default:
 		subject = fmt.Sprintf("%s: %s", e.Category, e.Type)
 		body = e.Type

@@ -239,6 +239,11 @@ func (r *Reconciler) reconcileVMs(ctx context.Context, tx Tx, platform *inventor
 			p := existing
 			prior = &p
 		}
+		// A guest the platform had stopped reporting long enough to be swept
+		// away, now back. The row never went anywhere, so this is an update -
+		// but it is news of the same weight as a new VM, and it must not be
+		// announced as one.
+		restored := found && existing.SyncState == inventory.SyncDeleted
 
 		id, changes, err := r.Assets.UpsertVM(ctx, tx, platform.ID, hostIDs[rec.HostID], rec, prior, now)
 		if err != nil {
@@ -254,12 +259,12 @@ func (r *Reconciler) reconcileVMs(ctx context.Context, tx Tx, platform *inventor
 		}
 
 		created := !found
-		if created {
+		if created || restored {
 			stats.Added++
 		} else {
 			stats.Changed++
 		}
-		if err := r.emitVMChangeEvents(ctx, tx, platform, rec, id, changes, created, now); err != nil {
+		if err := r.emitVMChangeEvents(ctx, tx, platform, rec, id, changes, created, restored, now); err != nil {
 			return err
 		}
 	}
@@ -308,7 +313,8 @@ func (r *Reconciler) reconcileVMs(ctx context.Context, tx Tx, platform *inventor
 // Only creation and power-state transitions are eventful; a resize is history,
 // not an alert.
 func (r *Reconciler) emitVMChangeEvents(ctx context.Context, tx Tx, platform *inventory.Platform,
-	rec connector.VMRecord, vmID uuid.UUID, changes []inventory.FieldChange, created bool, now time.Time) error {
+	rec connector.VMRecord, vmID uuid.UUID, changes []inventory.FieldChange,
+	created, restored bool, now time.Time) error {
 
 	base := map[string]any{
 		"vm_id": vmID.String(), "vm_name": rec.Name, "external_id": rec.ExternalID,
@@ -316,12 +322,19 @@ func (r *Reconciler) emitVMChangeEvents(ctx context.Context, tx Tx, platform *in
 		"host": rec.HostID,
 	}
 
-	if created {
+	if created || restored {
 		payload := cloneMap(base)
 		payload["state"] = rec.State
+		// Separate types because the two mean different things to whoever
+		// reads the notification: one is a machine nobody had seen before, the
+		// other is one the portal announced as gone and was wrong about.
+		eventType := ports.EventVMCreated
+		if restored {
+			eventType = ports.EventVMRestored
+		}
 		return r.Runs.PublishEvent(ctx, tx, ports.DomainEvent{
 			OccurredAt: now, Category: ports.EventCategoryVMStateChange,
-			Type: ports.EventVMCreated, Severity: ports.SeverityInfo, Payload: payload,
+			Type: eventType, Severity: ports.SeverityInfo, Payload: payload,
 		})
 	}
 

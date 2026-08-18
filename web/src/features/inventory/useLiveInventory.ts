@@ -20,7 +20,13 @@ export function useLiveInventory(): { connected: boolean } {
     return subscribeToEvents((event) => {
       if (!isVMEvent(event)) return
 
-      if (event.type === 'vm.created' || event.type === 'vm.deleted') {
+      if (
+        event.type === 'vm.created' ||
+        event.type === 'vm.deleted' ||
+        // A VM the portal had swept away and is now reporting again: the list
+        // has to gain a row back, which no cached page knows about.
+        event.type === 'vm.restored'
+      ) {
         void queryClient.invalidateQueries({ queryKey: ['vms'] })
         void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
         return

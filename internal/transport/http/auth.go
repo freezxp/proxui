@@ -46,6 +46,16 @@ type tokenResponse struct {
 	ExpiresIn   int    `json:"expires_in"`
 }
 
+// mfaChallengeResponse is what a login returns when the password was right and
+// a code is owed. Deliberately not a 401: nothing was wrong with the
+// credentials, and a browser treating it as a failure would send the operator
+// back to a form they already filled in correctly.
+type mfaChallengeResponse struct {
+	MFARequired bool   `json:"mfa_required"`
+	MFAToken    string `json:"mfa_token"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
 type meResponse struct {
 	ID                 string `json:"id"`
 	Username           string `json:"username"`
@@ -76,6 +86,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.writeAuthError(w, r, err)
+		return
+	}
+
+	// No cookie and no token yet: the sign-in is half done, and the only thing
+	// that completes it is a code posted to /auth/mfa (AUTH-04).
+	if out.MFARequired {
+		WriteJSON(w, http.StatusOK, mfaChallengeResponse{
+			MFARequired: true,
+			MFAToken:    out.MFAToken,
+			ExpiresIn:   int(identity.MFAChallengeTTL / time.Second),
+		})
 		return
 	}
 
@@ -253,6 +274,21 @@ func (s *Server) writeAuthError(w http.ResponseWriter, r *http.Request, err erro
 	case errors.Is(err, identity.ErrAccountLocked):
 		WriteProblem(w, r, http.StatusLocked, "auth.account_locked",
 			"Too many failed attempts. Try again later or contact an administrator.")
+	case errors.Is(err, identity.ErrMFAChallengeNotFound):
+		// 401 with a distinct code: the browser has to drop the challenge and
+		// start again from the password form, which is a different recovery
+		// from "that code was wrong, try the next one".
+		WriteProblem(w, r, http.StatusUnauthorized, "auth.mfa_challenge_expired",
+			"That sign-in attempt is no longer valid. Sign in again.")
+	case errors.Is(err, identity.ErrInvalidTOTPCode):
+		WriteProblem(w, r, http.StatusUnauthorized, "auth.invalid_code",
+			"That code is not valid. Check your authenticator app and try again.")
+	case errors.Is(err, identity.ErrTOTPNotEnrolled):
+		WriteProblem(w, r, http.StatusConflict, "auth.totp_not_enrolled",
+			"This account has no authenticator enrolled.")
+	case errors.Is(err, identity.ErrTOTPAlreadyEnabled):
+		WriteProblem(w, r, http.StatusConflict, "auth.totp_already_enabled",
+			"An authenticator is already enrolled. Remove it before enrolling another.")
 	case errors.Is(err, identity.ErrInvalidCredentials),
 		errors.Is(err, identity.ErrAccountInactive),
 		errors.Is(err, identity.ErrSessionExpired),

@@ -26,6 +26,18 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The message to show for a failed call: the server's own explanation when
+ * there is one, and the caller's wording when there is not.
+ *
+ * Lives here beside ApiError because every catch block in the app wants the
+ * same two lines, and the ones that wrote them by hand had already begun to
+ * disagree about what a non-ApiError should say.
+ */
+export function detailOf(err: unknown, fallback: string): string {
+  return err instanceof ApiError && err.detail ? err.detail : fallback
+}
+
 let accessToken: string | null = null
 let refreshing: Promise<boolean> | null = null
 let onUnauthenticated: (() => void) | null = null
@@ -137,11 +149,80 @@ export async function requestBlob(path: string): Promise<Blob> {
   return response.blob()
 }
 
+/**
+ * Uploads one file, reporting progress.
+ *
+ * XMLHttpRequest rather than fetch, for the one thing fetch still cannot do:
+ * report how much of a request body has been sent. Moving a gigabyte to a
+ * guest with no progress bar is indistinguishable from a hung portal.
+ *
+ * The body is the file itself rather than multipart form data — the server
+ * takes the directory and name from the query string and streams the body
+ * straight to the guest, so there is nothing to parse and nothing to buffer.
+ */
+export function uploadFile(
+  path: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<{ path: string; bytes: number }> {
+  const send = () =>
+    new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `/api/v1${path}`)
+      xhr.withCredentials = true
+      if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`)
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+
+      if (onProgress) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) onProgress(event.loaded / event.total)
+        }
+      }
+      xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText })
+      xhr.onerror = () => reject(new ApiError(0, 'network', 'The upload could not be sent.'))
+      xhr.onabort = () => reject(new ApiError(0, 'aborted', 'The upload was cancelled.'))
+      signal?.addEventListener('abort', () => xhr.abort(), { once: true })
+      xhr.send(file)
+    })
+
+  const finish = async (result: { status: number; body: string }) => {
+    let parsed: Record<string, unknown> = {}
+    try {
+      parsed = JSON.parse(result.body)
+    } catch {
+      /* a proxy error page, or an empty body */
+    }
+    if (result.status < 200 || result.status >= 300) {
+      throw new ApiError(
+        result.status,
+        (parsed.code as string) ?? 'unknown',
+        (parsed.detail as string) ?? 'The upload failed.',
+        parsed.request_id as string,
+        parsed.fields as Record<string, string>,
+        parsed,
+      )
+    }
+    return parsed as unknown as { path: string; bytes: number }
+  }
+
+  return send().then(async (result) => {
+    // One retry after a refresh, matching request(): a long upload can outlive
+    // the access token that started it.
+    if (result.status === 401 && (await refreshSession())) return finish(await send())
+    return finish(result)
+  })
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown, options: RequestOptions = {}) =>
     request<T>(path, { ...options, method: 'POST', body: body ? JSON.stringify(body) : undefined }),
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
-  del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  // A body on DELETE is unusual but not exotic, and it is what removing a
+  // second factor needs: the password that authorizes it must not travel in a
+  // query string, where it would land in logs and history.
+  del: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined }),
 }

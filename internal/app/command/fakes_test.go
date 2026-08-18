@@ -107,6 +107,16 @@ func (f *fakeUsers) Update(_ context.Context, u *identity.User) error {
 	return nil
 }
 
+func (f *fakeUsers) Delete(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.byID[id]; !ok {
+		return ports.ErrNotFound
+	}
+	delete(f.byID, id)
+	return nil
+}
+
 func (f *fakeUsers) CountAll(context.Context) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

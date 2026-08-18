@@ -183,6 +183,37 @@ func TestRegistryCloseAllEndsEverything(t *testing.T) {
 	}
 }
 
+func TestRegistryCloseUserEndsOnlyTheirs(t *testing.T) {
+	registry := shellreg.NewRegistry(time.Now)
+	var reported int
+	registry.OnEvict = func(*shellreg.Live, string) { reported++ }
+
+	leaver := uuid.New()
+	theirs, theirConn := live(leaver, time.Now())
+	alsoTheirs, _ := live(leaver, time.Now())
+	somebodyElse, otherConn := live(uuid.New(), time.Now())
+	for _, l := range []*shellreg.Live{theirs, alsoTheirs, somebodyElse} {
+		if err := registry.Add(l); err != nil {
+			t.Fatalf("Add: %v", err)
+		}
+	}
+
+	// A deleted account keeps its shell until something closes it: the
+	// connection is already open and answers no further authorization.
+	if n := registry.CloseUser(leaver, "account deleted"); n != 2 {
+		t.Fatalf("CloseUser closed %d sessions, want 2", n)
+	}
+	if !theirConn.isClosed() {
+		t.Error("the deleted account's connection is still open")
+	}
+	if otherConn.isClosed() {
+		t.Error("somebody else's connection was closed too")
+	}
+	if registry.Len() != 1 || reported != 2 {
+		t.Fatalf("after CloseUser: %d open, %d reported", registry.Len(), reported)
+	}
+}
+
 func TestLiveAttachIsExclusive(t *testing.T) {
 	session, _ := live(uuid.New(), time.Now())
 

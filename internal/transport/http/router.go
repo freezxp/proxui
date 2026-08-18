@@ -243,6 +243,9 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/{userID}", s.handleGetUser)
 				r.Put("/{userID}", s.handleUpdateUser)
 				r.Post("/{userID}/password", s.handleResetPassword)
+				// Deletion is the account that should not exist; deactivation
+				// (PUT above) stays the answer for the one that simply left.
+				r.Delete("/{userID}", s.handleDeleteUser)
 				// The lost-phone path: clearing somebody else's second factor
 				// (AUTH-04). Audited against both accounts.
 				r.Delete("/{userID}/totp", s.handleResetUserTOTP)

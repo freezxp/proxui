@@ -19,6 +19,7 @@ type AdminDeps struct {
 	CreateUser    *command.CreateUser
 	UpdateUser    *command.UpdateUser
 	ResetPassword *command.ResetPassword
+	DeleteUser    *command.DeleteUser
 	SetUserGroups *command.SetUserGroups
 	ManageAccess  *command.ManageAccess
 	// MFA resets another account's second factor: the lost-phone path
@@ -194,6 +195,21 @@ func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	err := s.admin.ResetPassword.Handle(r.Context(), command.ResetPasswordInput{
 		Actor: s.actor(r), UserID: id, TempPassword: req.TempPassword,
+	})
+	if err != nil {
+		s.writeAdminError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathUUID(w, r, "userID")
+	if !ok {
+		return
+	}
+	err := s.admin.DeleteUser.Handle(r.Context(), command.DeleteUserInput{
+		Actor: s.actor(r), UserID: id,
 	})
 	if err != nil {
 		s.writeAdminError(w, r, err)
@@ -422,6 +438,12 @@ func (s *Server) writeAdminError(w http.ResponseWriter, r *http.Request, err err
 		WriteProblem(w, r, http.StatusNotFound, "not_found", "The requested resource does not exist.")
 	case errors.Is(err, ports.ErrConflict):
 		WriteProblem(w, r, http.StatusConflict, "conflict", "That name is already taken.")
+	case errors.Is(err, identity.ErrCannotDeleteSelf):
+		WriteProblem(w, r, http.StatusConflict, "user.self_delete",
+			"You cannot delete your own account. Ask another administrator to do it.")
+	case errors.Is(err, identity.ErrLastAdmin):
+		WriteProblem(w, r, http.StatusConflict, "user.last_admin",
+			"This is the last administrator who can sign in. Give another account the administrator role first.")
 	case errors.Is(err, identity.ErrInvalidRole):
 		WriteProblemFields(w, r, http.StatusUnprocessableEntity, "validation", "Unknown role.",
 			map[string]string{"role": "must be admin, operator, readonly or auditor"})

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/api/client'
+import { api, detailOf } from '@/api/client'
 import type { User, UserGroup } from '@/api/types'
 import { Drawer } from '@/components/Drawer'
+import { useAuth } from '@/features/auth/useAuth'
 import { relativeTime } from '@/lib/format'
 import { GroupsPanel } from './GroupsPanel'
 
@@ -65,7 +66,10 @@ function UsersTab() {
   const [editing, setEditing] = useState<User | 'new' | null>(null)
   const [resetting, setResetting] = useState<User | null>(null)
   const [resettingTOTP, setResettingTOTP] = useState<User | null>(null)
+  const [deleting, setDeleting] = useState<User | null>(null)
+  const [deleteError, setDeleteError] = useState('')
   const queryClient = useQueryClient()
+  const { user: me } = useAuth()
 
   const users = useQuery({
     queryKey: ['users'],
@@ -82,6 +86,19 @@ function UsersTab() {
   const resetTOTP = useMutation({
     mutationFn: (user: User) => api.del(`/users/${user.id}/totp`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
+  })
+
+  // Deleting is the one action here with no undo, so it is confirmed by name
+  // rather than by a button that sits next to Disable. The server refuses the
+  // two cases that would lock the portal — your own account, and the last
+  // administrator who can sign in — and says which one it refused.
+  const remove = useMutation({
+    mutationFn: (user: User) => api.del(`/users/${user.id}`),
+    onSuccess: () => {
+      setDeleting(null)
+      void queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: (err) => setDeleteError(detailOf(err, 'The account could not be deleted.')),
   })
 
   const setActive = useMutation({
@@ -185,6 +202,19 @@ function UsersTab() {
                   >
                     {user.is_active ? 'Disable' : 'Enable'}
                   </button>
+                  {/* Not offered on your own row: the server refuses it, and a
+                      button whose only outcome is an error is not a choice. */}
+                  {user.id !== me?.id && (
+                    <button
+                      onClick={() => {
+                        setDeleteError('')
+                        setDeleting(user)
+                      }}
+                      className="text-xs text-danger hover:underline"
+                    >
+                      Delete
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -234,6 +264,19 @@ function UsersTab() {
         </div>
       )}
 
+      {deleting && (
+        <DeleteUserDialog
+          user={deleting}
+          error={deleteError}
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate(deleting)}
+          onClose={() => {
+            setDeleting(null)
+            setDeleteError('')
+          }}
+        />
+      )}
+
       {resetting && (
         <ResetPasswordDrawer
           user={resetting}
@@ -256,6 +299,94 @@ function UsersTab() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+/** The confirmation for a deletion, which asks for the username to be typed.
+ *  Deleting the wrong row is a mistake nothing can undo — group memberships,
+ *  sessions and the account's second factor go with it — and the row above and
+ *  the row below look much the same at a glance. Typing the name is the cheap
+ *  way to make the choice deliberate. */
+function DeleteUserDialog({
+  user,
+  error,
+  pending,
+  onConfirm,
+  onClose,
+}: {
+  user: User
+  error: string
+  pending: boolean
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  const [typed, setTyped] = useState('')
+  const field = useRef<HTMLInputElement>(null)
+  const matches = typed.trim().toLowerCase() === user.username.toLowerCase()
+
+  // The dialog asks for typing, so it takes the keyboard: landing in the field
+  // is what the reader expects, and Escape leaves without deleting anything.
+  useEffect(() => field.current?.focus(), [])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-6"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose()
+      }}
+    >
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden="true" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Delete user"
+        className="relative w-full max-w-md space-y-3 rounded-lg border border-border bg-surface p-6 shadow-xl"
+      >
+        <h2 className="font-medium">Delete {user.username}?</h2>
+        <p className="text-sm text-muted">
+          The account, its group memberships, its sessions and its second factor are removed for
+          good. The audit trail keeps what this account did, under the name it had. If they may come
+          back, disable the account instead.
+        </p>
+        <label className="block space-y-1">
+          <span className="block text-xs font-medium text-muted">
+            Type <span className="font-mono text-content">{user.username}</span> to confirm
+          </span>
+          <input
+            ref={field}
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            aria-label={`Type ${user.username} to confirm`}
+            className="w-full rounded-md border border-border bg-surface-raised px-2 py-1.5 text-sm"
+          />
+        </label>
+        {error !== '' && (
+          <p className="text-xs text-danger" role="status">
+            {error}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={!matches || pending}
+            onClick={onConfirm}
+            className="rounded-md bg-danger px-3 py-1.5 text-sm text-white disabled:opacity-50"
+          >
+            Delete account
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-raised"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

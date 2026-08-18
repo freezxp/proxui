@@ -85,6 +85,7 @@ func (stubUsers) GetByExternalID(context.Context, identity.AuthProvider, string)
 	return nil, ports.ErrNotFound
 }
 func (stubUsers) Update(context.Context, *identity.User) error { return nil }
+func (stubUsers) Delete(context.Context, uuid.UUID) error      { return nil }
 func (stubUsers) CountAll(context.Context) (int, error)        { return 1, nil }
 func (stubUsers) List(context.Context, ports.UserFilter) ([]*identity.User, error) {
 	return nil, nil
@@ -102,7 +103,14 @@ func (stubSessions) RevokeAllForUser(context.Context, uuid.UUID, time.Time) erro
 func (stubSessions) IsSessionActive(context.Context, uuid.UUID) (bool, error)           { return true, nil }
 
 func matrixServer(role identity.Role) *Server {
-	users, accessRepo, sessions := stubUsers{}, stubAccess{}, stubSessions{}
+	return matrixServerAs(role, uuid.New(), stubUsers{})
+}
+
+// matrixServerAs is the same server with the caller's own identity and user
+// repository chosen, for the tests that care what the handler does rather than
+// who is allowed to reach it.
+func matrixServerAs(role identity.Role, actorID uuid.UUID, userRepo ports.UserRepository) *Server {
+	users, accessRepo, sessions := userRepo, stubAccess{}, stubSessions{}
 	audit := &noopAudit{}
 	clock := ports.SystemClock{}
 
@@ -114,7 +122,7 @@ func matrixServer(role identity.Role) *Server {
 			Refresh:  &fakeRefresh{out: command.LoginOutput{User: testUser()}},
 			Logout:   &fakeLogout{},
 			Users:    &fakeUserLoader{user: testUser()},
-			Tokens:   roleTokenParser{role: role, userID: uuid.New()},
+			Tokens:   roleTokenParser{role: role, userID: actorID},
 			Sessions: &fakeSessionChecker{active: true},
 			MFA:      stubMFA{},
 		},
@@ -152,6 +160,7 @@ func matrixServer(role identity.Role) *Server {
 			CreateUser:    &command.CreateUser{Users: users, Access: accessRepo, Hasher: noopHasher{}, Audit: audit, Clock: clock},
 			UpdateUser:    &command.UpdateUser{Users: users, Sessions: sessions, Audit: audit, Clock: clock},
 			ResetPassword: &command.ResetPassword{Users: users, Sessions: sessions, Hasher: noopHasher{}, Audit: audit, Clock: clock},
+			DeleteUser:    &command.DeleteUser{Users: users, Access: accessRepo, Audit: audit, Clock: clock},
 			SetUserGroups: &command.SetUserGroups{Users: users, Access: accessRepo, Audit: audit, Clock: clock},
 			ManageAccess:  &command.ManageAccess{Access: accessRepo, Audit: audit, Clock: clock},
 			MFA: &command.MFA{

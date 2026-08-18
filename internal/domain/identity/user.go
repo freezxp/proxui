@@ -49,6 +49,17 @@ var (
 	ErrAccountLocked      = errors.New("identity: account locked")
 	ErrAccountInactive    = errors.New("identity: account inactive")
 	ErrInvalidRole        = errors.New("identity: invalid role")
+	// ErrCannotDeleteSelf refuses an administrator's request to delete their
+	// own account. Not paternalism: the request would succeed, take their own
+	// session with it, and leave them looking at a portal that no longer knows
+	// who they are. Deactivating someone else and being deactivated in turn is
+	// the two-person path this preserves.
+	ErrCannotDeleteSelf = errors.New("identity: an administrator cannot delete their own account")
+	// ErrLastAdmin refuses the deletion that would leave the portal with no
+	// administrator who can sign in. Recovering from that state means the
+	// first-run bootstrap (ADM-03), which only runs against an empty portal —
+	// so this is a door that locks from the outside.
+	ErrLastAdmin = errors.New("identity: the last active administrator cannot be deleted")
 )
 
 // User is the aggregate root for a portal account.

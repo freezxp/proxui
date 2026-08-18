@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **Delete a user** (ADM-04). The users table gets a Delete action beside
+  Disable, confirmed by typing the username: the account, its sessions, its
+  group memberships and its second factor go, and any SSH session it still had
+  open is closed rather than left running until the idle sweep notices.
+
+  What it does not take is the audit trail. Those entries name their actor by a
+  string copied at write time and hold no foreign key to `users` — a decision
+  the schema made in the first migration — so the record of what an account did
+  outlives the account.
+
+  Two deletions are refused, both at the command layer where the rule is
+  testable: your own account, which would succeed and then lock you out of the
+  portal you were administering, and the last administrator who can still sign
+  in, because the only way back from that state is the first-run bootstrap and
+  it only runs against an empty portal. A disabled administrator does not count
+  towards that check — an account that cannot sign in is not holding the door
+  open — and is deletable at any time.
+
+  Deactivation is still the right answer for somebody who has merely left: it
+  keeps the account and the name attached to everything it did. Deletion is for
+  the account that should not exist — a self-registered stranger, a duplicate,
+  a test account.
+
 - **Copy text out of tmux** (SSH-08, docs/29.7b). Full-screen programs — tmux,
   vim, htop — ask the terminal for every click and drag, so a drag selects
   nothing to copy. Shift+drag takes the mouse back on a desktop; a phone has no

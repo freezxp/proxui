@@ -243,3 +243,113 @@ func TestSetUserGroupsRejectsUnknownGroup(t *testing.T) {
 		t.Errorf("unknown group error = %v, want ErrNotFound", err)
 	}
 }
+
+// fakeShells records which accounts had their live SSH sessions closed.
+type fakeShells struct{ closed []uuid.UUID }
+
+func (f *fakeShells) CloseUser(userID uuid.UUID, _ string) int {
+	f.closed = append(f.closed, userID)
+	return 1
+}
+
+func deletableUser(role identity.Role, active bool) *identity.User {
+	return &identity.User{
+		ID: uuid.New(), Username: "leaver", Email: "leaver@example.com",
+		Role: role, IsActive: active,
+	}
+}
+
+func TestDeleteUserRemovesAccountAndClosesShells(t *testing.T) {
+	target := deletableUser(identity.RoleOperator, true)
+	users, audit, shells := newFakeUsers(target), &fakeAudit{}, &fakeShells{}
+	h := &DeleteUser{Users: users, Access: newFakeAccess(), Audit: audit, Clock: &fakeClock{testNow}, Shells: shells}
+
+	if err := h.Handle(context.Background(), DeleteUserInput{Actor: adminActor(), UserID: target.ID}); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+
+	if _, err := users.GetByID(context.Background(), target.ID); !errors.Is(err, ports.ErrNotFound) {
+		t.Errorf("account still present after deletion: err = %v, want ErrNotFound", err)
+	}
+	if len(shells.closed) != 1 || shells.closed[0] != target.ID {
+		t.Errorf("live SSH sessions closed for %v, want exactly [%v]", shells.closed, target.ID)
+	}
+	if !audit.has("user_deleted") {
+		t.Errorf("audit actions = %v, want user_deleted", audit.actions())
+	}
+}
+
+// The audit entry has to survive the account, and it only can if it carries
+// what the deleted row held: the row itself is gone by the time anyone reads it.
+func TestDeleteUserAuditKeepsWhatTheAccountWas(t *testing.T) {
+	target := deletableUser(identity.RoleAuditor, true)
+	audit := &fakeAudit{}
+	h := &DeleteUser{Users: newFakeUsers(target), Access: newFakeAccess(), Audit: audit, Clock: &fakeClock{testNow}}
+
+	if err := h.Handle(context.Background(), DeleteUserInput{Actor: adminActor(), UserID: target.ID}); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+
+	entry := audit.entries[len(audit.entries)-1]
+	if entry.TargetName != target.Username || entry.TargetID != target.ID.String() {
+		t.Errorf("audit target = %s/%s, want %s/%s", entry.TargetID, entry.TargetName, target.ID, target.Username)
+	}
+	if entry.Details["role"] != string(identity.RoleAuditor) {
+		t.Errorf("audit details role = %v, want %s", entry.Details["role"], identity.RoleAuditor)
+	}
+	if entry.Details["email"] != target.Email {
+		t.Errorf("audit details email = %v, want %s", entry.Details["email"], target.Email)
+	}
+}
+
+func TestDeleteUserRefusesSelf(t *testing.T) {
+	actor := adminActor()
+	self := deletableUser(identity.RoleAdmin, true)
+	self.ID = actor.UserID
+	other := deletableUser(identity.RoleAdmin, true)
+	users := newFakeUsers(self, other)
+	h := &DeleteUser{Users: users, Access: newFakeAccess(), Audit: &fakeAudit{}, Clock: &fakeClock{testNow}}
+
+	err := h.Handle(context.Background(), DeleteUserInput{Actor: actor, UserID: self.ID})
+	if !errors.Is(err, identity.ErrCannotDeleteSelf) {
+		t.Fatalf("Handle(self) error = %v, want ErrCannotDeleteSelf", err)
+	}
+	if _, err := users.GetByID(context.Background(), self.ID); err != nil {
+		t.Errorf("own account was deleted anyway: %v", err)
+	}
+}
+
+func TestDeleteUserRefusesTheLastAdministrator(t *testing.T) {
+	last := deletableUser(identity.RoleAdmin, true)
+	// A disabled admin and an active operator are both present, and neither
+	// keeps the portal administrable: the check must not count them.
+	disabledAdmin := deletableUser(identity.RoleAdmin, false)
+	operator := deletableUser(identity.RoleOperator, true)
+	users := newFakeUsers(last, disabledAdmin, operator)
+	h := &DeleteUser{Users: users, Access: newFakeAccess(), Audit: &fakeAudit{}, Clock: &fakeClock{testNow}}
+
+	err := h.Handle(context.Background(), DeleteUserInput{Actor: adminActor(), UserID: last.ID})
+	if !errors.Is(err, identity.ErrLastAdmin) {
+		t.Fatalf("Handle(last admin) error = %v, want ErrLastAdmin", err)
+	}
+
+	// The same account goes once a second active administrator exists, and the
+	// disabled one may go at any time — it was never holding the door open.
+	if err := h.Handle(context.Background(), DeleteUserInput{Actor: adminActor(), UserID: disabledAdmin.ID}); err != nil {
+		t.Errorf("Handle(disabled admin) = %v, want nil", err)
+	}
+	second := deletableUser(identity.RoleAdmin, true)
+	users.byID[second.ID] = second
+	if err := h.Handle(context.Background(), DeleteUserInput{Actor: adminActor(), UserID: last.ID}); err != nil {
+		t.Errorf("Handle(one of two admins) = %v, want nil", err)
+	}
+}
+
+func TestDeleteUserUnknownAccount(t *testing.T) {
+	h := &DeleteUser{Users: newFakeUsers(), Access: newFakeAccess(), Audit: &fakeAudit{}, Clock: &fakeClock{testNow}}
+
+	err := h.Handle(context.Background(), DeleteUserInput{Actor: adminActor(), UserID: uuid.New()})
+	if !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("Handle(unknown) error = %v, want ErrNotFound", err)
+	}
+}

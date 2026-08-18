@@ -58,6 +58,12 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*identity.User, error)
 	GetByExternalID(ctx context.Context, provider identity.AuthProvider, externalID string) (*identity.User, error)
 	Update(ctx context.Context, u *identity.User) error
+	// Delete removes the account for good. Rows that belong to the user go
+	// with it through ON DELETE CASCADE; rows that merely record what they did
+	// keep their history and lose the reference. The audit log holds neither —
+	// it names its actor by a denormalized string precisely so that entries
+	// outlive the account (docs/07 §7.7).
+	Delete(ctx context.Context, id uuid.UUID) error
 	CountAll(ctx context.Context) (int, error)
 	List(ctx context.Context, f UserFilter) ([]*identity.User, error)
 }

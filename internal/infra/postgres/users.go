@@ -92,6 +92,23 @@ func (r *UserRepository) Update(ctx context.Context, u *identity.User) error {
 	return nil
 }
 
+// Delete removes the account. One statement, no soft-delete column: the
+// schema already decided what survives a deletion and what does not. Sessions,
+// console and SSH session records, group memberships and the account's own
+// second factor cascade away with it; the rows that record what the account
+// did to something else — a grant it issued, a setting it changed, a host key
+// it trusted — keep their history with the reference set to NULL.
+func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.db.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
 // CountAll returns the number of accounts, used by first-run bootstrap.
 func (r *UserRepository) CountAll(ctx context.Context) (int, error) {
 	var n int

@@ -168,6 +168,7 @@ account's permissions rather than any privilege of the portal's.
 | POST `/users` | admin | `{username, email, display_name, role, groups[], temp_password}` → 201; `must_change_password` set |
 | GET/PUT `/users/{id}` | admin | Update role/groups/active/display; deactivate revokes sessions |
 | POST `/users/{id}/reset-password` | admin | → `{temp_password}` (shown once); revokes sessions |
+| DELETE `/users/{id}` | admin | Delete the account → 204. Sessions, memberships and TOTP cascade; audit entries keep the actor's name. 409 `user.self_delete` for your own account, 409 `user.last_admin` for the last active admin |
 | DELETE `/users/{id}/totp` | admin | Reset MFA → 204. The lost-phone path; audited against both accounts |
 
 ## 8.7 Audit

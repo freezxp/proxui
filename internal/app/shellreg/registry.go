@@ -270,6 +270,31 @@ func (r *Registry) Run(done <-chan struct{}, every time.Duration) {
 	}
 }
 
+// CloseUser ends every session belonging to one account and reports each
+// through OnEvict, returning how many it closed. Revoking a session only stops
+// the next request; an SSH connection that is already open answers no
+// requests, so an account that has just been deleted would otherwise keep its
+// shell until the idle sweep noticed. It closes here instead.
+func (r *Registry) CloseUser(userID uuid.UUID, reason string) int {
+	r.mu.Lock()
+	var theirs []*Live
+	for id, l := range r.sessions {
+		if l.UserID == userID {
+			theirs = append(theirs, l)
+			delete(r.sessions, id)
+		}
+	}
+	r.mu.Unlock()
+
+	for _, l := range theirs {
+		l.Close()
+		if r.OnEvict != nil {
+			r.OnEvict(l, reason)
+		}
+	}
+	return len(theirs)
+}
+
 // CloseAll ends every session, reporting each through OnEvict.
 func (r *Registry) CloseAll(reason string) {
 	r.mu.Lock()

@@ -156,6 +156,112 @@ func (h *UpdateUser) Handle(ctx context.Context, in UpdateUserInput) (*identity.
 	return user, nil
 }
 
+// DeleteUserInput identifies the account to remove and who is removing it.
+type DeleteUserInput struct {
+	Actor  Actor
+	UserID uuid.UUID
+}
+
+// DeleteUser removes an account for good (ADM-04).
+//
+// Deactivation is still the ordinary answer to somebody leaving: it keeps the
+// account, its group memberships and the name attached to everything it did.
+// Deletion is for the account that should never have existed — a
+// self-registered stranger, a duplicate, a test account — where keeping a
+// disabled row forever is just clutter. What it does not erase is the audit
+// trail: those entries name their actor by a string that was copied at write
+// time, so the record of what this account did survives the account itself.
+type DeleteUser struct {
+	Users  ports.UserRepository
+	Access ports.AccessRepository
+	Audit  ports.AuditWriter
+	Clock  ports.Clock
+	// Shells closes any SSH session the account still has open. Optional: a
+	// deployment without the shell feature wired simply has none to close.
+	Shells ShellCloser
+}
+
+// ShellCloser ends the live SSH sessions of one account. It is the small part
+// of the shell registry this command needs, named here so that user
+// administration does not depend on the whole of it.
+type ShellCloser interface {
+	CloseUser(userID uuid.UUID, reason string) int
+}
+
+// Handle deletes the account after the two checks that keep the portal
+// administrable, then closes what the account still had open.
+func (h *DeleteUser) Handle(ctx context.Context, in DeleteUserInput) error {
+	if in.Actor.UserID == in.UserID {
+		return identity.ErrCannotDeleteSelf
+	}
+
+	user, err := h.Users.GetByID(ctx, in.UserID)
+	if err != nil {
+		return err
+	}
+
+	// The portal must keep at least one administrator who can sign in. Only an
+	// active admin counts towards that, and only an active admin can spend it:
+	// deleting a disabled admin takes nothing away.
+	if user.Role == identity.RoleAdmin && user.IsActive {
+		active := true
+		admins, err := h.Users.List(ctx, ports.UserFilter{
+			Role: string(identity.RoleAdmin), Active: &active,
+		})
+		if err != nil {
+			return fmt.Errorf("delete user: count administrators: %w", err)
+		}
+		remaining := 0
+		for _, a := range admins {
+			if a.ID != user.ID {
+				remaining++
+			}
+		}
+		if remaining == 0 {
+			return identity.ErrLastAdmin
+		}
+	}
+
+	// Group memberships are about to cascade away, so read them while they
+	// still exist: what the account could reach is the part of it an auditor
+	// will want back, and nothing else will hold it afterwards.
+	var groups []string
+	if h.Access != nil {
+		groups, _ = h.Access.UserGroupNames(ctx, user.ID)
+	}
+
+	if err := h.Users.Delete(ctx, user.ID); err != nil {
+		return err
+	}
+
+	// Sessions went with the row (ON DELETE CASCADE), and every request
+	// revalidates its session against that table, so access tokens already
+	// issued stop working at the next call rather than at expiry. An SSH
+	// connection answers no requests, so it has to be closed by hand.
+	if h.Shells != nil {
+		h.Shells.CloseUser(user.ID, "account deleted")
+	}
+
+	writeAudit(ctx, h.Audit, in.Actor, h.Clock.Now(), ports.AuditCategoryUserMgmt, "user_deleted",
+		"user", user.ID.String(), user.Username, map[string]any{
+			"role":          string(user.Role),
+			"email":         user.Email,
+			"auth_provider": string(providerOrLocal(user.AuthProvider)),
+			"user_groups":   groups,
+			"was_active":    user.IsActive,
+		})
+	return nil
+}
+
+// providerOrLocal names the provider an account signs in with, filling in the
+// default that an account created before providers existed carries implicitly.
+func providerOrLocal(p identity.AuthProvider) identity.AuthProvider {
+	if p == "" {
+		return identity.ProviderLocal
+	}
+	return p
+}
+
 // ResetPasswordInput identifies whose password to reset.
 type ResetPasswordInput struct {
 	Actor        Actor

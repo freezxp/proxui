@@ -259,10 +259,16 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Sessions: sessions,
 	}
 
+	// Built as a variable so that the shell registry, which only exists in an
+	// API process, can be handed to it below: deleting an account has to close
+	// the SSH sessions it left open, and only this process knows about them.
+	deleteUser := &command.DeleteUser{Users: users, Access: accessRepo, Audit: audit, Clock: clock}
+
 	adminDeps := httpapi.AdminDeps{
 		CreateUser:    &command.CreateUser{Users: users, Access: accessRepo, Hasher: hasher, Audit: audit, Clock: clock},
 		UpdateUser:    &command.UpdateUser{Users: users, Sessions: sessions, Audit: audit, Clock: clock},
 		ResetPassword: &command.ResetPassword{Users: users, Sessions: sessions, Hasher: hasher, Audit: audit, Clock: clock},
+		DeleteUser:    deleteUser,
 		SetUserGroups: &command.SetUserGroups{Users: users, Access: accessRepo, Audit: audit, Clock: clock},
 		ManageAccess:  &command.ManageAccess{Access: accessRepo, Audit: audit, Clock: clock},
 		MFA:           mfa,
@@ -382,6 +388,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		shellRegistry.OnEvict = func(l *shellreg.Live, reason string) {
 			closeShell.Record(context.WithoutCancel(ctx), l, reason)
 		}
+		deleteUser.Shells = shellRegistry
 		shellTickets := shellreg.NewTicketStore(clock.Now)
 		go shellRegistry.Run(ctx.Done(), 30*time.Second)
 

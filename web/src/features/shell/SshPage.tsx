@@ -12,8 +12,9 @@ import type {
 import { canReadClipboard, copyText, readText } from '@/lib/clipboard'
 import { useViewportHeight } from '@/lib/viewport'
 import { FileBrowser } from './FileBrowser'
-import { SshTerminal, type Modifiers, type TerminalHandle } from './SshTerminal'
+import { SshTerminal, type Modifiers, type SnapshotScope, type TerminalHandle } from './SshTerminal'
 import { TerminalKeys } from './TerminalKeys'
+import { TerminalSelect } from './TerminalSelect'
 
 /**
  * The SSH page: a connect form, then a terminal and a file panel (SSH-01).
@@ -66,6 +67,11 @@ export function SshPage() {
   const [pastePanel, setPastePanel] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [copyPanel, setCopyPanel] = useState('')
+  // The select panel holds a snapshot rather than reading the terminal as it
+  // renders: see TerminalSelect for why a live one would be unusable.
+  const [selectPanel, setSelectPanel] = useState<string | null>(null)
+  const [selectScope, setSelectScope] = useState<SnapshotScope>('screen')
+  const [mouseGrabbed, setMouseGrabbed] = useState(false)
   const noticeTimer = useRef<number | undefined>(undefined)
 
   const flash = useCallback((text: string) => {
@@ -233,6 +239,24 @@ export function SshPage() {
     [flash],
   )
 
+  // Selecting on the canvas stops working the moment the guest asks for mouse
+  // events, which tmux and vim both do on sight. Lifting the buffer out as
+  // text is the way to copy that no program on the far end can take away.
+  const openSelect = useCallback((scope: SnapshotScope) => {
+    setSelectScope(scope)
+    setMouseGrabbed(terminal.current?.mouseReporting() ?? false)
+    setSelectPanel(terminal.current?.snapshot(scope) ?? '')
+  }, [])
+
+  // Copy with nothing selected used to be a silent no-op. It is the button
+  // somebody presses when a drag would not select, so it opens the panel that
+  // makes selecting possible.
+  const copyFromTerminal = useCallback(() => {
+    const selected = terminal.current?.selection() ?? ''
+    if (selected === '') openSelect('screen')
+    else void copySelection(selected)
+  }, [copySelection, openSelect])
+
   const pasteFromClipboard = useCallback(async () => {
     const text = await readText()
     if (text !== null && text !== '') {
@@ -275,8 +299,13 @@ export function SshPage() {
 
         {phase === 'connected' && (
           <div className="flex flex-wrap items-center gap-1">
-            <ToolbarButton onClick={() => void copySelection(terminal.current?.selection() ?? '')}>
-              Copy
+            <ToolbarButton onClick={copyFromTerminal}>Copy</ToolbarButton>
+            <ToolbarButton
+              onClick={() => openSelect('screen')}
+              pressed={selectPanel !== null}
+              title="Select text to copy, including from tmux, vim or anything else holding the mouse"
+            >
+              Select
             </ToolbarButton>
             <ToolbarButton onClick={() => void pasteFromClipboard()}>Paste</ToolbarButton>
             {session?.files_available && (
@@ -328,7 +357,7 @@ export function SshPage() {
         <main className="flex min-w-0 flex-1 flex-col">
           {phase === 'connected' && session ? (
             <>
-              <div className="min-h-0 flex-1">
+              <div className="relative min-h-0 flex-1">
                 <SshTerminal
                   ref={terminal}
                   wsUrl={session.ws_url}
@@ -342,6 +371,23 @@ export function SshPage() {
                   onPasteRequest={() => void pasteFromClipboard()}
                   onModifiersChange={setModifiers}
                 />
+                {/* Over the terminal, never instead of it: unmounting the
+                    terminal would close the socket and cost another password. */}
+                {selectPanel !== null && (
+                  <TerminalSelect
+                    text={selectPanel}
+                    scope={selectScope}
+                    fontSize={fontSize}
+                    mouseGrabbed={mouseGrabbed}
+                    onScope={openSelect}
+                    onCopy={(text) => void copySelection(text)}
+                    onNotice={flash}
+                    onClose={() => {
+                      setSelectPanel(null)
+                      terminal.current?.focus()
+                    }}
+                  />
+                )}
               </div>
               {keysOpen && <TerminalKeys terminal={terminal} modifiers={modifiers} />}
             </>
@@ -572,7 +618,7 @@ export function SshPage() {
         {notice}
       </p>
       {notice !== '' && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-surface px-3 py-1.5 text-xs shadow">
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-md bg-surface px-3 py-1.5 text-xs shadow">
           {notice}
         </div>
       )}

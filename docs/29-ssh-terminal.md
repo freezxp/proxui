@@ -201,6 +201,49 @@ Three details carry the weight:
   throw — it prints `^[[A` into somebody's shell, which is why the sequences
   are pinned by tests rather than left to a canvas jsdom cannot render.
 
+## 29.7b Copying out of a program that has the mouse
+
+tmux, vim and htop turn on mouse reporting the moment they start, and xterm.js
+obliges: every click and drag goes to the guest. That is what makes those
+programs usable in a browser, and it is also what makes a drag stop selecting
+anything to copy. The classic complaint — "I can't copy text when I'm in tmux"
+— is not a bug in the terminal, it is the guest holding the mouse.
+
+A desktop operator can hold Shift for one drag, which xterm.js honours by
+taking the mouse back, the same escape hatch a native terminal has. It is
+undiscoverable, and on a phone there is no Shift at all — a drag on the canvas
+scrolls rather than selects.
+
+So the portal does not fight for the drag. **Select** lifts the buffer out as
+plain text over the terminal, where selecting works the way it works everywhere
+else: a drag with a mouse, a long press with a finger, and Copy all for when
+selecting precisely is more trouble than it is worth. The bytes are already in
+the browser's scrollback, so nothing is asked of the guest and nothing
+interrupts what is running. **Copy** with nothing selected opens the same
+panel, because that is the button somebody presses when the drag did nothing.
+
+Three details:
+
+- **It is a snapshot, not a view.** Text that reflowed under a live selection
+  would lose the selection on every redraw, and a screen with tmux on it
+  redraws constantly. The panel takes the buffer when it opens, and again when
+  the scope changes between the screen and the whole scrollback.
+- **A wrapped row is not a line.** Breaking where the window broke would cut a
+  command in half at the width of the terminal instead of where it ends, so
+  rows whose successor is a continuation are joined and not trimmed; the blank
+  rows below the last output are dropped, because pasting them is pasting
+  nothing (`bufferText`, pinned by tests — xterm fills a buffer only against a
+  canvas jsdom does not have).
+- **Copying still degrades.** The panel hands its text to the same path as
+  every other copy in the portal, so on a plain-HTTP origin, where there is no
+  clipboard API, it falls back to the textarea the operator can copy from by
+  hand (SSH-08).
+
+What this does not give is a rectangle. Selection is line-wise, so copying one
+pane of a vertical tmux split takes the other pane's columns with it — the same
+thing a native terminal does with Shift+drag, and the reason `tmux -CC` and
+copy-mode still exist.
+
 ## 29.8a The portal's own key
 
 Design: [ADR 0006](adr/0006-portal-owned-ssh-key.md). Requirements: SSH-11…SSH-14.

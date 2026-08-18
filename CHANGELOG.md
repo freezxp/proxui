@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Copy text out of tmux** (SSH-08, docs/29.7b). Full-screen programs — tmux,
+  vim, htop — ask the terminal for every click and drag, so a drag selects
+  nothing to copy. Shift+drag takes the mouse back on a desktop; a phone has no
+  Shift.
+
+  The terminal toolbar gets **Select**, which lays the buffer out as plain text
+  over the terminal: select it the way text selects everywhere, or copy the
+  whole thing, for the screen alone or with the scrollback behind it. Nothing
+  is asked of the guest and nothing running is interrupted — the bytes were
+  already in the browser. **Copy** with nothing selected now opens the same
+  panel instead of doing nothing, since that is the button somebody presses
+  when the drag did not take. Copying still falls back to a textarea on a
+  plain-HTTP origin, where there is no clipboard API.
+
+  Selection is line-wise, so one pane of a vertical split copies with the other
+  pane's columns beside it — the same thing a native terminal does.
+
 - **An SSH terminal, with a file browser** (docs/29, ADR 0005, SSH-01..10).
   Operators and admins get a real shell on a guest — scrollback, copy and
   paste, resize — instead of driving it through the hypervisor's console, plus

@@ -19,8 +19,17 @@ const { FakeTerminal } = vi.hoisted(() => {
     static last: FakeTerminal | null = null
     pasted: string[] = []
     selected = ''
+    visible = 'load average: 0.14'
+    everything = 'earlier output\nload average: 0.14'
+    mouse = false
     constructor() {
       FakeTerminal.last = this
+    }
+    snapshot(scope: 'screen' | 'all') {
+      return scope === 'screen' ? this.visible : this.everything
+    }
+    mouseReporting() {
+      return this.mouse
     }
     paste(text: string) {
       this.pasted.push(text)
@@ -235,6 +244,56 @@ describe('SshPage', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }))
 
     expect(FakeTerminal.last?.pasted).toEqual(['systemctl status'])
+  })
+
+  // --- copying out of a program that has taken the mouse (SSH-08) ---------
+
+  async function connected(user: ReturnType<typeof userEvent.setup>) {
+    apiPost.mockResolvedValue(SESSION)
+    renderPage()
+    await screen.findByText(/Connect over SSH/)
+    await fillPassword(user, 'hunter2')
+    await user.click(screen.getByRole('button', { name: 'Connect' }))
+    await screen.findByTestId('terminal')
+  }
+
+  it('offers the buffer as text when a drag cannot select', async () => {
+    const user = userEvent.setup()
+    await connected(user)
+    // What tmux does on sight, and what makes dragging select nothing.
+    FakeTerminal.last!.mouse = true
+
+    await user.click(screen.getByRole('button', { name: 'Select' }))
+
+    await screen.findByText(/A full-screen program has the mouse/)
+    expect(screen.getByLabelText('Terminal text').textContent).toBe('load average: 0.14')
+
+    await user.click(screen.getByRole('button', { name: 'With scrollback' }))
+    expect(screen.getByLabelText('Terminal text').textContent).toBe(
+      'earlier output\nload average: 0.14',
+    )
+  })
+
+  it('opens the panel when Copy is pressed with nothing selected', async () => {
+    const user = userEvent.setup()
+    await connected(user)
+    // Which is the state a drag leaves you in when the guest ate the drag.
+    await user.click(screen.getByRole('button', { name: 'Copy' }))
+
+    expect(screen.getByLabelText('Terminal text').textContent).toBe('load average: 0.14')
+  })
+
+  it('copies the whole snapshot without needing a selection', async () => {
+    const user = userEvent.setup()
+    // After setup(), which installs a clipboard stub of its own.
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await connected(user)
+
+    await user.click(screen.getByRole('button', { name: 'Select' }))
+    await user.click(screen.getByRole('button', { name: 'Copy all' }))
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('load average: 0.14'))
   })
 
   // --- the portal's own key (SSH-11..SSH-14, ADR 0006) --------------------

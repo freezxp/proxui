@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { keySequence, toControl, type TerminalHandle } from './SshTerminal'
+import { bufferText, keySequence, toControl, type TerminalHandle } from './SshTerminal'
 import { TerminalKeys } from './TerminalKeys'
 
 /**
@@ -59,6 +59,52 @@ describe('key encoding', () => {
   })
 })
 
+/** A buffer of fixed-width rows, the shape xterm exposes and jsdom cannot
+ *  produce: xterm only fills a real buffer against a canvas it can measure. */
+function fakeBuffer(rows: string[], viewportY = 0, wrapped: number[] = []) {
+  const width = Math.max(0, ...rows.map((row) => row.length))
+  return {
+    length: rows.length,
+    viewportY,
+    getLine(y: number) {
+      const row = rows[y]
+      if (row === undefined) return undefined
+      return {
+        isWrapped: wrapped.includes(y),
+        translateToString: (trimRight?: boolean) =>
+          trimRight === false ? row.padEnd(width, ' ') : row.replace(/\s+$/, ''),
+      }
+    },
+  }
+}
+
+describe('lifting the buffer out as text', () => {
+  it('takes what is on screen, not the scrollback above it', () => {
+    // The whole point of the panel: copy what tmux is showing right now.
+    const buffer = fakeBuffer(['scrolled off', 'first', 'second'], 1)
+    expect(bufferText(buffer, 2, 'screen')).toBe('first\nsecond')
+    expect(bufferText(buffer, 2, 'all')).toBe('scrolled off\nfirst\nsecond')
+  })
+
+  it('joins a line the window broke in half', () => {
+    // A command longer than the window is one line to whoever typed it, and
+    // pasting it back has to run rather than break at column 80.
+    const buffer = fakeBuffer(['journalctl -u ', 'nginx --since'], 0, [1])
+    expect(bufferText(buffer, 2, 'all')).toBe('journalctl -u nginx --since')
+  })
+
+  it('drops the empty part of the screen', () => {
+    // A screen is mostly blank rows below the prompt; copying them would paste
+    // a page of nothing.
+    expect(bufferText(fakeBuffer(['$ uptime', '', '', '']), 4, 'screen')).toBe('$ uptime')
+  })
+
+  it('keeps blank rows that have output under them', () => {
+    // Blank lines inside output are output — a paragraph break in a log.
+    expect(bufferText(fakeBuffer(['one', '', 'two']), 3, 'screen')).toBe('one\n\ntwo')
+  })
+})
+
 describe('the key bar', () => {
   function renderBar(modifiers = { ctrl: false, alt: false }) {
     const handle: TerminalHandle = {
@@ -68,6 +114,8 @@ describe('the key bar', () => {
       toggleModifier: vi.fn(),
       selection: vi.fn(() => ''),
       clearSelection: vi.fn(),
+      snapshot: vi.fn(() => ''),
+      mouseReporting: vi.fn(() => false),
       clear: vi.fn(),
       focus: vi.fn(),
       fit: vi.fn(),

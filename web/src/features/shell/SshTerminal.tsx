@@ -19,6 +19,10 @@ import '@xterm/xterm/css/xterm.css'
 export type SpecialKey =
   'escape' | 'tab' | 'up' | 'down' | 'left' | 'right' | 'home' | 'end' | 'pageup' | 'pagedown'
 
+/** How much of the buffer to lift out as text: what is on screen, or
+ *  everything the scrollback still holds. */
+export type SnapshotScope = 'screen' | 'all'
+
 /** Sticky modifiers: armed by a tap, spent on the next keystroke. */
 export interface Modifiers {
   ctrl: boolean
@@ -40,6 +44,14 @@ export interface TerminalHandle {
   /** The current selection, or '' when nothing is selected. */
   selection(): string
   clearSelection(): void
+  /** The screen, or the whole scrollback, as plain text. This is the way out
+   *  of a full-screen program that has taken the mouse: the bytes are already
+   *  in the browser's buffer, so lifting them does not need the guest's
+   *  cooperation and does not need a drag the guest is intercepting. */
+  snapshot(scope: SnapshotScope): string
+  /** Whether the guest has asked for mouse events — tmux, vim and htop all do
+   *  — which is what stops a drag from selecting anything. */
+  mouseReporting(): boolean
   clear(): void
   focus(): void
   fit(): void
@@ -120,6 +132,45 @@ export function keySequence(key: SpecialKey, mods: Modifiers, appCursor: boolean
   }
 }
 
+/** The parts of xterm's buffer bufferText reads, named here so a test can
+ *  supply them: xterm fills a real buffer only against a canvas. */
+export interface BufferView {
+  readonly length: number
+  readonly viewportY: number
+  getLine(
+    y: number,
+  ): { isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined
+}
+
+/** bufferText renders the buffer as the text a person meant to copy.
+ *
+ *  Two things separate this from joining every row with a newline. A row whose
+ *  successor is a continuation of it is not a line: breaking there would cut a
+ *  command in half at the width of the window rather than where it ends, and
+ *  trimming its right edge would eat the space between two words. And the
+ *  blank rows below the last output are the empty part of the screen, not
+ *  content — pasting them somewhere else is pasting nothing. */
+export function bufferText(buffer: BufferView, rows: number, scope: SnapshotScope): string {
+  const start = scope === 'screen' ? Math.max(0, buffer.viewportY) : 0
+  const end = scope === 'screen' ? Math.min(buffer.length, buffer.viewportY + rows) : buffer.length
+
+  const lines: string[] = []
+  let line = ''
+  for (let y = start; y < end; y++) {
+    const row = buffer.getLine(y)
+    if (!row) continue
+    const wraps = y + 1 < end && buffer.getLine(y + 1)?.isWrapped === true
+    line += row.translateToString(!wraps)
+    if (!wraps) {
+      lines.push(line)
+      line = ''
+    }
+  }
+  if (line !== '') lines.push(line)
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  return lines.join('\n')
+}
+
 // Close codes the bridge sends (docs/29-ssh-terminal.md). Anything else is an
 // unexpected drop rather than a decision.
 const CLOSE_REASONS: Record<number, string> = {
@@ -186,6 +237,15 @@ export const SshTerminal = forwardRef<TerminalHandle, Props>(function SshTermina
     },
     selection: () => term.current?.getSelection() ?? '',
     clearSelection: () => term.current?.clearSelection(),
+    snapshot: (scope: SnapshotScope) => {
+      const terminal = term.current
+      if (!terminal) return ''
+      return bufferText(terminal.buffer.active, terminal.rows, scope)
+    },
+    mouseReporting: () => {
+      const mode = term.current?.modes?.mouseTrackingMode
+      return mode !== undefined && mode !== 'none'
+    },
     clear: () => term.current?.clear(),
     focus: () => term.current?.focus(),
     fit: () => fit.current?.fit(),

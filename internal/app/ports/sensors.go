@@ -51,8 +51,10 @@ type NodeSSHStore interface {
 	Get(ctx context.Context, hostID uuid.UUID) (NodeSSH, error)
 	// Pin records the key a node presented the first time it was met.
 	Pin(ctx context.Context, rec NodeSSH) error
-	// RecordAttempt saves how the last poll went, success or not.
-	RecordAttempt(ctx context.Context, hostID uuid.UUID, at time.Time, failure string) error
+	// RecordAttempt saves how the last poll went, success or not, and the
+	// address it was tried at — which is half the diagnosis when a node
+	// refuses, and is not recorded anywhere else until a key is pinned.
+	RecordAttempt(ctx context.Context, hostID uuid.UUID, address string, at time.Time, failure string) error
 	// Forget drops the pin so the next poll meets the node afresh. Admin-only
 	// and audited, exactly like clearing a guest's pin.
 	Forget(ctx context.Context, hostID uuid.UUID) error

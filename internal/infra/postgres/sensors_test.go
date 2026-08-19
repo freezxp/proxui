@@ -179,7 +179,7 @@ func TestAttemptsRecordWithoutAPin(t *testing.T) {
 	host := hostID(t, f)
 
 	at := time.Now().UTC().Truncate(time.Second)
-	if err := repo.RecordAttempt(ctx, host, at, "the node refused the portal's key"); err != nil {
+	if err := repo.RecordAttempt(ctx, host, "10.0.30.111", at, "the node refused the portal's key"); err != nil {
 		t.Fatalf("RecordAttempt: %v", err)
 	}
 	got, err := repo.Get(ctx, host)
@@ -189,10 +189,15 @@ func TestAttemptsRecordWithoutAPin(t *testing.T) {
 	if got.LastError == "" || !got.LastOKAt.IsZero() {
 		t.Errorf("record = %+v, want the failure and no success", got)
 	}
+	// Which address it knocked at is half the diagnosis, and until a key is
+	// pinned this row is the only place it is written down.
+	if got.Address != "10.0.30.111" {
+		t.Errorf("address = %q, want the address the poll used", got.Address)
+	}
 
 	// And a success clears it, or a node that was fixed keeps showing why it
 	// used to be broken.
-	if err := repo.RecordAttempt(ctx, host, at.Add(time.Minute), ""); err != nil {
+	if err := repo.RecordAttempt(ctx, host, "10.0.30.111", at.Add(time.Minute), ""); err != nil {
 		t.Fatalf("RecordAttempt: %v", err)
 	}
 	got, err = repo.Get(ctx, host)

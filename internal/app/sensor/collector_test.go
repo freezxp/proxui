@@ -55,14 +55,18 @@ func (f *fakeStore) HottestNow(context.Context, time.Time) (map[uuid.UUID]teleme
 // fakeSSH is shared by the goroutines that poll each node, so it locks like
 // the real store's database does.
 type fakeSSH struct {
-	mu       sync.Mutex
-	known    map[uuid.UUID]ports.NodeSSH
-	pinned   []ports.NodeSSH
-	failures map[uuid.UUID]string
+	mu        sync.Mutex
+	known     map[uuid.UUID]ports.NodeSSH
+	pinned    []ports.NodeSSH
+	failures  map[uuid.UUID]string
+	addresses map[uuid.UUID]string
 }
 
 func newFakeSSH() *fakeSSH {
-	return &fakeSSH{known: map[uuid.UUID]ports.NodeSSH{}, failures: map[uuid.UUID]string{}}
+	return &fakeSSH{
+		known: map[uuid.UUID]ports.NodeSSH{}, failures: map[uuid.UUID]string{},
+		addresses: map[uuid.UUID]string{},
+	}
 }
 func (f *fakeSSH) Get(_ context.Context, id uuid.UUID) (ports.NodeSSH, error) {
 	f.mu.Lock()
@@ -80,10 +84,11 @@ func (f *fakeSSH) Pin(_ context.Context, rec ports.NodeSSH) error {
 	f.known[rec.HostID] = rec
 	return nil
 }
-func (f *fakeSSH) RecordAttempt(_ context.Context, id uuid.UUID, _ time.Time, failure string) error {
+func (f *fakeSSH) RecordAttempt(_ context.Context, id uuid.UUID, address string, _ time.Time, failure string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failures[id] = failure
+	f.addresses[id] = address
 	return nil
 }
 func (f *fakeSSH) Forget(_ context.Context, id uuid.UUID) error {
@@ -341,5 +346,22 @@ func TestASuccessClearsTheRecordedFailure(t *testing.T) {
 	}
 	if ssh.failures[id] != "" {
 		t.Errorf("still recorded %q after a successful read", ssh.failures[id])
+	}
+}
+
+// A node that refused the key still has to record where the portal knocked.
+// Until a key is pinned there is no other record of the address, and "it was
+// refused" is only half an answer without "at 10.0.30.111".
+func TestAFailedPollRecordsTheAddressItTried(t *testing.T) {
+	hosts := oneHost()
+	ssh := newFakeSSH()
+	c := newCollector(hosts, &fakeStore{}, ssh, &fakeSource{err: shell.ErrAuthFailed})
+
+	if _, err := c.Collect(context.Background(), uuid.New(),
+		addresser{addresses: map[string]string{"pve1": "10.0.30.111"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ssh.addresses[hosts.hosts[0].ID]; got != "10.0.30.111" {
+		t.Errorf("recorded address %q, want the one the poll used", got)
 	}
 }

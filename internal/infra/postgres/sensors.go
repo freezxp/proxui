@@ -248,7 +248,8 @@ ON CONFLICT (host_id) DO NOTHING`,
 // A node with no pin yet still gets a row, because "the portal tried and was
 // refused" is exactly what the host page needs to show for a node whose key
 // has not been installed — the state where there is nothing else to say.
-func (r *SensorRepository) RecordAttempt(ctx context.Context, hostID uuid.UUID, at time.Time, failure string) error {
+func (r *SensorRepository) RecordAttempt(ctx context.Context, hostID uuid.UUID, address string,
+	at time.Time, failure string) error {
 	var errText *string
 	if failure != "" {
 		errText = &failure
@@ -257,14 +258,18 @@ func (r *SensorRepository) RecordAttempt(ctx context.Context, hostID uuid.UUID, 
 	if failure == "" {
 		okAt = &at
 	}
+	// The address is updated on every attempt, not only on the pin: a cluster
+	// that reports a new address for a node is telling the truth, and the pin
+	// is the key rather than the place it was found.
 	_, err := r.db.Exec(ctx, `
 INSERT INTO host_ssh (host_id, address, algorithm, fingerprint, public_key,
                       last_tried_at, last_ok_at, last_error)
-VALUES ($1,'','','','', $2,$3,$4)
+VALUES ($1,$2,'','','', $3,$4,$5)
 ON CONFLICT (host_id) DO UPDATE SET
+    address       = EXCLUDED.address,
     last_tried_at = EXCLUDED.last_tried_at,
     last_ok_at    = COALESCE(EXCLUDED.last_ok_at, host_ssh.last_ok_at),
-    last_error    = EXCLUDED.last_error`, hostID, at, okAt, errText)
+    last_error    = EXCLUDED.last_error`, hostID, address, at, okAt, errText)
 	if err != nil {
 		return fmt.Errorf("record node attempt: %w", err)
 	}

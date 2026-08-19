@@ -157,8 +157,9 @@ func (c *Collector) poll(ctx context.Context, host ports.SensorHost, address, pr
 		ports.SSHCredential{Username: c.user(), PrivateKey: privateKey},
 		policy)
 	if err != nil {
-		c.record(ctx, host, at, describe(err))
-		c.Log.Debug().Err(err).Str("node", host.Name).Msg("node sensors unavailable")
+		c.record(ctx, host, address, at, describe(err))
+		c.Log.Debug().Err(err).Str("node", host.Name).Str("address", address).
+			Msg("node sensors unavailable")
 		return nil, err
 	}
 
@@ -180,14 +181,14 @@ func (c *Collector) poll(ctx context.Context, host ports.SensorHost, address, pr
 	}); err != nil {
 		return nil, fmt.Errorf("sensor: store readings: %w", err)
 	}
-	c.record(ctx, host, at, "")
+	c.record(ctx, host, address, at, "")
 	return readings, nil
 }
 
-func (c *Collector) record(ctx context.Context, host ports.SensorHost, at time.Time, failure string) {
+func (c *Collector) record(ctx context.Context, host ports.SensorHost, address string, at time.Time, failure string) {
 	// Deliberately not the poll's context: it may already be cancelled, and
 	// the record of why is the one thing worth keeping from a failed poll.
-	if err := c.SSH.RecordAttempt(context.WithoutCancel(ctx), host.ID, at, failure); err != nil {
+	if err := c.SSH.RecordAttempt(context.WithoutCancel(ctx), host.ID, address, at, failure); err != nil {
 		c.Log.Error().Err(err).Str("node", host.Name).Msg("could not record the sensor attempt")
 	}
 }

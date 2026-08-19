@@ -21,6 +21,7 @@ export default {
         stopped: 'rgb(var(--state-stopped) / <alpha-value>)',
         paused: 'rgb(var(--state-paused) / <alpha-value>)',
         stale: 'rgb(var(--state-stale) / <alpha-value>)',
+        warning: 'rgb(var(--warning) / <alpha-value>)',
         danger: 'rgb(var(--danger) / <alpha-value>)',
       },
     },

@@ -104,6 +104,21 @@ Design: [29-ssh-terminal.md](29-ssh-terminal.md) · Credential decisions: [ADR 0
 | SSH-13 | S | A connect can ask for the portal key instead of a typed credential. The request carries a boolean, never key material; the private half is read from the vault after the caller has been shown to be allowed on that VM. Every session open and every denial records which method was used. |
 | SSH-14 | S | Removing the key from an account is available to the operator over the same session, takes out only the portal's own line, and forgets the install record either way. Rotation invalidates every install at once; those left behind are listed as stale rather than shown as working. |
 
+### Node hardware sensors
+
+Proxmox publishes no temperature anywhere in its API, so these are read from
+the node itself over SSH with the portal's own key. See
+[ADR 0007](adr/0007-the-portal-reads-node-sensors-over-ssh.md) for why that is
+allowed to relax SSH-02, and what it is not allowed to become.
+
+| ID | Pri | Requirement |
+|---|---|---|
+| SENSOR-01 | S | The portal reads each node's hardware sensors by running one fixed command, `sensors -j`, over SSH as the portal's own key. No node credential is ever stored, and a node connection cannot become a terminal, a file browser or a forwarded port. |
+| SENSOR-02 | S | The node's address comes from the platform's own cluster membership, never from a request. A node the platform did not name is not reachable. |
+| SENSOR-03 | S | A node's host key is pinned the first time it is met and a change is refused from then on. The fingerprint is shown on the host page; clearing a pin is admin-only and audited. |
+| SENSOR-04 | S | Readings are stored per sensor — chip, label, and the high/critical thresholds the chip declares — rather than reduced to one number per node. |
+| SENSOR-05 | S | Alert rules can watch a node's temperature, either in degrees or as the headroom left to the chip's own critical point. Nodes are not in VM groups, so a node rule covers the estate. |
+
 ## 3.7 Performance (PERF)
 
 | ID | Pri | Requirement |

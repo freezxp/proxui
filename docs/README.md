@@ -17,6 +17,7 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | Scale target | 1–3 Proxmox clusters, < 500 VMs, tens of users |
 | Console access | Backend WebSocket proxy (noVNC/xterm.js) |
 | Guest shell access | Backend SSH bridge (xterm.js + SFTP); guest credential typed per session, never stored ([ADR 0005](adr/0005-ssh-credentials-are-never-stored.md)). The portal holds one key of its own, installed per account by an operator ([ADR 0006](adr/0006-portal-owned-ssh-key.md)) |
+| Node hardware | Temperatures come from the node over SSH with the portal's own key, because Proxmox publishes none ([ADR 0007](adr/0007-the-portal-reads-node-sensors-over-ssh.md)). One fixed command, never a shell |
 | Authentication | Built-in (argon2id + JWT, optional TOTP) |
 | Platform auth | Proxmox API tokens, PVE 8.x–9.x (verified against 9.2) |
 | Metrics retention | 1 year+ (TimescaleDB) |
@@ -57,6 +58,7 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | 27 | [Adding a Platform](27-adding-a-platform.md) | the Proxmox token and privileges every feature needs, end to end |
 | 28 | [Published Apps](28-published-apps.md) | **proposal** — managing Cloudflare Tunnel hostnames from the portal |
 | 29 | [SSH Terminal](29-ssh-terminal.md) | in-browser SSH with a file browser, and why the credential is never kept |
+| 30 | [Node Temperatures](30-node-sensors.md) | why the Proxmox API cannot answer this, and what the portal does instead |
 
 ## How to read this package
 

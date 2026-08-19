@@ -477,6 +477,32 @@ func derefInt(v *int) int {
 	return *v
 }
 
+// AllHostNames maps every live node to its name, for the same reason and with
+// the same scoping as AllVMNames: node alerts are evaluated over the estate.
+func (q *InventoryQuery) AllHostNames(ctx context.Context) (map[uuid.UUID]string, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT h.id, h.name FROM hosts h
+		  JOIN platforms p ON p.id = h.platform_id
+		 WHERE h.deleted_at IS NULL AND p.deleted_at IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("list node names: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[uuid.UUID]string{}
+	for rows.Next() {
+		var (
+			id   uuid.UUID
+			name string
+		)
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("scan node name: %w", err)
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
+}
+
 // AllVMNames maps every live VM to its name, unscoped by grants. The alert
 // evaluator is not acting for a user: it evaluates the whole estate and the
 // resulting notification is routed by rule, not by who can see the VM.

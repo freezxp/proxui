@@ -31,6 +31,7 @@ const (
 	CapabilityConsole         Capability = "console"
 	CapabilitySerialConsole   Capability = "serial_console"
 	CapabilityPower           Capability = "power"
+	CapabilityNodeAddress     Capability = "node_address"
 )
 
 // Info identifies a connector implementation.
@@ -138,6 +139,17 @@ type MetricsCollector interface {
 // a platform is registered.
 type MetricsBackfiller interface {
 	BackfillMetrics(ctx context.Context, vm VMRef, from time.Time) ([]Sample, error)
+}
+
+// NodeAddresser reports the management address of each node, keyed by the
+// node's external ID.
+//
+// It exists because some hardware readings are not in any platform's API and
+// have to be fetched from the node itself (ADR 0007). The address comes from
+// the platform rather than from a request, which is what keeps the reachable
+// set the platform's own inventory.
+type NodeAddresser interface {
+	NodeAddresses(ctx context.Context) (map[string]string, error)
 }
 
 // ConsoleKind selects a console protocol.

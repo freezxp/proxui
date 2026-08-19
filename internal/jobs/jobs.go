@@ -27,6 +27,7 @@ const (
 	TaskSyncMetrics   = "sync:metrics"
 	TaskSyncBackfill  = "sync:backfill"
 	TaskOutboxRelay   = "outbox:relay"
+	TaskSyncSensors   = "sync:sensors"
 )
 
 // Queues. Separating them means a slow inventory sync cannot delay the health
@@ -176,6 +177,43 @@ func (h *SyncHandler) HandleMetrics(ctx context.Context, t *asynq.Task) error {
 	h.Log.Debug().Str("component", "metrics").
 		Int("vm_samples", stats.VMSamples).Int("host_samples", stats.HostSamples).
 		Int("dropped", stats.Dropped).Msg("metrics collected")
+	return nil
+}
+
+// NewSyncSensorsTask builds a node sensor collection task.
+//
+// Unique over a long window: a poll is an SSH handshake per node, and a
+// backlog of them would queue up behind a node that has gone away rather than
+// being dropped as the stale work it is.
+func NewSyncSensorsTask(platformID uuid.UUID) (*asynq.Task, error) {
+	payload, err := json.Marshal(PlatformPayload{PlatformID: platformID})
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(TaskSyncSensors, payload,
+		asynq.Queue(QueueDefault), asynq.MaxRetry(1),
+		asynq.Unique(4*time.Minute), asynq.Timeout(2*time.Minute)), nil
+}
+
+// HandleSensors polls a platform's nodes for their hardware sensors.
+func (h *SyncHandler) HandleSensors(ctx context.Context, t *asynq.Task) error {
+	var payload PlatformPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return fmt.Errorf("%w: %v", asynq.SkipRetry, err)
+	}
+	stats, err := h.Service.SyncSensors(ctx, payload.PlatformID)
+	if err != nil {
+		h.Log.Warn().Err(err).Str("platform_id", payload.PlatformID.String()).
+			Msg("node sensor collection failed")
+		return err
+	}
+	if stats.Nodes == 0 {
+		return nil
+	}
+	h.Log.Debug().Str("component", "sensors").
+		Int("nodes", stats.Nodes).Int("answered", stats.Answered).
+		Int("readings", stats.Readings).Int("silent", stats.Silent).
+		Msg("node sensors collected")
 	return nil
 }
 

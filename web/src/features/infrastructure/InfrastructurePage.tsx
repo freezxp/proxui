@@ -1,5 +1,7 @@
+import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
+import { NodeSensorPanel, TempCell } from './NodeSensors'
 import type { HostRow, NetworkRow, StorageRow } from '@/api/types'
 import { bytes, uptime } from '@/lib/format'
 
@@ -13,6 +15,9 @@ export function HostsPage() {
     queryFn: () => api.get<{ data: HostRow[] }>('/hosts'),
     refetchInterval: 60_000,
   })
+  // Which node's sensors are open. One at a time: the panel is wide, and
+  // comparing two nodes at a glance is what the temperature column is for.
+  const [open, setOpen] = useState<string | null>(null)
 
   return (
     <Page
@@ -20,27 +25,42 @@ export function HostsPage() {
       subtitle="The nodes your VMs run on."
       loading={hosts.isLoading}
       empty={(hosts.data?.data.length ?? 0) === 0}
-      columns={['Host', 'Platform', 'Status', 'Capacity', 'VMs', 'Uptime']}
+      columns={['Host', 'Platform', 'Status', 'Capacity', 'VMs', 'Uptime', 'Temp']}
     >
       {hosts.data?.data.map((host) => (
-        <tr key={host.id} className="border-t border-border">
-          <td className="px-4 py-2">
-            <div className="font-medium">{host.name}</div>
-            {host.version && <div className="text-xs text-muted">{host.version}</div>}
-          </td>
-          <td className="px-4 py-2 text-muted">{host.platform_name}</td>
-          <td className="px-4 py-2">
-            <StatusBadge status={host.status} stale={host.sync_state === 'missing'} />
-          </td>
-          <td className="px-4 py-2 text-muted">
-            {host.cpu_cores > 0 && `${host.cpu_cores} cores`}
-            {host.memory_bytes > 0 && ` · ${bytes(host.memory_bytes)}`}
-          </td>
-          <td className="px-4 py-2">{host.vm_count}</td>
-          <td className="px-4 py-2 text-muted">
-            {host.status === 'online' ? uptime(host.uptime_s) : '—'}
-          </td>
-        </tr>
+        <Fragment key={host.id}>
+          <tr
+            className="cursor-pointer border-t border-border hover:bg-surface-raised"
+            onClick={() => setOpen(open === host.id ? null : host.id)}
+          >
+            <td className="px-4 py-2">
+              <div className="font-medium">{host.name}</div>
+              {host.version && <div className="text-xs text-muted">{host.version}</div>}
+            </td>
+            <td className="px-4 py-2 text-muted">{host.platform_name}</td>
+            <td className="px-4 py-2">
+              <StatusBadge status={host.status} stale={host.sync_state === 'missing'} />
+            </td>
+            <td className="px-4 py-2 text-muted">
+              {host.cpu_cores > 0 && `${host.cpu_cores} cores`}
+              {host.memory_bytes > 0 && ` · ${bytes(host.memory_bytes)}`}
+            </td>
+            <td className="px-4 py-2">{host.vm_count}</td>
+            <td className="px-4 py-2 text-muted">
+              {host.status === 'online' ? uptime(host.uptime_s) : '—'}
+            </td>
+            <td className="px-4 py-2">
+              <TempCell summary={host.sensors} />
+            </td>
+          </tr>
+          {open === host.id && (
+            <tr className="border-t border-border">
+              <td colSpan={7} className="p-0">
+                <NodeSensorPanel hostId={host.id} hostName={host.name} />
+              </td>
+            </tr>
+          )}
+        </Fragment>
       ))}
     </Page>
   )

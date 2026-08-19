@@ -25,6 +25,7 @@ import (
 	appnotify "github.com/freezxp/proxui/internal/app/notify"
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/app/query"
+	"github.com/freezxp/proxui/internal/app/sensor"
 	appsetting "github.com/freezxp/proxui/internal/app/setting"
 	"github.com/freezxp/proxui/internal/app/shellreg"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
@@ -38,6 +39,7 @@ import (
 	"github.com/freezxp/proxui/internal/infra/oauth"
 	"github.com/freezxp/proxui/internal/infra/postgres"
 	redisinfra "github.com/freezxp/proxui/internal/infra/redis"
+	"github.com/freezxp/proxui/internal/infra/sensors"
 	"github.com/freezxp/proxui/internal/infra/sshclient"
 	"github.com/freezxp/proxui/internal/jobs"
 	httpapi "github.com/freezxp/proxui/internal/transport/http"
@@ -217,9 +219,22 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Platforms: platforms, Assets: assets, Runs: syncRepo,
 		Clock: clock, Log: log,
 	}
+	// Node hardware sensors. Proxmox publishes no temperature, so the reading
+	// comes from the node itself over SSH with the portal's own key (ADR 0007).
+	// Every part of it degrades to "collects nothing": no portal key, no key
+	// installed on the node, or a connector that cannot name its nodes.
+	sensorRepo := postgres.NewSensorRepository(pool)
+	sensorCollector := &sensor.Collector{
+		Hosts: sensorRepo, Store: sensorRepo, SSH: sensorRepo,
+		Source: sensors.NewReader(sshclient.NewDialer()),
+		Key:    postgres.NewPortalKeyRepository(pool, vault),
+		Log:    log, Clock: clock.Now,
+	}
+
 	syncService := &appsync.Service{
 		Platforms: platforms, Runs: syncRepo, Reconciler: reconciler,
 		Metrics: &appsync.MetricsCollector{Metrics: metrics, Clock: clock, Log: log},
+		Sensors: sensorCollector,
 		Vault:   vault, Clock: clock, Log: log,
 	}
 	queue := jobs.NewClient(rdb.Client, log)
@@ -332,6 +347,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	alertRepo := postgres.NewAlertRepository(pool)
 	evaluator := &appalert.Evaluator{
 		Repo: alertRepo, Metrics: metrics, VMs: inventory, Groups: accessRepo,
+		Sensors: sensorRepo, Hosts: inventory,
 		Events: syncRepo, Clock: clock, Log: log,
 	}
 
@@ -460,6 +476,9 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 					Live:  liveVMs,
 					Audit: audit, Clock: clock,
 				},
+			},
+			Sensors: httpapi.SensorDeps{
+				Sensors: sensorRepo, Nodes: sensorRepo, Audit: audit,
 			},
 			Events:        eventHub,
 			StreamTickets: httpapi.NewStreamTicketStore(rdb),

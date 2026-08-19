@@ -21,6 +21,17 @@ import (
 	"github.com/freezxp/proxui/internal/domain/shell"
 )
 
+// hostKeyAlgorithms asks for the same host key OpenSSH would negotiate, in the
+// same order. The fingerprint the portal shows is meant to be compared against
+// what `ssh` or `ssh-keyscan` shows the operator, and a portal that pinned the
+// ECDSA key while their terminal showed the Ed25519 one would make that
+// comparison impossible to do.
+var hostKeyAlgorithms = []string{
+	ssh.KeyAlgoED25519,
+	ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521,
+	ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSA,
+}
+
 // Dialer opens authenticated SSH connections.
 type Dialer struct {
 	// ConnectTimeout bounds the TCP connect and the handshake together. A
@@ -49,19 +60,10 @@ func (d *Dialer) Dial(ctx context.Context, target ports.SSHTarget, cred ports.SS
 
 	var seen shell.HostKey
 	cfg := &ssh.ClientConfig{
-		User:    cred.Username,
-		Auth:    methods,
-		Timeout: d.ConnectTimeout,
-		// Ask for the same host key OpenSSH would negotiate, in the same
-		// order. The fingerprint the portal shows is meant to be compared
-		// against what `ssh` or `ssh-keyscan` shows the operator, and a
-		// portal that pinned the ECDSA key while their terminal showed the
-		// Ed25519 one would make that comparison impossible to do.
-		HostKeyAlgorithms: []string{
-			ssh.KeyAlgoED25519,
-			ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521,
-			ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSA,
-		},
+		User:              cred.Username,
+		Auth:              methods,
+		Timeout:           d.ConnectTimeout,
+		HostKeyAlgorithms: hostKeyAlgorithms,
 		// The host key check is the policy's, and it runs inside the
 		// handshake: refusing here aborts before any credential is offered,
 		// which is the entire point of checking it at all (SSH-04).

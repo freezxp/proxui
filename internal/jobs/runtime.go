@@ -98,6 +98,7 @@ func NewWorker(rdb *redis.Client, handler *SyncHandler, relay *Relay, log zerolo
 	mux.HandleFunc(TaskSyncHealth, handler.HandleHealth)
 	mux.HandleFunc(TaskSyncMetrics, handler.HandleMetrics)
 	mux.HandleFunc(TaskSyncBackfill, handler.HandleBackfill)
+	mux.HandleFunc(TaskSyncSensors, handler.HandleSensors)
 	mux.HandleFunc(TaskOutboxRelay, relay.Handle)
 
 	return &Worker{server: server, mux: mux, log: log}
@@ -154,6 +155,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 		lastInventory := map[uuid.UUID]time.Time{}
 		lastHealth := map[uuid.UUID]time.Time{}
 		lastMetrics := map[uuid.UUID]time.Time{}
+		lastSensors := map[uuid.UUID]time.Time{}
 
 		for {
 			select {
@@ -162,7 +164,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 			case <-s.stop:
 				return
 			case now := <-ticker.C:
-				s.tick(ctx, now.UTC(), lastInventory, lastHealth, lastMetrics)
+				s.tick(ctx, now.UTC(), lastInventory, lastHealth, lastMetrics, lastSensors)
 			}
 		}
 	}()
@@ -172,7 +174,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 // Stop ends scheduling.
 func (s *Scheduler) Stop() { close(s.stop) }
 
-func (s *Scheduler) tick(ctx context.Context, now time.Time, lastInventory, lastHealth, lastMetrics map[uuid.UUID]time.Time) {
+func (s *Scheduler) tick(ctx context.Context, now time.Time, lastInventory, lastHealth, lastMetrics, lastSensors map[uuid.UUID]time.Time) {
 	platforms, err := s.platforms.List(ctx, false)
 	if err != nil {
 		s.log.Error().Err(err).Msg("scheduler could not list platforms")
@@ -207,6 +209,19 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time, lastInventory, last
 			}
 		}
 
+		// Sensors run on their own cadence, slower than metrics. Each poll is
+		// an SSH handshake per node, and a temperature that moves in seconds
+		// is not one anybody acts on (ADR 0007).
+		if due(lastSensors[p.ID], now, SensorIntervalSeconds) {
+			if task, err := NewSyncSensorsTask(p.ID); err == nil {
+				if _, err := s.client.inner.EnqueueContext(ctx, task); err != nil && !isDuplicate(err) {
+					s.log.Error().Err(err).Str("platform", p.Name).Msg("could not enqueue sensor collection")
+				} else {
+					lastSensors[p.ID] = now
+				}
+			}
+		}
+
 		if due(lastHealth[p.ID], now, intervals.Health) {
 			task, err := NewSyncHealthTask(p.ID)
 			if err == nil {
@@ -219,6 +234,11 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time, lastInventory, last
 		}
 	}
 }
+
+// SensorIntervalSeconds is how often nodes are polled for hardware readings.
+// Five minutes: slow enough that the SSH handshakes are irrelevant, fast
+// enough that a thermal problem is visible while it is still happening.
+const SensorIntervalSeconds = 300
 
 func due(last, now time.Time, intervalSeconds int) bool {
 	if intervalSeconds <= 0 {

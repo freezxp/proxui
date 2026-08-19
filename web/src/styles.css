@@ -17,6 +17,10 @@
     --state-stopped: 100 116 139;
     --state-paused: 217 119 6;
     --state-stale: 234 88 12;
+    /* Caution, distinct from the VM-state amber: a warm node and a paused VM
+       are unrelated, and reusing the state colour here would make one mean
+       the other. */
+    --warning: 202 138 4;
     --danger: 220 38 38;
   }
 
@@ -34,6 +38,7 @@
     --state-stopped: 148 163 184;
     --state-paused: 251 191 36;
     --state-stale: 251 146 60;
+    --warning: 250 204 21;
     --danger: 248 113 113;
   }
 

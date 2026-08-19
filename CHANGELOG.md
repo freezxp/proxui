@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- **Node temperatures** (SENSOR-01…SENSOR-05, [ADR 0007](docs/adr/0007-the-portal-reads-node-sensors-over-ssh.md)).
+  The Hosts page grows a temperature column, and every node opens to show each
+  sensor it reports — CPU package, per core, NVMe composite, whatever the board
+  has — beside the limits the chip declares for itself.
+
+  Proxmox publishes no temperature anywhere in its API. Not at a different
+  privilege and not on a newer version: the field does not exist, and the only
+  one reachable is a drive's, inside the SMART passthrough. So the portal reads
+  it from the node: one SSH connection, one fixed command (`sensors -j`), and
+  the portal's own key — the same key pair SSH-11 already gives it. No node
+  credential is stored, and revoking the access is deleting one line from one
+  `authorized_keys`.
+
+  That crosses a line SSH-02 drew — "the portal is not an SSH proxy to the rest
+  of the network" — so the ADR is the argument for why this particular crossing
+  is narrow, and the code holds the boundary rather than describing it: node
+  connections are made by a path that returns bytes instead of a session, so
+  there is no route from one to a terminal, an SFTP browser or a forwarded
+  port. The address comes from the platform's own `/cluster/status`, never from
+  a request. Host keys are pinned on first sight and a change is refused.
+
+  Readings are stored per sensor rather than reduced to one number, because
+  "something is hot" is only useful next to "what". Which one is *hottest* is
+  decided by headroom to the chip's own critical point, not by degrees: a VRM
+  at 75°C with a 125°C limit is idling, and it must not outrank a package at
+  70°C that criticals at 84°C.
+
+  Alert rules take a subject now, and a **node** rule can watch either the
+  temperature or the headroom left. Headroom is the portable one — it means the
+  same thing across machines whose CPUs disagree about what hot means. Rules
+  written before this keep meaning what they meant: no subject is a VM rule.
+
+  Setup is two commands on each node, in [docs/30](docs/30-node-sensors.md).
+  A node with nothing installed reports nothing, says which of the two halves
+  is missing, and stays quiet about it.
+
 - **Google sign-in returns to the address you signed in at** (AUTH-01,
   ADR 0003). A portal is routinely reachable under more than one name — a LAN name, a public
   one, a tunnel hostname — and the redirect URI was a single configured string,

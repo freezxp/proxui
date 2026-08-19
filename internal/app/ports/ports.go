@@ -22,6 +22,7 @@ import (
 	"github.com/freezxp/proxui/internal/domain/notify"
 	"github.com/freezxp/proxui/internal/domain/publish"
 	"github.com/freezxp/proxui/internal/domain/shell"
+	"github.com/freezxp/proxui/internal/domain/telemetry"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 )
 
@@ -849,6 +850,10 @@ type HostRow struct {
 	UptimeS      int64     `json:"uptime_s"`
 	SyncState    string    `json:"sync_state"`
 	VMCount      int       `json:"vm_count"`
+	// Sensors is the node's own hardware, absent on a node that has never
+	// answered — which is most of them until the portal's key is installed
+	// (ADR 0007).
+	Sensors *telemetry.SensorSummary `json:"sensors,omitempty"`
 }
 
 type StorageRow struct {

@@ -17,6 +17,7 @@ var (
 	ErrInvalidOperator  = errors.New("alert: unknown comparison")
 	ErrInvalidThreshold = errors.New("alert: threshold is out of range")
 	ErrInvalidName      = errors.New("alert: a rule needs a name")
+	ErrInvalidSubject   = errors.New("alert: a rule watches a VM or a node")
 )
 
 // Metric names a series a rule can watch. Only gauges are offered: a rule over
@@ -31,13 +32,44 @@ const (
 	MetricDiskWriteBps Metric = "disk_write_bps"
 	MetricNetRxBps     Metric = "net_rx_bps"
 	MetricNetTxBps     Metric = "net_tx_bps"
+
+	// MetricTempC is the hottest reading on a node, in degrees (SENSOR-04).
+	MetricTempC Metric = "temp_c"
+	// MetricTempHeadroomPct is how much of the chip's own critical point is
+	// left, as a percentage. It is the portable one: a rule at 15% headroom
+	// holds across an estate whose CPUs disagree about what hot means, where
+	// a rule at 80°C holds only on the machine it was written on.
+	MetricTempHeadroomPct Metric = "temp_headroom_pct"
 )
+
+// Subject is what a rule is about. Every rule was over a VM until nodes grew
+// sensors, and a rule about a node's hardware has no VM to name (ADR 0007).
+type Subject string
+
+const (
+	SubjectVM   Subject = "vm"
+	SubjectHost Subject = "host"
+)
+
+// Valid reports whether the subject is one the evaluator knows.
+func (s Subject) Valid() bool { return s == SubjectVM || s == SubjectHost }
+
+// Metrics lists what can be watched for this subject. A VM has no
+// temperature and a node is not in a VM group, so offering either one's
+// metrics for the other would only produce rules that never fire.
+func (s Subject) Metrics() []Metric {
+	if s == SubjectHost {
+		return []Metric{MetricTempC, MetricTempHeadroomPct}
+	}
+	return []Metric{MetricCPUPct, MetricMemPct, MetricDiskReadBps,
+		MetricDiskWriteBps, MetricNetRxBps, MetricNetTxBps}
+}
 
 // Valid reports whether the metric is one the evaluator can read.
 func (m Metric) Valid() bool {
 	switch m {
 	case MetricCPUPct, MetricMemPct, MetricDiskReadBps, MetricDiskWriteBps,
-		MetricNetRxBps, MetricNetTxBps:
+		MetricNetRxBps, MetricNetTxBps, MetricTempC, MetricTempHeadroomPct:
 		return true
 	}
 	return false
@@ -46,8 +78,10 @@ func (m Metric) Valid() bool {
 // Unit is how a value of this metric should be written in a message.
 func (m Metric) Unit() string {
 	switch m {
-	case MetricCPUPct, MetricMemPct:
+	case MetricCPUPct, MetricMemPct, MetricTempHeadroomPct:
 		return "%"
+	case MetricTempC:
+		return "°C"
 	default:
 		return "B/s"
 	}
@@ -68,6 +102,10 @@ func (m Metric) Label() string {
 		return "network receive"
 	case MetricNetTxBps:
 		return "network transmit"
+	case MetricTempC:
+		return "temperature"
+	case MetricTempHeadroomPct:
+		return "thermal headroom"
 	}
 	return string(m)
 }
@@ -107,8 +145,11 @@ const (
 
 // Rule is a threshold over a metric, scoped to some VMs.
 type Rule struct {
-	ID        uuid.UUID  `json:"id"`
-	Name      string     `json:"name"`
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	// Subject defaults to a VM, so every rule written before nodes had
+	// sensors keeps meaning what it meant.
+	Subject   Subject    `json:"subject"`
 	Metric    Metric     `json:"metric"`
 	Op        Operator   `json:"op"`
 	Threshold float64    `json:"threshold"`
@@ -129,8 +170,22 @@ func (r Rule) Validate() error {
 	if r.Name == "" {
 		return ErrInvalidName
 	}
+	subject := r.SubjectOrDefault()
+	if !subject.Valid() {
+		return fmt.Errorf("%w: %s", ErrInvalidSubject, r.Subject)
+	}
 	if !r.Metric.Valid() {
 		return fmt.Errorf("%w: %s", ErrInvalidMetric, r.Metric)
+	}
+	// A rule watching a metric its subject does not have can never fire, and
+	// the administrator wants to hear that now rather than never.
+	if !metricAllowed(subject, r.Metric) {
+		return fmt.Errorf("%w: %s has no %s", ErrInvalidMetric, subject, r.Metric)
+	}
+	// Nodes are not in VM groups. Scoping a host rule to one would silently
+	// mean something other than what it says.
+	if subject == SubjectHost && r.VMGroupID != nil {
+		return fmt.Errorf("%w: a node rule cannot be scoped to a VM group", ErrInvalidSubject)
 	}
 	if !r.Op.Valid() {
 		return fmt.Errorf("%w: %s", ErrInvalidOperator, r.Op)
@@ -146,12 +201,34 @@ func (r Rule) Validate() error {
 	return nil
 }
 
+// SubjectOrDefault is the rule's subject, defaulting to a VM for every rule
+// written before nodes had any sensors to watch.
+func (r Rule) SubjectOrDefault() Subject {
+	if r.Subject == "" {
+		return SubjectVM
+	}
+	return r.Subject
+}
+
+func metricAllowed(s Subject, m Metric) bool {
+	for _, allowed := range s.Metrics() {
+		if allowed == m {
+			return true
+		}
+	}
+	return false
+}
+
 // Status is a rule's current state for one VM.
 type Status struct {
-	RuleID         uuid.UUID  `json:"rule_id"`
-	RuleName       string     `json:"rule_name"`
-	VMID           uuid.UUID  `json:"vm_id"`
-	VMName         string     `json:"vm_name"`
+	RuleID   uuid.UUID `json:"rule_id"`
+	RuleName string    `json:"rule_name"`
+	// Subject says which of the two identifiers below is filled in.
+	Subject        Subject    `json:"subject"`
+	VMID           uuid.UUID  `json:"vm_id,omitempty"`
+	VMName         string     `json:"vm_name,omitempty"`
+	HostID         uuid.UUID  `json:"host_id,omitempty"`
+	HostName       string     `json:"host_name,omitempty"`
 	Metric         Metric     `json:"metric"`
 	Severity       string     `json:"severity"`
 	State          State      `json:"state"`

@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/freezxp/proxui/internal/app/ports"
+	"github.com/freezxp/proxui/internal/app/sensor"
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/domain/inventory"
 	"github.com/freezxp/proxui/internal/infra/crypto"
@@ -25,9 +26,13 @@ type Service struct {
 	Runs       RunStore
 	Reconciler *Reconciler
 	Metrics    *MetricsCollector
-	Vault      *crypto.Vault
-	Clock      ports.Clock
-	Log        zerolog.Logger
+	// Sensors reads node hardware over SSH. Optional: a deployment with no
+	// portal key, or a platform whose connector cannot name its nodes, simply
+	// collects nothing (ADR 0007).
+	Sensors *sensor.Collector
+	Vault   *crypto.Vault
+	Clock   ports.Clock
+	Log     zerolog.Logger
 }
 
 // isManualTrigger reports whether a run was asked for by a person rather than
@@ -110,6 +115,34 @@ func (s *Service) SyncInventory(ctx context.Context, platformID uuid.UUID, trigg
 
 // SyncMetrics samples a platform once. It is separate from inventory because it
 // runs on its own cadence and must keep working even while inventory is slow.
+// SyncSensors polls a platform's nodes for their hardware readings.
+//
+// It follows the same gates as any other sync — the platform must be enabled
+// and its breaker closed — because a platform the portal has backed off from
+// is not one to open SSH connections to either.
+func (s *Service) SyncSensors(ctx context.Context, platformID uuid.UUID) (sensor.Stats, error) {
+	if s.Sensors == nil {
+		return sensor.Stats{}, nil
+	}
+	now := s.Clock.Now()
+
+	p, err := s.Platforms.Get(ctx, platformID)
+	if err != nil {
+		return sensor.Stats{}, err
+	}
+	if !p.ShouldSync(now) {
+		return sensor.Stats{}, nil
+	}
+
+	conn, err := s.Connect(ctx, p)
+	if err != nil {
+		return sensor.Stats{}, err
+	}
+	defer conn.Close()
+
+	return s.Sensors.Collect(ctx, p.ID, conn)
+}
+
 func (s *Service) SyncMetrics(ctx context.Context, platformID uuid.UUID) (MetricsStats, error) {
 	now := s.Clock.Now()
 

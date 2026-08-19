@@ -13,6 +13,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/ports"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 	"github.com/freezxp/proxui/internal/domain/alert"
+	"github.com/freezxp/proxui/internal/domain/telemetry"
 	"github.com/freezxp/proxui/internal/infra/metrics"
 )
 
@@ -22,6 +23,23 @@ type Repository interface {
 	RuleStates(ctx context.Context, ruleID uuid.UUID) (map[uuid.UUID]alert.Status, error)
 	SaveState(ctx context.Context, ruleID, vmID uuid.UUID, state alert.State, since time.Time, value float64, notifiedAt *time.Time) error
 	PruneStates(ctx context.Context, ruleID uuid.UUID, keep []uuid.UUID) error
+
+	// The same four for rules about a node rather than a VM. Separate methods
+	// rather than a nullable subject argument: the two write different
+	// columns, and a caller that mixes them up should not compile.
+	RuleHostStates(ctx context.Context, ruleID uuid.UUID) (map[uuid.UUID]alert.Status, error)
+	SaveHostState(ctx context.Context, ruleID, hostID uuid.UUID, state alert.State, since time.Time, value float64, notifiedAt *time.Time) error
+	PruneHostStates(ctx context.Context, ruleID uuid.UUID, keep []uuid.UUID) error
+}
+
+// SensorReader supplies the hottest current reading per node.
+type SensorReader interface {
+	HottestNow(ctx context.Context, since time.Time) (map[uuid.UUID]telemetry.Reading, error)
+}
+
+// HostReader names nodes, so an alert can say which machine.
+type HostReader interface {
+	AllHostNames(ctx context.Context) (map[uuid.UUID]string, error)
 }
 
 // MetricReader supplies the latest sample per VM.
@@ -54,6 +72,10 @@ type Evaluator struct {
 	Repo    Repository
 	Metrics MetricReader
 	VMs     VMReader
+	// Sensors and Hosts serve rules about node hardware. Both nil is a portal
+	// that collects no sensors, where a host rule simply never fires.
+	Sensors SensorReader
+	Hosts   HostReader
 	Groups  GroupReader
 	Events  EventPublisher
 	Clock   ports.Clock
@@ -89,19 +111,26 @@ func (e *Evaluator) Evaluate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("evaluate alerts: %w", err)
 	}
-	if len(samples) == 0 {
-		return nil
-	}
-
 	names, err := e.VMs.AllVMNames(ctx)
 	if err != nil {
 		return fmt.Errorf("evaluate alerts: %w", err)
 	}
 
+	// Node readings arrive on a slower cadence than metrics, so they get a
+	// staleness of their own; the metric window would call every node silent.
+	hottest, hostNames := e.nodeState(ctx, now)
+
 	firing := 0
 	for _, rule := range rules {
 		firing += rule.FiringCount
-		if err := e.evaluateRule(ctx, rule, samples, names, now); err != nil {
+
+		var err error
+		if rule.SubjectOrDefault() == alert.SubjectHost {
+			err = e.evaluateHostRule(ctx, rule, hottest, hostNames, now)
+		} else {
+			err = e.evaluateRule(ctx, rule, samples, names, now)
+		}
+		if err != nil {
 			// One bad rule must not stop the others: an alert that never runs
 			// is worse than one that logs a failure.
 			e.Log.Error().Err(err).Str("rule", rule.Name).Msg("could not evaluate alert rule")
@@ -151,6 +180,96 @@ func (e *Evaluator) evaluateRule(ctx context.Context, rule alert.Rule, samples m
 	return e.Repo.PruneStates(ctx, rule.ID, scope)
 }
 
+// SensorStaleness bounds how old a node reading may be and still count.
+// Three collection intervals, like the metric one, but the interval is five
+// minutes rather than one.
+const SensorStaleness = 16 * time.Minute
+
+// nodeState reads what host rules need. A portal that collects no sensors
+// returns nothing, and every host rule then finds nothing in scope — which is
+// the correct behaviour, not an error to log every pass.
+func (e *Evaluator) nodeState(ctx context.Context, now time.Time) (map[uuid.UUID]telemetry.Reading, map[uuid.UUID]string) {
+	if e.Sensors == nil || e.Hosts == nil {
+		return nil, nil
+	}
+	hottest, err := e.Sensors.HottestNow(ctx, now.Add(-SensorStaleness))
+	if err != nil {
+		e.Log.Error().Err(err).Msg("could not read node sensors for alerting")
+		return nil, nil
+	}
+	names, err := e.Hosts.AllHostNames(ctx)
+	if err != nil {
+		e.Log.Error().Err(err).Msg("could not read node names for alerting")
+		return nil, nil
+	}
+	return hottest, names
+}
+
+// evaluateHostRule applies one rule to every node that reported recently.
+//
+// A node rule is scoped to the whole estate: nodes are not in VM groups, and
+// a portal with two of them does not need a grouping vocabulary to say so.
+func (e *Evaluator) evaluateHostRule(ctx context.Context, rule alert.Rule,
+	hottest map[uuid.UUID]telemetry.Reading, names map[uuid.UUID]string, now time.Time) error {
+	if len(hottest) == 0 {
+		return nil
+	}
+
+	previous, err := e.Repo.RuleHostStates(ctx, rule.ID)
+	if err != nil {
+		return err
+	}
+
+	scope := make([]uuid.UUID, 0, len(hottest))
+	for hostID, reading := range hottest {
+		value, ok := sensorValue(rule.Metric, reading)
+		if !ok {
+			// A headroom rule cannot judge a chip that declares no limit.
+			// Skipping is right: the alternative is inventing one.
+			continue
+		}
+		scope = append(scope, hostID)
+
+		decision := alert.Evaluate(rule, previous[hostID], value, now)
+
+		var notifiedAt *time.Time
+		if decision.Notify {
+			notifiedAt = &now
+			// The sensor travels in the name, because "the node is hot" and
+			// "its NVMe is hot" call for different afternoons.
+			e.publishHost(ctx, rule, hostID, nodeLabel(names[hostID], reading), value, decision, now)
+		}
+		if err := e.Repo.SaveHostState(ctx, rule.ID, hostID, decision.State, decision.Since, value, notifiedAt); err != nil {
+			return err
+		}
+	}
+
+	return e.Repo.PruneHostStates(ctx, rule.ID, scope)
+}
+
+// nodeLabel names the node and the sensor that spoke for it.
+func nodeLabel(name string, reading telemetry.Reading) string {
+	if name == "" {
+		name = "a node"
+	}
+	if reading.Label == "" {
+		return name
+	}
+	return name + " (" + telemetry.ShortChip(reading.Chip) + " " + reading.Label + ")"
+}
+
+// sensorValue projects a reading onto what a rule watches.
+func sensorValue(metric alert.Metric, reading telemetry.Reading) (float64, bool) {
+	switch metric {
+	case alert.MetricTempC:
+		return reading.Value, true
+	case alert.MetricTempHeadroomPct:
+		headroom, ok := reading.Headroom()
+		return headroom * 100, ok
+	}
+	return 0, false
+}
+
 // scope resolves which VMs a rule applies to, restricted to those that
 // actually reported recently.
 func (e *Evaluator) scope(ctx context.Context, rule alert.Rule, samples map[uuid.UUID]ports.MetricPoint) ([]uuid.UUID, error) {
@@ -196,7 +315,7 @@ func (e *Evaluator) publish(ctx context.Context, rule alert.Rule, vmID uuid.UUID
 		eventType = ports.EventAlertResolved
 	}
 
-	event := ports.DomainEvent{
+	e.emit(ctx, rule, ports.DomainEvent{
 		OccurredAt: now,
 		Category:   ports.EventCategoryPerformanceAlert,
 		Type:       eventType,
@@ -208,8 +327,49 @@ func (e *Evaluator) publish(ctx context.Context, rule alert.Rule, vmID uuid.UUID
 			"value": value, "subject": subject, "body": body,
 			"state": string(decision.State),
 		},
+	})
+}
+
+// publishHost is publish for a rule about a node. The payload names a host
+// rather than a VM, because a notification rule filtering on vm_id must not
+// match an alert that has no VM in it.
+func (e *Evaluator) publishHost(ctx context.Context, rule alert.Rule, hostID uuid.UUID,
+	hostName string, value float64, decision alert.Decision, now time.Time) {
+	if e.Events == nil {
+		return
+	}
+	if hostName == "" {
+		hostName = hostID.String()
+	}
+	subject, body := alert.Describe(rule, hostName, value, decision.Recovered)
+
+	severity := rule.Severity
+	if decision.Recovered {
+		severity = ports.SeverityInfo
+	}
+	eventType := ports.EventAlertFiring
+	if decision.Recovered {
+		eventType = ports.EventAlertResolved
 	}
 
+	e.emit(ctx, rule, ports.DomainEvent{
+		OccurredAt: now,
+		Category:   ports.EventCategoryPerformanceAlert,
+		Type:       eventType,
+		Severity:   severity,
+		Payload: map[string]any{
+			"host_id": hostID.String(), "host_name": hostName,
+			"rule_id": rule.ID.String(), "rule_name": rule.Name,
+			"metric": string(rule.Metric), "threshold": rule.Threshold,
+			"value": value, "subject": subject, "body": body,
+			"state": string(decision.State),
+		},
+	})
+}
+
+// emit writes one event to the outbox, which is what carries it to the
+// notification channels.
+func (e *Evaluator) emit(ctx context.Context, rule alert.Rule, event ports.DomainEvent) {
 	detached := context.WithoutCancel(ctx)
 	tx, err := e.Events.Begin(detached)
 	if err != nil {

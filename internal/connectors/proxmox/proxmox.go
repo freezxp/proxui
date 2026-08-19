@@ -67,6 +67,7 @@ func (c *Connector) Capabilities() []connector.Capability {
 		connector.CapabilityMetricsBackfill,
 		connector.CapabilityConsole,
 		connector.CapabilityPower,
+		connector.CapabilityNodeAddress,
 	}
 }
 

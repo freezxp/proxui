@@ -335,6 +335,48 @@ export interface HostRow {
   uptime_s: number
   sync_state: string
   vm_count: number
+  /** Absent until the node has answered — which needs the portal's public key
+   *  in its authorized_keys and lm-sensors installed (ADR 0007). */
+  sensors?: SensorSummary
+}
+
+/** One sensor as the hardware reports it. `chip` and `label` are verbatim, so
+ *  they match what `sensors` prints on the node itself. */
+export interface SensorReading {
+  chip: string
+  label: string
+  kind: 'temp_c' | 'fan_rpm'
+  value: number
+  /** The chip's own limits, absent on hardware that declares none. 80°C means
+   *  something different on a package than on a VRM. */
+  high?: number
+  crit?: number
+}
+
+export interface SensorSummary {
+  hottest: SensorReading
+  count: number
+  chips: string[]
+}
+
+/** How the portal reaches a node, and how the last poll went. */
+export interface NodeSSH {
+  address: string
+  ssh_user: string
+  algorithm: string
+  fingerprint: string
+  first_seen_at: string
+  last_tried_at?: string
+  last_ok_at?: string
+  last_error?: string
+}
+
+export interface NodeSensors {
+  host_id: string
+  at?: string
+  readings: SensorReading[]
+  summary: SensorSummary
+  node?: NodeSSH
 }
 
 export interface StorageRow {

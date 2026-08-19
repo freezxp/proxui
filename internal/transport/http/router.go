@@ -62,6 +62,9 @@ type ServerConfig struct {
 	Edge       EdgeDeps
 	Publishing PublishDeps
 
+	// Sensors reads node hardware readings; nil disables those endpoints.
+	Sensors SensorDeps
+
 	// Events streams live updates; nil disables the endpoint.
 	Events EventStreamer
 	// Limiter enforces request rate limits; nil disables them.
@@ -114,6 +117,7 @@ type Server struct {
 	notify        NotifyDeps
 	alerts        AlertDeps
 	settings      SettingsDeps
+	sensors       SensorDeps
 	events        EventStreamer
 	streamTickets StreamTicketStore
 	limiter       Limiter
@@ -149,6 +153,7 @@ func NewServer(cfg ServerConfig) *Server {
 		notify:        cfg.Notify,
 		alerts:        cfg.Alerts,
 		settings:      cfg.Settings,
+		sensors:       cfg.Sensors,
 		events:        cfg.Events,
 		streamTickets: cfg.StreamTickets,
 		limiter:       cfg.Limiter,
@@ -454,9 +459,20 @@ func (s *Server) Routes() http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor))
 				r.Get("/hosts", s.handleListHosts)
+				// A node's own hardware, read from the node rather than from
+				// the platform, which publishes no temperature at all
+				// (ADR 0007).
+				r.Get("/hosts/{hostID}/sensors", s.handleHostSensors)
+				r.Get("/hosts/{hostID}/sensors/series", s.handleHostSensorSeries)
 				r.Get("/storage", s.handleListStorage)
 				r.Get("/networks", s.handleListNetworks)
 			})
+
+			// Clearing a node's pinned host key is the one write here, and it
+			// is an administrator's: the pin is what refuses a node whose
+			// identity changed.
+			r.With(RequireRole(identity.RoleAdmin)).
+				Delete("/hosts/{hostID}/host-key", s.handleForgetNodeKey)
 
 			r.Route("/grants", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))

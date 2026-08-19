@@ -27,7 +27,10 @@ type AlertDeps struct {
 }
 
 type alertRuleRequest struct {
-	Name      string  `json:"name"`
+	Name string `json:"name"`
+	// Subject is "vm" or "host"; empty means a VM, so every client written
+	// before nodes had sensors keeps working.
+	Subject   string  `json:"subject"`
 	Metric    string  `json:"metric"`
 	Op        string  `json:"op"`
 	Threshold float64 `json:"threshold"`
@@ -67,7 +70,8 @@ func (s *Server) handleCreateAlertRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rule := &alert.Rule{
-		ID: uuid.New(), Name: req.Name, Metric: alert.Metric(req.Metric), Op: op,
+		ID: uuid.New(), Name: req.Name, Subject: alert.Subject(req.Subject),
+		Metric: alert.Metric(req.Metric), Op: op,
 		Threshold: req.Threshold, DurationS: req.DurationS,
 		VMGroupID: optionalUUID(req.VMGroupID), Severity: severity, CooldownS: cooldown,
 		IsEnabled: req.IsEnabled == nil || *req.IsEnabled, CreatedAt: s.clock(),
@@ -82,7 +86,8 @@ func (s *Server) handleCreateAlertRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auditAlert(r, "alert_rule_created", rule.ID.String(), rule.Name, map[string]any{
-		"metric": string(rule.Metric), "op": string(rule.Op), "threshold": rule.Threshold,
+		"subject": string(rule.SubjectOrDefault()),
+		"metric":  string(rule.Metric), "op": string(rule.Op), "threshold": rule.Threshold,
 		"duration_s": rule.DurationS, "severity": rule.Severity,
 	})
 	WriteJSON(w, http.StatusCreated, rule)
@@ -145,7 +150,8 @@ func (s *Server) writeAlertError(w http.ResponseWriter, r *http.Request, err err
 	case errors.Is(err, ports.ErrConflict):
 		WriteProblem(w, r, http.StatusConflict, "conflict", "An alert rule with that name already exists.")
 	case errors.Is(err, alert.ErrInvalidMetric), errors.Is(err, alert.ErrInvalidOperator),
-		errors.Is(err, alert.ErrInvalidThreshold), errors.Is(err, alert.ErrInvalidName):
+		errors.Is(err, alert.ErrInvalidThreshold), errors.Is(err, alert.ErrInvalidName),
+		errors.Is(err, alert.ErrInvalidSubject):
 		WriteProblem(w, r, http.StatusUnprocessableEntity, "validation", err.Error())
 	default:
 		s.serverError(w, r, err, "Could not complete the request.")

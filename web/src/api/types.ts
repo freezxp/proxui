@@ -335,9 +335,14 @@ export interface HostRow {
   uptime_s: number
   sync_state: string
   vm_count: number
+  platform_id: string
   /** Absent until the node has answered — which needs the portal's public key
    *  in its authorized_keys and lm-sensors installed (ADR 0007). */
   sensors?: SensorSummary
+  /** Why the last poll got nothing, in the operator's terms. `sensors_ever_read`
+   *  separates "never tried" from "tried and was refused". */
+  sensor_error?: string
+  sensors_ever_read: boolean
 }
 
 /** One sensor as the hardware reports it. `chip` and `label` are verbatim, so

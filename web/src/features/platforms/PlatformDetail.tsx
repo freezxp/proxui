@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type { Platform, SyncRun } from '@/api/types'
 import { Drawer } from '@/components/Drawer'
+import { MonitoringGuide } from './MonitoringGuide'
 import { absoluteTime, relativeTime } from '@/lib/format'
 
 export function PlatformDetail({ platform, onClose }: { platform: Platform; onClose: () => void }) {
@@ -136,6 +137,8 @@ export function PlatformDetail({ platform, onClose }: { platform: Platform; onCl
             </div>
           )}
         </div>
+
+        <MonitoringGuide platform={platform} />
 
         <div className="space-y-2 rounded-lg border border-danger/40 p-3">
           <h3 className="text-sm font-medium text-danger">Danger zone</h3>

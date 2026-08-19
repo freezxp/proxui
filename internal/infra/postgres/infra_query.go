@@ -11,11 +11,14 @@ import (
 // a node that vanished is visible rather than silently absent.
 func (q *InventoryQuery) ListHosts(ctx context.Context) ([]ports.HostRow, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT h.id, h.name, p.name, h.status, coalesce(h.cpu_cores,0), coalesce(h.memory_bytes,0),
+		SELECT h.id, h.platform_id, h.name, p.name, h.status,
+		       coalesce(h.cpu_cores,0), coalesce(h.memory_bytes,0),
 		       h.version, coalesce(h.uptime_s,0), h.sync_state::text,
-		       (SELECT count(*) FROM vms v WHERE v.host_id = h.id AND v.deleted_at IS NULL)
+		       (SELECT count(*) FROM vms v WHERE v.host_id = h.id AND v.deleted_at IS NULL),
+		       coalesce(ssh.last_error, ''), ssh.last_ok_at IS NOT NULL
 		  FROM hosts h
 		  JOIN platforms p ON p.id = h.platform_id
+		  LEFT JOIN host_ssh ssh ON ssh.host_id = h.id
 		 WHERE h.deleted_at IS NULL AND p.deleted_at IS NULL
 		 ORDER BY p.name, h.name`)
 	if err != nil {
@@ -26,8 +29,9 @@ func (q *InventoryQuery) ListHosts(ctx context.Context) ([]ports.HostRow, error)
 	out := []ports.HostRow{}
 	for rows.Next() {
 		var h ports.HostRow
-		if err := rows.Scan(&h.ID, &h.Name, &h.PlatformName, &h.Status, &h.CPUCores,
-			&h.MemoryBytes, &h.Version, &h.UptimeS, &h.SyncState, &h.VMCount); err != nil {
+		if err := rows.Scan(&h.ID, &h.PlatformID, &h.Name, &h.PlatformName, &h.Status, &h.CPUCores,
+			&h.MemoryBytes, &h.Version, &h.UptimeS, &h.SyncState, &h.VMCount,
+			&h.SensorError, &h.SensorsEverRead); err != nil {
 			return nil, fmt.Errorf("scan host: %w", err)
 		}
 		out = append(out, h)

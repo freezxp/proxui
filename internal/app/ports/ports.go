@@ -841,6 +841,7 @@ type NotifyRepository interface {
 // and the portal owns none of it.
 type HostRow struct {
 	ID           uuid.UUID `json:"id"`
+	PlatformID   uuid.UUID `json:"platform_id"`
 	Name         string    `json:"name"`
 	PlatformName string    `json:"platform_name"`
 	Status       string    `json:"status"`
@@ -854,6 +855,11 @@ type HostRow struct {
 	// answered — which is most of them until the portal's key is installed
 	// (ADR 0007).
 	Sensors *telemetry.SensorSummary `json:"sensors,omitempty"`
+	// SensorError is why the last poll got nothing, in the operator's terms.
+	// SensorsEverRead separates "never tried" from "tried and was refused",
+	// which need different things done about them.
+	SensorError     string `json:"sensor_error,omitempty"`
+	SensorsEverRead bool   `json:"sensors_ever_read"`
 }
 
 type StorageRow struct {

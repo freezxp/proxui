@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A setup guide on each platform.** Getting node readings takes two commands
+  on the node, and both of them are specific to the deployment: the portal's
+  own public key, and which of your nodes still has neither half installed. So
+  the guide lives on the platform beside the sync history rather than only in
+  the documentation — it lists each node with either its sensor count or the
+  reason it is silent, and hands over the exact `authorized_keys` line with the
+  real key already in it. Once every node answers, the steps disappear.
+
 - **Node temperatures** (SENSOR-01…SENSOR-05, [ADR 0007](docs/adr/0007-the-portal-reads-node-sensors-over-ssh.md)).
   The Hosts page grows a temperature column, and every node opens to show each
   sensor it reports — CPU package, per core, NVMe composite, whatever the board

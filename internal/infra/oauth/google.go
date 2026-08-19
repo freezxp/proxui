@@ -43,19 +43,52 @@ const (
 	googleJWKSURL  = "https://www.googleapis.com/oauth2/v3/certs"
 )
 
+// CallbackPath is where Google sends the browser back. It is the tail of every
+// redirect URI this portal builds, so it lives beside the code that builds one
+// rather than only in the router.
+const CallbackPath = "/api/v1/auth/google/callback"
+
 // Config is what a deployment supplies to enable Google sign-in.
 type Config struct {
 	ClientID     string
 	ClientSecret string
-	// RedirectURL must match one registered with Google exactly, including
-	// scheme and path. Mismatches are the single most common failure here, so
-	// the error says so in as many words.
+	// RedirectURL pins the redirect URI to one value. Leave it empty and each
+	// sign-in uses the address the browser actually reached the portal at,
+	// which is what a portal answering to more than one name needs: an
+	// operator on the LAN name and one on the public name are each sent back
+	// where they came from. Set it only to override that.
 	RedirectURL string
 }
 
 // Enabled reports whether enough was configured to attempt a sign-in.
+//
+// The redirect URI is not part of that test: without a pin it comes from the
+// request, so a portal with a client ID and secret is configured.
 func (c Config) Enabled() bool {
-	return c.ClientID != "" && c.ClientSecret != "" && c.RedirectURL != ""
+	return c.ClientID != "" && c.ClientSecret != ""
+}
+
+// Redirect resolves the redirect URI for a sign-in that arrived at origin
+// (scheme and host, no trailing slash).
+//
+// A pinned RedirectURL wins, because a deployment that set one did so to say
+// something the request cannot: that it sits behind a proxy whose address the
+// portal never sees. Otherwise the origin the browser used is the answer, and
+// it is the right one — it is the address that browser will be sent back to,
+// and the address whose cookies the session will be stored under.
+//
+// Nothing here decides what Google will accept. The URI still has to be one
+// registered with the OAuth client, which is what stops a forged Host header
+// from turning a sign-in into a redirect somewhere else: Google compares it
+// against its own list before it sends anybody anywhere.
+func (c Config) Redirect(origin string) string {
+	if c.RedirectURL != "" {
+		return c.RedirectURL
+	}
+	if origin == "" {
+		return ""
+	}
+	return strings.TrimSuffix(origin, "/") + CallbackPath
 }
 
 // Identity is what Google told us about the person who just signed in.
@@ -109,10 +142,18 @@ type Attempt struct {
 	Nonce    string `json:"nonce"`
 	Verifier string `json:"verifier"`
 	Return   string `json:"return"`
+	// Redirect is the URI this attempt was started with. It is recorded rather
+	// than recomputed because the exchange has to send Google the same value
+	// the authorize request did, character for character, and the two happen
+	// on separate requests: a portal reachable under two names would otherwise
+	// resolve a different one on the way back and be refused. Held server-side
+	// with the rest of the attempt, so the callback cannot choose it.
+	Redirect string `json:"redirect"`
 }
 
-// NewAttempt mints the random values one sign-in needs.
-func NewAttempt(returnTo string) (Attempt, error) {
+// NewAttempt mints the random values one sign-in needs, for a sign-in that
+// will come back to redirect.
+func NewAttempt(returnTo, redirect string) (Attempt, error) {
 	state, err := randomString()
 	if err != nil {
 		return Attempt{}, err
@@ -125,7 +166,10 @@ func NewAttempt(returnTo string) (Attempt, error) {
 	if err != nil {
 		return Attempt{}, err
 	}
-	return Attempt{State: state, Nonce: nonce, Verifier: verifier, Return: returnTo}, nil
+	return Attempt{
+		State: state, Nonce: nonce, Verifier: verifier,
+		Return: returnTo, Redirect: redirect,
+	}, nil
 }
 
 // AuthorizeURL is where the browser is sent to sign in.
@@ -134,11 +178,19 @@ func (c *Client) AuthorizeURL(ctx context.Context, a Attempt) (string, error) {
 	if !cfg.Enabled() {
 		return "", ErrNotConfigured
 	}
+	redirect := a.Redirect
+	if redirect == "" {
+		// An attempt built before the caller knew where to come back to.
+		redirect = cfg.Redirect("")
+	}
+	if redirect == "" {
+		return "", fmt.Errorf("%w: no redirect URI for this sign-in", ErrNotConfigured)
+	}
 	challenge := sha256.Sum256([]byte(a.Verifier))
 
 	q := url.Values{}
 	q.Set("client_id", cfg.ClientID)
-	q.Set("redirect_uri", cfg.RedirectURL)
+	q.Set("redirect_uri", redirect)
 	q.Set("response_type", "code")
 	q.Set("scope", "openid email profile")
 	q.Set("state", a.State)
@@ -158,6 +210,10 @@ func (c *Client) Exchange(ctx context.Context, code string, a Attempt) (Identity
 	if !cfg.Enabled() {
 		return Identity{}, ErrNotConfigured
 	}
+	redirect := a.Redirect
+	if redirect == "" {
+		redirect = cfg.Redirect("")
+	}
 
 	form := url.Values{}
 	form.Set("client_id", cfg.ClientID)
@@ -165,7 +221,7 @@ func (c *Client) Exchange(ctx context.Context, code string, a Attempt) (Identity
 	form.Set("code", code)
 	form.Set("code_verifier", a.Verifier)
 	form.Set("grant_type", "authorization_code")
-	form.Set("redirect_uri", cfg.RedirectURL)
+	form.Set("redirect_uri", redirect)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, googleTokenURL,
 		strings.NewReader(form.Encode()))

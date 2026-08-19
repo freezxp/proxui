@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **Google sign-in returns to the address you signed in at** (AUTH-01,
+  ADR 0003). A portal is routinely reachable under more than one name — a LAN name, a public
+  one, a tunnel hostname — and the redirect URI was a single configured string,
+  so a sign-in started at one name came back at another. Google returns the
+  browser to that URI verbatim, so the session landed on a host the person was
+  not looking at, and their cookies were not there either.
+
+  The redirect URI now comes from the request that started the sign-in:
+  `X-Forwarded-Host` when a proxy rewrote `Host`, otherwise `Host`, with the
+  scheme from `X-Forwarded-Proto` — the same signal the cookie's `Secure` flag
+  already reads, and for the same reason. It is resolved once, at the start,
+  and recorded against the attempt server-side, because the token exchange has
+  to send Google the same string the authorize request did and the two happen
+  on separate requests.
+
+  **The Redirect URL setting is now optional, and empty is the right answer.**
+  A value pins one address and wins over the request, which is what a portal
+  behind a proxy whose public address it never sees still needs. Google sign-in
+  no longer requires it to be offered at all: a client ID and secret are the
+  whole configuration.
+
+  Every address has to be registered with Google, and that is the whole of the
+  safety here — a forged `Host` can only name a redirect URI Google already
+  knows, and Google refuses anything else before the browser goes anywhere.
+
 - **Fixed: live updates stopped after 30 seconds** (INV-04, SYNC-06). The
   request deadline meant for JSON calls was on the root router, so it also
   reached the three WebSockets. The live event stream watches that context and

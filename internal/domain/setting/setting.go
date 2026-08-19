@@ -184,9 +184,11 @@ var Catalogue = []Definition{
 	{
 		Key: "auth.google_redirect_url", Group: "Google sign-in", Kind: KindText,
 		Label: "Redirect URL", MaxLength: 400,
-		// The single most common failure in this flow, and invisible from the
-		// portal's side: Google compares it character for character.
-		Help: "Must match a redirect URI registered with Google exactly, including scheme, host, port and path.",
+		// Empty is the right answer for almost every deployment, including
+		// every one reachable under more than one name. Setting it is for the
+		// portal behind a proxy whose public address it never sees.
+		Help: "Leave empty to return to whichever address the browser signed in at — register each of them with Google. " +
+			"Set it only to pin one address, and then it must match a registered redirect URI exactly, including scheme, host, port and path.",
 	},
 	{
 		Key: "auth.self_registration", Group: "Access", Kind: KindSelect,

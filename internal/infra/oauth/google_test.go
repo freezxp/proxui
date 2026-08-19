@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -25,7 +26,7 @@ func static(cfg Config) ConfigSource {
 
 func TestAuthorizeURLCarriesTheProtections(t *testing.T) {
 	client := New(static(testConfig()), nil)
-	attempt, err := NewAttempt("/vms")
+	attempt, err := NewAttempt("/vms", testConfig().RedirectURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func TestUnconfiguredClientRefuses(t *testing.T) {
 func TestAttemptsAreUnique(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 50; i++ {
-		a, err := NewAttempt("/")
+		a, err := NewAttempt("/", testConfig().RedirectURL)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -133,9 +134,50 @@ func TestConfigurationIsReadPerCall(t *testing.T) {
 
 func mustAttempt(t *testing.T) Attempt {
 	t.Helper()
-	a, err := NewAttempt("/")
+	a, err := NewAttempt("/", testConfig().RedirectURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return a
+}
+
+// The redirect URI is what Google returns the browser to, so it has to be the
+// address that browser is on — unless a deployment pinned one, in which case
+// it knows something about its own proxying that the request does not carry.
+func TestRedirectPrefersThePinButFallsBackToTheOrigin(t *testing.T) {
+	pinned := Config{RedirectURL: "https://portal.example/api/v1/auth/google/callback"}
+	if got := pinned.Redirect("https://somewhere.else"); got != pinned.RedirectURL {
+		t.Errorf("Redirect = %q, want the pinned %q", got, pinned.RedirectURL)
+	}
+
+	var loose Config
+	for _, tt := range []struct{ origin, want string }{
+		{"https://vm.intranet.my", "https://vm.intranet.my" + CallbackPath},
+		{"http://vm.intranet.my:8080", "http://vm.intranet.my:8080" + CallbackPath},
+		// A trailing slash would otherwise produce a double one, which Google
+		// compares character for character and refuses.
+		{"https://vm.intranet.my/", "https://vm.intranet.my" + CallbackPath},
+		// Nothing to build from, and nothing invented: the caller reports it
+		// rather than sending Google a path with no host.
+		{"", ""},
+	} {
+		if got := loose.Redirect(tt.origin); got != tt.want {
+			t.Errorf("Redirect(%q) = %q, want %q", tt.origin, got, tt.want)
+		}
+	}
+}
+
+// A client ID and secret are the whole configuration now; the redirect URI is
+// derived per request when it is not pinned.
+func TestEnabledDoesNotRequireARedirectURL(t *testing.T) {
+	cfg := Config{ClientID: "id.apps.googleusercontent.com", ClientSecret: "secret"}
+	if !cfg.Enabled() {
+		t.Error("a client ID and secret were not enough to attempt a sign-in")
+	}
+	// But an attempt that names no redirect, for a config that pins none, has
+	// nowhere to come back to and must not be sent to Google.
+	client := New(static(cfg), nil)
+	if _, err := client.AuthorizeURL(context.Background(), Attempt{}); !errors.Is(err, ErrNotConfigured) {
+		t.Errorf("got %v, want ErrNotConfigured", err)
+	}
 }

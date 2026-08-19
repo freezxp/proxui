@@ -334,8 +334,10 @@ function ImageSetting({
 // What an empty text field resolves to, shown as its placeholder.
 function emptyMeans(item: Setting): string {
   if (item.key === 'branding.portal_name') return window.location.hostname
-  // The redirect URL has exactly one correct value for this deployment, and
-  // typing it by hand is how it ends up mismatched.
+  // Empty is the right answer here: the portal returns each sign-in to the
+  // address it started at, so a portal on several names works without pinning
+  // one. The placeholder is what that resolves to on the address you are
+  // reading this at — the string to register with Google.
   if (item.key === 'auth.google_redirect_url') {
     return `${window.location.origin}/api/v1/auth/google/callback`
   }

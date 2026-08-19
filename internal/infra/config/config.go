@@ -93,10 +93,11 @@ type Config struct {
 	// this belongs with the master key and the database URL.
 	GoogleClientID     string
 	GoogleClientSecret string
-	// GoogleRedirectURL must match one registered with Google exactly. It is
-	// explicit rather than derived from the request, because the request's
-	// Host is whatever a proxy passed along and a mismatch here is the single
-	// most common way this flow fails.
+	// GoogleRedirectURL pins the redirect URI to one value. Leave it unset and
+	// each sign-in returns to the address the browser reached the portal at,
+	// which is what a portal answering to several names needs; every one of
+	// them has to be registered with Google either way. Set it for the
+	// deployment behind a proxy whose public address the portal never sees.
 	GoogleRedirectURL string
 }
 

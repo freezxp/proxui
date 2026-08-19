@@ -82,12 +82,19 @@ is a convenience, not a requirement.
 
 ## 26.2a Behind a reverse proxy
 
-Two things to get right when TLS terminates in front of the portal.
+Three things to get right when TLS terminates in front of the portal.
 
 **Pass the scheme through.** The portal decides whether to send HSTS from
-`X-Forwarded-Proto`. Caddy's `reverse_proxy` sets it; nginx needs
+`X-Forwarded-Proto`, and builds the `https://` half of the Google redirect URI
+from it. Caddy's `reverse_proxy` sets it; nginx needs
 `proxy_set_header X-Forwarded-Proto $scheme;`. Without it the portal believes
-it is serving plain HTTP and omits the header.
+it is serving plain HTTP, omits the header, and sends Google an `http://`
+redirect URI that Google refuses.
+
+**Pass the host through.** Caddy and cloudflared keep the original `Host`;
+nginx needs `proxy_set_header Host $host;`. A proxy that rewrites it to an
+internal address should send `X-Forwarded-Host` with the real one, which the
+portal prefers when it is there (§26.3a).
 
 **Secure cookies.** `PROXUI_SECURE_COOKIES` defaults to true and needs nothing
 done to it behind TLS. It matters only for a portal reached **both** ways —
@@ -152,15 +159,21 @@ Once you have decided on the address from §26.1.
 
    - **Application type**: *Web application*.
    - **Name**: anything; it is only shown in the console.
-   - **Authorized redirect URIs**: add exactly one —
+   - **Authorized redirect URIs**: add one for **every address the portal
+     answers to** —
 
      ```
      https://your-portal.example.com/api/v1/auth/google/callback
+     https://vm.intranet.my/api/v1/auth/google/callback
      ```
 
      Character for character. Google compares the whole string: a trailing
      slash, `http` instead of `https`, or a different port is a different URI
      and the sign-in fails with `redirect_uri_mismatch`.
+
+     The portal sends whichever one matches the address the browser is on
+     (§26.3a), so a name you do not register is a name Google will refuse to
+     sign in at — while the others keep working.
    - **Authorized JavaScript origins**: not needed. This portal does the
      exchange server-side.
 
@@ -179,19 +192,43 @@ Once you have decided on the address from §26.1.
 |---|---|
 | Client ID | ends in `.apps.googleusercontent.com` |
 | Client secret | stored encrypted; shown afterwards only as "set" |
-| Redirect URL | the same string you registered with Google |
-
-The redirect field's placeholder is the correct value for the address you are
-currently using, which is the one to register if it matches §26.1's rules.
+| Redirect URL | leave it empty — see §26.3a |
 
 Nothing needs restarting. The sign-in page shows a **Sign in with Google**
-button as soon as all three are present.
+button as soon as the client ID and secret are present.
+
+## 26.3a One portal, several addresses
+
+A portal is routinely reachable under more than one name: a LAN name, a public
+one, a tunnel hostname. Google returns the browser to the redirect URI
+verbatim, so a sign-in started at `vm.intranet.my` that comes back to
+`vm.cyberjaya.pro` lands the session on a host the person is not looking at —
+and their cookies are not there either.
+
+So **leave the Redirect URL empty**. Each sign-in then returns to the address
+that browser used, taken from the request (`X-Forwarded-Host` when a proxy
+rewrote `Host`, and `X-Forwarded-Proto` for the scheme, which is what makes
+this work behind Caddy or a Cloudflare Tunnel). The redirect field's
+placeholder shows the value the address you are on right now resolves to.
+
+The address is resolved once, when the sign-in starts, and recorded against the
+attempt server-side. The token exchange sends Google that same string, which is
+the half Google checks twice.
+
+Registering each address with Google is still required, and is the whole of the
+safety here: a forged `Host` header can only produce a redirect URI Google
+already knows, and Google refuses anything else before the browser goes
+anywhere.
+
+Set the field only to pin one address — for a portal behind a proxy whose
+public address it never sees. A pinned value wins over the request every time.
 
 ## 26.4 When it does not work
 
 | What you see | Cause |
 |---|---|
-| No Google button | one of the three fields is empty; `GET /api/v1/auth/methods` reports what the portal thinks |
+| No Google button | the client ID or secret is empty; `GET /api/v1/auth/methods` reports what the portal thinks |
+| `redirect_uri_mismatch` on one address but not another | that address is not registered with Google, or the Redirect URL field pins a different one (§26.3a) |
 | Google says "Access blocked: … invalid request" | the redirect URI does not match what you registered, exactly |
 | Google says the app is not verified | External + Production with sensitive scopes. Use only the three scopes in §26.2 |
 | Back at sign-in with "Google could not confirm that sign-in" | the token exchange failed; the portal log carries Google's own reason, usually `redirect_uri_mismatch` or a wrong client secret |

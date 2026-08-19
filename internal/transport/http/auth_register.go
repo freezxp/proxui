@@ -150,7 +150,17 @@ func (s *Server) handleGoogleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	attempt, err := oauth.NewAttempt(safeReturnPath(r.URL.Query().Get("return")))
+	// Where Google should send the browser back to. Resolved here, from this
+	// request, because the portal can answer to more than one name and the
+	// browser has just told us which one it used.
+	redirect := s.registration.OAuth.Config(r.Context()).Redirect(requestOrigin(r))
+	if redirect == "" {
+		WriteProblem(w, r, http.StatusInternalServerError, "auth.provider_unavailable",
+			"This sign-in has no address to return to.")
+		return
+	}
+
+	attempt, err := oauth.NewAttempt(safeReturnPath(r.URL.Query().Get("return")), redirect)
 	if err != nil {
 		s.serverError(w, r, err, "Could not start sign-in.")
 		return
@@ -252,4 +262,35 @@ func safeReturnPath(raw string) string {
 		return "/"
 	}
 	return raw
+}
+
+// requestOrigin is the scheme and host the browser used to reach the portal.
+//
+// A portal is routinely reachable under more than one name — a LAN name and a
+// public one, or a tunnel hostname beside a direct address — and the one in
+// front of the person signing in is the only one that can be sent back to:
+// Google returns the browser to the redirect URI verbatim, and a session
+// stored under the other name is a session that name cannot see.
+//
+// X-Forwarded-Host first, for the proxy that rewrites Host to an internal
+// address; the codebase already trusts the matching X-Forwarded-Proto to
+// decide the cookie's Secure flag, and trusting one without the other is how a
+// deployment ends up with an https scheme on the wrong host.
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if isTLS(r) {
+		scheme = "https"
+	}
+	host := r.Host
+	if forwarded := r.Header.Get("X-Forwarded-Host"); forwarded != "" {
+		// A proxy chain sends a list; the first entry is the original client's.
+		if first, _, found := strings.Cut(forwarded, ","); found {
+			forwarded = first
+		}
+		host = strings.TrimSpace(forwarded)
+	}
+	if host == "" {
+		return ""
+	}
+	return scheme + "://" + host
 }

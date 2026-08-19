@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Fixed: live updates stopped after 30 seconds** (INV-04, SYNC-06). The
+  request deadline meant for JSON calls was on the root router, so it also
+  reached the three WebSockets. The live event stream watches that context and
+  returns when it is cancelled, so every stream died half a minute after it
+  opened and the lists it feeds quietly stopped updating until the page was
+  reloaded.
+
+  Consoles and terminals were never cut — their relays do not look at the
+  request context — but each one that lasted longer than 30 seconds finished by
+  writing a 504 into the log and the HTTP metrics, so a working session read as
+  a failed request. That is what led here: a journal full of errors for
+  terminals nobody had any trouble with.
+
+  The deadline now sits on `/api/v1`, out of reach of anything long-lived.
+
 - **Delete a user** (ADM-04). The users table gets a Delete action beside
   Disable, confirmed by typing the username: the account, its sessions, its
   group memberships and its second factor go, and any SSH session it still had

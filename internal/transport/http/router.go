@@ -171,7 +171,6 @@ func (s *Server) Routes() http.Handler {
 	r.Use(requestLogger(s.log))
 	r.Use(recoverPanic(s.log))
 	r.Use(SecurityHeaders)
-	r.Use(middleware.Timeout(30 * time.Second))
 
 	// The console WebSocket authenticates with its single-use ticket rather
 	// than a bearer token: a browser cannot set headers on a WebSocket.
@@ -188,6 +187,15 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/readyz", s.handleReady)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// The request deadline belongs here rather than on the root router.
+		// chi's Timeout cancels the request context and then writes a 504 once
+		// the handler returns, which is right for a JSON call and wrong for
+		// everything above: a WebSocket is long-lived by design, so a root
+		// deadline would cut the live event stream at 30 seconds (its loop
+		// selects on r.Context().Done()) and log a 504 for every console and
+		// terminal that outlived one. /readyz brings its own shorter deadline.
+		r.Use(middleware.Timeout(30 * time.Second))
+
 		// Branding before authentication: the sign-in page has to render the
 		// portal's own name and logo, and cannot do that after sign-in only.
 		r.Get("/branding", s.handleBranding)

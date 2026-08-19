@@ -462,8 +462,10 @@ func (s *Server) Routes() http.Handler {
 				// A node's own hardware, read from the node rather than from
 				// the platform, which publishes no temperature at all
 				// (ADR 0007).
+				r.Get("/hosts/{hostID}/metrics", s.handleHostMetrics)
 				r.Get("/hosts/{hostID}/sensors", s.handleHostSensors)
 				r.Get("/hosts/{hostID}/sensors/series", s.handleHostSensorSeries)
+				r.Get("/hosts/{hostID}/sensors/history", s.handleHostSensorHistory)
 				r.Get("/storage", s.handleListStorage)
 				r.Get("/networks", s.handleListNetworks)
 			})

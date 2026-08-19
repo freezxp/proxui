@@ -59,6 +59,7 @@ Set-Cookie: proxui_rt=…; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth
 | GET `/hosts`, `/hosts/{id}`, `/hosts/{id}/metrics` | any (scoped¹) | Node inventory & metrics. ¹Hosts visible if the user can see ≥1 VM on them; admins all |
 | GET `/hosts/{id}/sensors` | admin, read-only, auditor | Node hardware read from the node itself, not from the platform (ADR 0007). → `{at, readings: [{chip, label, kind, value, high, crit}…], summary, node}`. A node that has never answered returns 200 with no readings and the reason in `node.last_error` — most nodes start there |
 | GET `/hosts/{id}/sensors/series` | admin, read-only, auditor | One sensor's history. `?chip=&label=` name it; `?range=` or `?from&to` as for VM metrics |
+| GET `/hosts/{id}/sensors/history` | admin, read-only, auditor | Every temperature sensor's series for one node, aligned on a shared x-axis for one overlaid chart. `?range=` or `?from&to`. → `{data: [{chip, label, crit, points: [{t, v, max}…]}…]}` |
 | DELETE `/hosts/{id}/host-key` | admin | Forget a node's pinned SSH host key so the next poll meets it afresh. Audited. 404 if nothing is pinned |
 | GET `/storage`, `/storage/{id}` | any (scoped¹) | Storage pools with capacity |
 | GET `/networks`, `/networks/{id}` | any (scoped¹) | Bridges/bonds/VLANs |

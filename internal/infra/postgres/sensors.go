@@ -179,6 +179,50 @@ ORDER BY bucket`
 	return out, rows.Err()
 }
 
+// History returns every temperature sensor's series for one node. One query,
+// grouped in Go by (chip, label): the readings already share timestamps, so a
+// chart can align them without the database pivoting.
+func (r *SensorRepository) History(ctx context.Context, hostID uuid.UUID,
+	from, to time.Time, res telemetry.Resolution) ([]ports.SensorSeries, error) {
+	query := `
+SELECT chip, label, crit, time, value, value
+FROM host_sensors
+WHERE host_id = $1 AND kind = 'temp_c' AND time >= $2 AND time <= $3
+ORDER BY chip, label, time`
+	if res != telemetry.ResolutionRaw {
+		query = `
+SELECT chip, label, crit, bucket, value_avg, value_max
+FROM host_sensors_5m
+WHERE host_id = $1 AND kind = 'temp_c' AND bucket >= $2 AND bucket <= $3
+ORDER BY chip, label, bucket`
+	}
+
+	rows, err := r.db.Query(ctx, query, hostID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("sensor history: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ports.SensorSeries
+	for rows.Next() {
+		var (
+			chip, label string
+			crit        *float64
+			p           ports.SensorPoint
+		)
+		if err := rows.Scan(&chip, &label, &crit, &p.Time, &p.Value, &p.Max); err != nil {
+			return nil, fmt.Errorf("scan sensor history: %w", err)
+		}
+		// Rows are ordered by (chip, label), so a new key starts a new series.
+		if len(out) == 0 || out[len(out)-1].Chip != chip || out[len(out)-1].Label != label {
+			out = append(out, ports.SensorSeries{Chip: chip, Label: label, Crit: crit})
+		}
+		last := &out[len(out)-1]
+		last.Points = append(last.Points, p)
+	}
+	return out, rows.Err()
+}
+
 // scanReading reads one row of the latest-readings shape.
 func scanReading(rows pgx.Rows) (telemetry.Reading, time.Time, uuid.UUID, error) {
 	var (

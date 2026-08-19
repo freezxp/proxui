@@ -191,6 +191,9 @@ func (stubMetrics) SaveCounterState(context.Context, map[ports.CounterKey]ports.
 func (stubMetrics) VMSeries(context.Context, uuid.UUID, time.Time, time.Time, time.Time) (ports.MetricSeries, error) {
 	return ports.MetricSeries{}, nil
 }
+func (stubMetrics) HostSeries(context.Context, uuid.UUID, time.Time, time.Time, time.Time) (ports.MetricSeries, error) {
+	return ports.MetricSeries{}, nil
+}
 func (stubMetrics) LatestVMMetrics(context.Context, time.Time) (map[uuid.UUID]ports.MetricPoint, error) {
 	return nil, nil
 }

@@ -376,6 +376,13 @@ export interface NodeSSH {
   last_error?: string
 }
 
+export interface SensorSeries {
+  chip: string
+  label: string
+  crit?: number
+  points: { t: string; v: number; max?: number }[]
+}
+
 export interface NodeSensors {
   host_id: string
   at?: string

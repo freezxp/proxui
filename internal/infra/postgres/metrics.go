@@ -148,6 +148,57 @@ func sourceFor(res telemetry.Resolution) resolutionSource {
 	}
 }
 
+// HostSeries reads a node's metrics for a window. Nodes report only CPU and
+// memory (the Proxmox connector emits those per node), and the rollups stop at
+// five minutes — there is no 30-minute or 3-hour host aggregate — so a window
+// wider than the raw retention is answered from metrics_host_5m rather than a
+// coarser table that does not exist. The other MetricPoint fields stay zero:
+// a node has no per-VM disk or network series to report.
+func (r *MetricsRepository) HostSeries(ctx context.Context, hostID uuid.UUID, from, to, now time.Time) (ports.MetricSeries, error) {
+	res := telemetry.SelectResolution(from, to, now)
+
+	table, timeCol, cpu, memUsed, memTotal := "metrics_host", "time", "cpu_pct", "mem_used_bytes", "mem_total_bytes"
+	if res != telemetry.ResolutionRaw {
+		// Every non-raw resolution collapses to the one host rollup there is.
+		res = telemetry.Resolution5m
+		table, timeCol = "metrics_host_5m", "bucket"
+		cpu, memUsed = "cpu_pct_avg", "mem_used_bytes_avg"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s AS ts, %s, %s, %s
+		FROM %s WHERE host_id = $1 AND %s >= $2 AND %s <= $3
+		ORDER BY ts`,
+		timeCol, cpu, memUsed, memTotal, table, timeCol, timeCol)
+
+	rows, err := r.db.Query(ctx, query, hostID, from, to)
+	if err != nil {
+		return ports.MetricSeries{}, fmt.Errorf("read host series: %w", err)
+	}
+	defer rows.Close()
+
+	series := ports.MetricSeries{
+		Resolution: string(res),
+		BucketS:    int(telemetry.Bucket(res).Seconds()),
+		Points:     []ports.MetricPoint{},
+	}
+	for rows.Next() {
+		var (
+			p                 ports.MetricPoint
+			cpuVal            *float64
+			memUsedV, memTotV *int64
+		)
+		if err := rows.Scan(&p.Time, &cpuVal, &memUsedV, &memTotV); err != nil {
+			return ports.MetricSeries{}, fmt.Errorf("scan host sample: %w", err)
+		}
+		p.CPUPct = derefFloat(cpuVal)
+		p.MemUsedBytes = derefInt64(memUsedV)
+		p.MemTotalBytes = derefInt64(memTotV)
+		series.Points = append(series.Points, p)
+	}
+	return series, rows.Err()
+}
+
 // VMSeries reads a VM's metrics for a window, choosing the resolution that
 // balances detail against cost. The caller never names a table: which one holds
 // the answer is a storage detail (docs/03-frs.md PERF-02).

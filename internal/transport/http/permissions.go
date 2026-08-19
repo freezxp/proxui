@@ -229,9 +229,11 @@ var permissionMap = map[string]Permission{
 
 	// Deliberately without RoleOperator: an operator sees the VMs they were
 	// granted, not the estate those VMs sit in.
-	"GET /api/v1/hosts":                         roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
-	"GET /api/v1/hosts/{hostID}/sensors":        roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
-	"GET /api/v1/hosts/{hostID}/sensors/series": roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/hosts":                          roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/hosts/{hostID}/metrics":         roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/hosts/{hostID}/sensors":         roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/hosts/{hostID}/sensors/series":  roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
+	"GET /api/v1/hosts/{hostID}/sensors/history": roles(identity.RoleAdmin, identity.RoleReadOnly, identity.RoleAuditor),
 	// Clearing a pin is what lets a changed node be trusted again, so it is
 	// an administrator's decision and an audited one.
 	"DELETE /api/v1/hosts/{hostID}/host-key": roles(identity.RoleAdmin),

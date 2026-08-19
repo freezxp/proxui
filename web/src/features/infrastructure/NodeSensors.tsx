@@ -72,7 +72,7 @@ export function NodeSensorPanel({ hostId, hostName }: { hostId: string; hostName
   })
 
   if (sensors.isLoading) {
-    return <div className="px-4 py-3 text-sm text-muted">Reading {hostName}…</div>
+    return <div className="text-sm text-muted">Reading {hostName}…</div>
   }
 
   const data = sensors.data
@@ -80,7 +80,7 @@ export function NodeSensorPanel({ hostId, hostName }: { hostId: string; hostName
 
   if (readings.length === 0) {
     return (
-      <div className="px-4 py-3 text-sm">
+      <div className="text-sm">
         <div className="text-muted">
           {data?.node?.last_error ?? 'This node has not been read yet.'}
         </div>
@@ -102,7 +102,8 @@ export function NodeSensorPanel({ hostId, hostName }: { hostId: string; hostName
   }
 
   return (
-    <div className="px-4 py-3">
+    <div>
+      <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Sensors</h4>
       <div className="flex flex-wrap gap-x-8 gap-y-4">
         {[...byChip.entries()].map(([chip, group]) => (
           <div key={chip}>

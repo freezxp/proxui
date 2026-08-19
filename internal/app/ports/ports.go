@@ -378,6 +378,7 @@ type MetricsRepository interface {
 	CounterState(ctx context.Context, vmIDs []uuid.UUID) (map[CounterKey]CounterValue, error)
 	SaveCounterState(ctx context.Context, state map[CounterKey]CounterValue) error
 	VMSeries(ctx context.Context, vmID uuid.UUID, from, to, now time.Time) (MetricSeries, error)
+	HostSeries(ctx context.Context, hostID uuid.UUID, from, to, now time.Time) (MetricSeries, error)
 	LatestVMMetrics(ctx context.Context, since time.Time) (map[uuid.UUID]MetricPoint, error)
 	LastSampleTime(ctx context.Context, platformID uuid.UUID) (time.Time, error)
 	VMIDsByExternalID(ctx context.Context, platformID uuid.UUID) (map[string]uuid.UUID, error)

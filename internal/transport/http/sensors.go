@@ -116,6 +116,38 @@ func (s *Server) handleHostSensorSeries(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// handleHostSensorHistory returns every temperature sensor's series for a node,
+// aligned for one overlaid chart.
+func (s *Server) handleHostSensorHistory(w http.ResponseWriter, r *http.Request) {
+	if s.sensors.Sensors == nil {
+		WriteProblem(w, r, http.StatusNotFound, "sensors.unavailable",
+			"This portal is not collecting node sensors.")
+		return
+	}
+	hostID, ok := s.hostIDParam(w, r)
+	if !ok {
+		return
+	}
+	from, to, ok := s.windowParams(w, r)
+	if !ok {
+		return
+	}
+	res := telemetry.SelectResolution(from, to, s.clock())
+
+	series, err := s.sensors.Sensors.History(r.Context(), hostID, from, to, res)
+	if err != nil {
+		s.serverError(w, r, err, "Could not read sensor history.")
+		return
+	}
+	if series == nil {
+		series = []ports.SensorSeries{}
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"data": series,
+		"meta": map[string]any{"resolution": string(res), "from": from, "to": to},
+	})
+}
+
 // handleForgetNodeKey drops a node's pinned host key.
 //
 // The pin is what refuses a node whose identity changed, so clearing it is

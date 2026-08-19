@@ -66,6 +66,34 @@ func (s *Server) handleVMMetrics(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleHostMetrics returns a node's time series. Nodes are estate-level, so
+// the gate is the same role set as the rest of the infrastructure views —
+// unlike a VM's metrics, there is no per-grant scoping to apply.
+func (s *Server) handleHostMetrics(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.pathUUID(w, r, "hostID")
+	if !ok {
+		return
+	}
+
+	now := s.clock()
+	from, to, ok := s.windowParams(w, r)
+	if !ok {
+		return
+	}
+
+	series, err := s.metrics.Metrics.HostSeries(r.Context(), id, from, to, now)
+	if err != nil {
+		s.serverError(w, r, err, "Could not read metrics.")
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"host_id": id.String(),
+		"from":    from.Format(time.RFC3339),
+		"to":      to.Format(time.RFC3339),
+		"series":  series,
+	})
+}
+
 // windowParams reads the chart window every series endpoint accepts: a named
 // range, or explicit from/to, defaulting to the last hour. It answers the
 // caller with the problem document and reports false when the window is not

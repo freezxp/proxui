@@ -282,3 +282,53 @@ func TestLatestVMMetricsForDashboard(t *testing.T) {
 }
 
 var _ = connector.MetricCPUPct
+
+// HostSeries reads a node's CPU and memory back for a chart. Nodes report only
+// those two, and the rollups stop at five minutes, so a wide window must fall
+// to the 5-minute source rather than a coarser one that does not exist.
+func TestHostSeriesRoundTrip(t *testing.T) {
+	f := newSyncFixture(t, map[string]any{"vm_count": 1})
+	f.reconcile(t)
+	ctx := context.Background()
+
+	repo := postgres.NewMetricsRepository(f.pool)
+	var hostID uuid.UUID
+	if err := f.pool.QueryRow(ctx,
+		`SELECT id FROM hosts WHERE platform_id=$1 ORDER BY name LIMIT 1`, f.platform.ID).Scan(&hostID); err != nil {
+		t.Fatalf("no host: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	cpu := 33.0
+	used, total := int64(8<<30), int64(16<<30)
+	rows := []ports.HostSample{
+		{Time: now.Add(-2 * time.Minute), HostID: hostID, CPUPct: &cpu, MemUsedBytes: &used, MemTotalBytes: &total},
+		{Time: now, HostID: hostID, CPUPct: &cpu, MemUsedBytes: &used, MemTotalBytes: &total},
+	}
+	if _, err := repo.WriteHostSamples(ctx, rows); err != nil {
+		t.Fatalf("WriteHostSamples: %v", err)
+	}
+
+	series, err := repo.HostSeries(ctx, hostID, now.Add(-time.Hour), now.Add(time.Minute), now)
+	if err != nil {
+		t.Fatalf("HostSeries: %v", err)
+	}
+	if series.Resolution != string(telemetry.ResolutionRaw) {
+		t.Errorf("resolution = %q, want raw for a one-hour window", series.Resolution)
+	}
+	if len(series.Points) != 2 {
+		t.Fatalf("got %d points, want 2", len(series.Points))
+	}
+	if series.Points[0].CPUPct != 33 || series.Points[0].MemUsedBytes != used {
+		t.Errorf("point = %+v, want cpu 33 and mem %d", series.Points[0], used)
+	}
+	// A wide window has no 30-minute host rollup to read, so it must resolve to
+	// the five-minute one rather than error or return nothing.
+	wide, err := repo.HostSeries(ctx, hostID, now.Add(-200*24*time.Hour), now, now)
+	if err != nil {
+		t.Fatalf("HostSeries wide: %v", err)
+	}
+	if wide.Resolution != string(telemetry.Resolution5m) {
+		t.Errorf("wide-window resolution = %q, want 5m (no coarser host rollup exists)", wide.Resolution)
+	}
+}

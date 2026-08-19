@@ -74,6 +74,15 @@ type SensorPoint struct {
 	Max   float64   `json:"max,omitempty"`
 }
 
+// SensorSeries is one sensor's history, named so a chart legend can tell it
+// from the others on the same node.
+type SensorSeries struct {
+	Chip   string        `json:"chip"`
+	Label  string        `json:"label"`
+	Crit   *float64      `json:"crit,omitempty"`
+	Points []SensorPoint `json:"points"`
+}
+
 // HostSensorStore persists and reads node sensor readings.
 type HostSensorStore interface {
 	Write(ctx context.Context, in SensorReadings) (int, error)
@@ -86,6 +95,10 @@ type HostSensorStore interface {
 	// calls for.
 	Series(ctx context.Context, hostID uuid.UUID, chip, label string,
 		from, to time.Time, res telemetry.Resolution) ([]SensorPoint, error)
+	// History is every temperature sensor's series for one node over a window,
+	// for the overlaid chart. All of a node's readings are written at the same
+	// timestamps each pass, so the series share an x-axis.
+	History(ctx context.Context, hostID uuid.UUID, from, to time.Time, res telemetry.Resolution) ([]SensorSeries, error)
 	// HottestNow is what the alert evaluator reads: one value per host.
 	HottestNow(ctx context.Context, since time.Time) (map[uuid.UUID]telemetry.Reading, error)
 }

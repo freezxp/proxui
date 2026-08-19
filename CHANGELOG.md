@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Performance charts for nodes.** The Hosts page grows a per-node chart board,
+  reached by expanding a node beside its sensors: CPU and memory over the usual
+  1h–1y windows, and a **Temperature** chart that overlays every sensor the node
+  reports — CPU package, cores, NVMe — on one axis, so the hot one is obvious at
+  a glance. The server picks the stored resolution and the chart labels it, so a
+  five-minute average never reads as per-minute detail.
+
+  Nodes report only CPU and memory through the platform API (there is no
+  per-node disk or network series), and the host rollups stop at five minutes,
+  so a window wider than the raw retention is answered from the five-minute
+  aggregate rather than a coarser table that does not exist. Temperature is the
+  data read from the node over SSH (ADR 0007); a node with no key installed
+  simply shows no temperature chart. New endpoints: `GET /hosts/{id}/metrics`
+  and `GET /hosts/{id}/sensors/history`.
+
 - **A setup guide on each platform.** Getting node readings takes two commands
   on the node, and both of them are specific to the deployment: the portal's
   own public key, and which of your nodes still has neither half installed. So

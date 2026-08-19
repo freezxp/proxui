@@ -227,3 +227,42 @@ func TestOnlineHostsAreListedForPolling(t *testing.T) {
 		}
 	}
 }
+
+// History returns every temperature sensor's series for a node in one call,
+// each named so a chart legend can tell them apart. The readings share
+// timestamps, so the series align without the database pivoting.
+func TestSensorHistoryGroupsBySensor(t *testing.T) {
+	f := newSyncFixture(t, map[string]any{"vm_count": 1})
+	f.reconcile(t)
+	ctx := context.Background()
+	repo := postgres.NewSensorRepository(f.pool)
+	host := hostID(t, f)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	for i, at := range []time.Time{now.Add(-2 * time.Minute), now} {
+		if _, err := repo.Write(ctx, ports.SensorReadings{HostID: host, At: at, Readings: []telemetry.Reading{
+			{Chip: "coretemp-isa-0000", Label: "Package id 0", Kind: telemetry.SensorTemp, Value: float64(60 + i), Crit: crit(100)},
+			{Chip: "nvme-pci-0100", Label: "Composite", Kind: telemetry.SensorTemp, Value: float64(40 + i), Crit: crit(85)},
+			// A fan is not a temperature and must not appear in the history.
+			{Chip: "nct6798", Label: "fan1", Kind: telemetry.SensorFan, Value: 1200},
+		}}); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	}
+
+	series, err := repo.History(ctx, host, now.Add(-time.Hour), now.Add(time.Minute), telemetry.ResolutionRaw)
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+	if len(series) != 2 {
+		t.Fatalf("got %d series, want 2 temperature sensors (no fan): %+v", len(series), series)
+	}
+	for _, ser := range series {
+		if len(ser.Points) != 2 {
+			t.Errorf("%s/%s has %d points, want 2", ser.Chip, ser.Label, len(ser.Points))
+		}
+		if ser.Crit == nil {
+			t.Errorf("%s/%s lost its critical point", ser.Chip, ser.Label)
+		}
+	}
+}

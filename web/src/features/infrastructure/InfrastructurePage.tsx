@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import { NodeSensorPanel, TempCell } from './NodeSensors'
+import { HostPerformance } from './HostPerformance'
 import type { HostRow, NetworkRow, StorageRow } from '@/api/types'
 import { bytes, uptime } from '@/lib/format'
 
@@ -55,7 +56,8 @@ export function HostsPage() {
           </tr>
           {open === host.id && (
             <tr className="border-t border-border">
-              <td colSpan={7} className="p-0">
+              <td colSpan={7} className="space-y-4 p-4">
+                <HostPerformance hostId={host.id} />
                 <NodeSensorPanel hostId={host.id} hostName={host.name} />
               </td>
             </tr>

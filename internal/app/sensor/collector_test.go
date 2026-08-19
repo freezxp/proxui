@@ -51,6 +51,9 @@ func (f *fakeStore) Series(context.Context, uuid.UUID, string, string, time.Time
 func (f *fakeStore) HottestNow(context.Context, time.Time) (map[uuid.UUID]telemetry.Reading, error) {
 	return nil, nil
 }
+func (f *fakeStore) History(context.Context, uuid.UUID, time.Time, time.Time, telemetry.Resolution) ([]ports.SensorSeries, error) {
+	return nil, nil
+}
 
 // fakeSSH is shared by the goroutines that poll each node, so it locks like
 // the real store's database does.

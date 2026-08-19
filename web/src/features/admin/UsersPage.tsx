@@ -120,7 +120,7 @@ function UsersTab() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-border">
+      <div className="overflow-hidden rounded-lg border border-border bg-surface-raised">
         <table className="w-full text-sm">
           <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
             <tr>

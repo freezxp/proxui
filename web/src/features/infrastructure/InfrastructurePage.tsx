@@ -56,7 +56,7 @@ export function HostsPage() {
           </tr>
           {open === host.id && (
             <tr className="border-t border-border">
-              <td colSpan={7} className="space-y-4 p-4">
+              <td colSpan={7} className="space-y-4 bg-surface p-4">
                 <HostPerformance hostId={host.id} />
                 <NodeSensorPanel hostId={host.id} hostName={host.name} />
               </td>
@@ -180,11 +180,11 @@ function Page({
       {loading ? (
         <p className="text-sm text-muted">Loading…</p>
       ) : empty ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted">
+        <div className="rounded-lg border border-dashed border-border bg-surface-raised p-8 text-center text-sm text-muted">
           Nothing synced yet. Add a platform, or wait for the next synchronization.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
+        <div className="overflow-hidden rounded-lg border border-border bg-surface-raised">
           <table className="w-full text-sm">
             <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
               <tr>

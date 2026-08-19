@@ -108,7 +108,7 @@ export function VMListPage() {
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface-raised">
         <table className="w-full min-w-[52rem] text-sm">
           <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
             <tr>

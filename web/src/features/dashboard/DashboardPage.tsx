@@ -41,7 +41,7 @@ export function DashboardPage() {
       {data.platforms.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-sm font-medium text-muted">Platforms</h2>
-          <div className="overflow-hidden rounded-lg border border-border">
+          <div className="overflow-hidden rounded-lg border border-border bg-surface-raised">
             <table className="w-full text-sm">
               <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
                 <tr>

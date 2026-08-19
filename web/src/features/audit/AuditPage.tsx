@@ -137,7 +137,7 @@ export function AuditPage() {
       {entries.error && <p className="text-sm text-danger">Could not load the audit log.</p>}
 
       {entries.data && (
-        <div className="overflow-hidden rounded-lg border border-border">
+        <div className="overflow-hidden rounded-lg border border-border bg-surface-raised">
           <table className="w-full text-sm">
             <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
               <tr>

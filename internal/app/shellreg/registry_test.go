@@ -108,6 +108,11 @@ func TestRegistrySweepsIdleSessions(t *testing.T) {
 	if err := registry.Add(session); err != nil {
 		t.Fatalf("add: %v", err)
 	}
+	// With a terminal attached, so this exercises the long idle limit rather
+	// than the short one a detached session gets.
+	if !session.Attach() {
+		t.Fatal("attach: the new session was already claimed")
+	}
 
 	// Not yet idle.
 	clock.advance(shell.IdleTimeout - time.Minute)
@@ -137,6 +142,88 @@ func TestRegistrySweepsIdleSessions(t *testing.T) {
 	defer mu.Unlock()
 	if len(evicted) != 1 || evicted[0] != shell.ReasonIdle {
 		t.Fatalf("evictions = %v, want one idle_timeout so the record and audit are written", evicted)
+	}
+}
+
+func TestRegistrySweepReclaimsAnAbandonedSession(t *testing.T) {
+	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{now: now}
+	registry := shellreg.NewRegistry(clock.Now)
+
+	var reasons []string
+	registry.OnEvict = func(_ *shellreg.Live, reason string) { reasons = append(reasons, reason) }
+
+	session, conn := live(uuid.New(), now)
+	if err := registry.Add(session); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if !session.Attach() {
+		t.Fatal("attach: the new session was already claimed")
+	}
+
+	// The browser went away. Whatever it managed to say on its way out, the
+	// terminal socket is gone and the session is detached.
+	session.Detach()
+
+	clock.advance(shell.DetachedGrace - time.Second)
+	registry.Sweep()
+	if registry.Len() != 1 {
+		t.Fatal("a session was reclaimed before its grace was up")
+	}
+
+	// The file browser is a legitimate way to use a session with no terminal,
+	// so anything touching it holds it open.
+	session.Touch(clock.now)
+	clock.advance(shell.DetachedGrace - time.Second)
+	registry.Sweep()
+	if registry.Len() != 1 {
+		t.Fatal("activity did not hold the detached limit off; the file browser would be cut off mid-transfer")
+	}
+
+	clock.advance(shell.DetachedGrace)
+	registry.Sweep()
+	if registry.Len() != 0 {
+		t.Fatal("an abandoned session survived; it holds a guest login nobody can reach")
+	}
+	if !conn.isClosed() {
+		t.Fatal("the reclaimed session's connection was never closed")
+	}
+	if len(reasons) != 1 || reasons[0] != shell.ReasonAbandoned {
+		t.Fatalf("evictions = %v, want one abandoned so the record and audit are written", reasons)
+	}
+}
+
+// A session that is opened and never attached is the case where the operator
+// closed the tab between posting the credential and the terminal connecting.
+// Nothing will ever attach to it - the ticket outlives it by seconds - so it
+// must not wait out the long idle limit.
+func TestRegistrySweepReclaimsASessionNoTerminalEverTook(t *testing.T) {
+	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	clock := &fakeClock{now: now}
+	registry := shellreg.NewRegistry(clock.Now)
+
+	var reasons []string
+	registry.OnEvict = func(_ *shellreg.Live, reason string) { reasons = append(reasons, reason) }
+
+	session, _ := live(uuid.New(), now)
+	if err := registry.Add(session); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	// Long enough for the browser to have opened a terminal several times over.
+	clock.advance(shell.TicketTTL)
+	registry.Sweep()
+	if registry.Len() != 1 {
+		t.Fatal("a session was reclaimed while its ticket was still being redeemed")
+	}
+
+	clock.advance(shell.DetachedGrace)
+	registry.Sweep()
+	if registry.Len() != 0 {
+		t.Fatal("a session no terminal ever took survived")
+	}
+	if len(reasons) != 1 || reasons[0] != shell.ReasonAbandoned {
+		t.Fatalf("evictions = %v, want abandoned", reasons)
 	}
 }
 

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Fixed: the SSH console stopped letting you connect after a few sessions**
+  (SSH-07, [ADR 0008](docs/adr/0008-detached-ssh-sessions-are-reclaimed-early.md)).
+  Closing the browser tab did not give the session back, so each terminal
+  opened and abandoned held one of the eight slots an operator gets — for the
+  full thirty-minute idle timeout. Eight of them and the next connect was a
+  429, with nothing to do but wait it out.
+
+  The tab now releases its session on the way out, and the server reclaims a
+  session no terminal is attached to after 2 minutes of inactivity rather than
+  30, closing it as `abandoned`. The short limit is measured from last
+  activity, so a session being used by the file browser alone is untouched.
+  The trade is that a WebSocket that drops under a page left open costs the
+  password again after two minutes instead of thirty.
+
 - **Performance charts for nodes.** The Hosts page grows a per-node chart board,
   reached by expanding a node beside its sensors: CPU and memory over the usual
   1h–1y windows, and a **Temperature** chart that overlays every sensor the node

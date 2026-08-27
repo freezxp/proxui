@@ -95,7 +95,7 @@ Design: [29-ssh-terminal.md](29-ssh-terminal.md) · Credential decisions: [ADR 0
 | SSH-04 | M | Host keys are pinned per VM on first use, after the operator confirms the fingerprint. A changed key is refused outright; clearing a pin is an admin-only, audited action on a separate endpoint. |
 | SSH-05 | M | The terminal WebSocket is authorized by a one-time ticket bound to user + VM + session, expiring unused in 60 s. One terminal per session. |
 | SSH-06 | M | Sessions are recorded: user, VM, SSH username, address, start, end, duration, close reason, bytes. Admin can list and force-close. Every ending is recorded, including swept and shutdown ones. |
-| SSH-07 | M | Idle sessions close after 30 min; hard cap 8 h — enforced server-side, including for a session with no terminal attached. |
+| SSH-07 | M | Idle sessions close after 30 min; hard cap 8 h — enforced server-side. A session with no terminal attached closes after 2 min of inactivity ([ADR 0008](adr/0008-detached-ssh-sessions-are-reclaimed-early.md)). |
 | SSH-08 | M | Copy and paste both ways, including on a plain-HTTP origin where the asynchronous clipboard API does not exist. |
 | SSH-09 | S | SFTP file browser over the same connection: list, download, upload (drag-and-drop, streamed, with progress), mkdir, rename, delete, chmod. A guest without SFTP still gets a terminal. |
 | SSH-10 | M | Every file endpoint resolves the session for the calling user; another user's session id yields the same 404 as one that does not exist. Writes and transfers are audited with path and byte count; listing is not. |

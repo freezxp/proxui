@@ -150,6 +150,28 @@ unattended root shell is the same risk whichever door it came through
 socket, because a session with no terminal attached is a legitimate state: the
 file browser alone is a reasonable way to use one.
 
+A session with **no terminal attached** gets 2 minutes rather than 30
+([ADR 0008](adr/0008-detached-ssh-sessions-are-reclaimed-early.md)). The two
+limits describe different situations. An attached terminal has someone in front
+of it who may come back to it. A detached one usually means the tab is gone —
+and the id of a session lives only in that tab, so nobody can ever reach it
+again. Holding something provably unreachable for half an hour keeps a guest
+login open for nothing and spends one of the operator's eight slots while it
+does; eight of those and they cannot open a terminal at all until the sweep
+catches up.
+
+Measured from last activity, not from the moment of detaching, which is what
+keeps the file-browser-alone case working: anything using the session holds it
+open, terminal or not. The 2 minutes clears the one window that must not be
+caught in it — a session is detached between opening and the WebSocket
+attaching, and that window is bounded by the 60-second ticket.
+
+The browser is also asked to give the session back on its way out, on unmount
+and on `pagehide`. That is an optimisation of the sweep and never a replacement
+for it: `pagehide` does not fire for a killed tab, and an unload request can be
+dropped. Sessions closed this way end as `user`; ones the sweep reclaims end as
+`abandoned`, because the audit trail is read to tell those two apart.
+
 Every ending is recorded, including the ones nobody asked for — swept, closed
 by an administrator, or lost to a restart. An audit trail that only shows the
 endings someone requested is not an audit trail.

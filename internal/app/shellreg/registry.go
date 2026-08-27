@@ -117,6 +117,11 @@ func (l *Live) Attach() bool { return l.attached.CompareAndSwap(false, true) }
 // Detach releases the terminal claim, so a reconnect can take it.
 func (l *Live) Detach() { l.attached.Store(false) }
 
+// Attached reports whether a terminal socket currently holds this session,
+// which is what tells the sweep apart a session someone is sitting in front of
+// from one whose browser tab has gone.
+func (l *Live) Attached() bool { return l.attached.Load() }
+
 // Closed reports whether the connection has been torn down.
 func (l *Live) Closed() bool { return l.closed.Load() }
 
@@ -216,9 +221,15 @@ func (r *Registry) Len() int {
 	return len(r.sessions)
 }
 
-// Sweep closes sessions that have gone idle or hit the hard ceiling, calling
-// OnEvict for each. It is the server-side enforcement of SSH-07: a browser tab
-// that was closed without a goodbye must not leave a root shell open.
+// Sweep closes sessions that have gone idle, been abandoned, or hit the hard
+// ceiling, calling OnEvict for each. It is the server-side enforcement of
+// SSH-07: a browser tab that was closed without a goodbye must not leave a root
+// shell open.
+//
+// The browser is asked to say goodbye on its way out, and usually manages it.
+// This is the backstop for when it does not - a killed tab, a lost network, a
+// browser that dropped the unload request - which is why the limit it enforces
+// has to be short enough to matter.
 func (r *Registry) Sweep() {
 	now := r.clock()
 
@@ -228,7 +239,7 @@ func (r *Registry) Sweep() {
 		reason string
 	}
 	for id, l := range r.sessions {
-		reason, done := shell.ExpiryCheck(l.StartedAt, l.LastActivity(), now)
+		reason, done := shell.ExpiryCheck(l.StartedAt, l.LastActivity(), now, l.Attached())
 		if !done {
 			continue
 		}

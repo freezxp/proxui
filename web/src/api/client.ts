@@ -214,6 +214,35 @@ export function uploadFile(
   })
 }
 
+/**
+ * Releases a resource as the page goes away.
+ *
+ * `keepalive` is what lets the request outlive the document that started it.
+ * `navigator.sendBeacon` is the usual tool for this and cannot be used here:
+ * it sets no headers, and this API authenticates with a bearer token held in
+ * memory rather than with a cookie.
+ *
+ * Best-effort by construction. There is no waiting for the response and no
+ * refresh-and-retry, because during an unload there is no time for either — a
+ * token that expired mid-session means this call is simply lost. Every caller
+ * must therefore have a server-side backstop; nothing may depend on it
+ * arriving.
+ */
+export function releaseOnUnload(path: string): void {
+  try {
+    void fetch(`/api/v1${path}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      keepalive: true,
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    }).catch(() => {
+      /* the page is going away; there is nobody left to tell */
+    })
+  } catch {
+    /* a browser without keepalive refuses synchronously */
+  }
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown, options: RequestOptions = {}) =>

@@ -32,6 +32,21 @@ const (
 	// IdleTimeout closes a terminal nobody is typing at.
 	IdleTimeout = 30 * time.Minute
 
+	// DetachedGrace closes a session no terminal is attached to and nothing is
+	// using. It is far shorter than IdleTimeout because the two describe
+	// different situations: an attached terminal has someone in front of it who
+	// may yet come back to it, while a detached session usually means the tab
+	// is gone - and the id of a session lives only in that tab, so nobody can
+	// ever reach it again. Waiting the full half hour to reclaim something
+	// provably unreachable holds a guest login open for nothing and spends one
+	// of the operator's eight slots while it does.
+	//
+	// A detached session is still a legitimate state - the file browser alone
+	// is a reasonable way to use one - which is why this is measured from the
+	// last activity rather than from the moment of detaching. Anything using
+	// the session, terminal or not, holds it open.
+	DetachedGrace = 2 * time.Minute
+
 	// MaxDuration is the hard ceiling on any session, however active.
 	MaxDuration = 8 * time.Hour
 
@@ -43,6 +58,7 @@ const (
 const (
 	ReasonUser        = "user"
 	ReasonIdle        = "idle_timeout"
+	ReasonAbandoned   = "abandoned"
 	ReasonMaxDuration = "max_duration"
 	ReasonAdminForced = "admin_forced"
 	ReasonUpstream    = "upstream_lost"
@@ -176,11 +192,18 @@ func (s *Session) Duration(now time.Time) time.Duration {
 //
 // Enforced on the server rather than trusted to the browser: a client that
 // stops sending heartbeats must not thereby keep a shell open.
-func ExpiryCheck(startedAt, lastActivity, now time.Time) (reason string, expired bool) {
+//
+// attached says whether a terminal socket currently holds the session, which
+// decides which idle limit applies: a browser that went away without saying so
+// is reclaimed on the short one (SSH-07).
+func ExpiryCheck(startedAt, lastActivity, now time.Time, attached bool) (reason string, expired bool) {
+	idle := now.Sub(lastActivity)
 	switch {
 	case now.Sub(startedAt) >= MaxDuration:
 		return ReasonMaxDuration, true
-	case now.Sub(lastActivity) >= IdleTimeout:
+	case !attached && idle >= DetachedGrace:
+		return ReasonAbandoned, true
+	case idle >= IdleTimeout:
 		return ReasonIdle, true
 	default:
 		return "", false

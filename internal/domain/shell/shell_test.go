@@ -141,16 +141,49 @@ func TestTicketExpiry(t *testing.T) {
 func TestExpiryCheck(t *testing.T) {
 	start := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
 
-	if _, expired := shell.ExpiryCheck(start, start, start.Add(time.Minute)); expired {
+	if _, expired := shell.ExpiryCheck(start, start, start.Add(time.Minute), true); expired {
 		t.Fatal("an active session was closed")
 	}
-	reason, expired := shell.ExpiryCheck(start, start, start.Add(shell.IdleTimeout))
+	reason, expired := shell.ExpiryCheck(start, start, start.Add(shell.IdleTimeout), true)
 	if !expired || reason != shell.ReasonIdle {
 		t.Fatalf("idle check = %q, %v", reason, expired)
 	}
 	// The hard cap wins over idleness: a session that is both is reported as
 	// the one the operator cannot avoid by typing.
-	reason, expired = shell.ExpiryCheck(start, start, start.Add(shell.MaxDuration))
+	reason, expired = shell.ExpiryCheck(start, start, start.Add(shell.MaxDuration), true)
+	if !expired || reason != shell.ReasonMaxDuration {
+		t.Fatalf("max duration check = %q, %v", reason, expired)
+	}
+}
+
+func TestExpiryCheckReclaimsAnAbandonedSession(t *testing.T) {
+	start := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+
+	// Detached but recently used - the file browser working on its own.
+	if _, expired := shell.ExpiryCheck(start, start, start.Add(shell.DetachedGrace-time.Second), false); expired {
+		t.Fatal("a detached session still being used was closed")
+	}
+
+	reason, expired := shell.ExpiryCheck(start, start, start.Add(shell.DetachedGrace), false)
+	if !expired || reason != shell.ReasonAbandoned {
+		t.Fatalf("detached check = %q, %v; want a session nobody can reach to be reclaimed", reason, expired)
+	}
+
+	// An attached terminal at the same moment keeps the long limit: someone is
+	// sitting in front of it, however quiet they are being.
+	if _, expired := shell.ExpiryCheck(start, start, start.Add(shell.DetachedGrace), true); expired {
+		t.Fatal("an attached terminal was closed on the detached limit")
+	}
+
+	// Activity holds it open whether or not a terminal is attached, which is
+	// what makes the file browser alone a legitimate way to use a session.
+	later := start.Add(time.Hour)
+	if _, expired := shell.ExpiryCheck(start, later, later.Add(time.Second), false); expired {
+		t.Fatal("activity did not hold the detached limit off")
+	}
+
+	// The hard cap still wins over both.
+	reason, expired = shell.ExpiryCheck(start, start, start.Add(shell.MaxDuration), false)
 	if !expired || reason != shell.ReasonMaxDuration {
 		t.Fatalf("max duration check = %q, %v", reason, expired)
 	}

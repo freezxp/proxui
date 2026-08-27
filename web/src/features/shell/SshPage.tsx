@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { api, ApiError, detailOf } from '@/api/client'
+import { api, ApiError, detailOf, releaseOnUnload } from '@/api/client'
 import type {
   PortalKeyInstall,
   SshHostKeyMismatch,
@@ -223,6 +223,39 @@ export function SshPage() {
     setPhase('form')
     setMessage('The session was closed.')
   }, [session])
+
+  // Give the session back when this page goes away.
+  //
+  // The session id is held in this component and nowhere else, so a tab that
+  // closes without telling the server strands an authenticated shell that
+  // nobody — not even the operator who opened it — can ever reach again. It
+  // would sit there holding one of their eight slots until the sweep took it,
+  // which is how someone who opened a few terminals over an afternoon ends up
+  // unable to open another (SSH-07).
+  //
+  // Both ways out are covered: navigating elsewhere in the portal unmounts,
+  // and closing the tab fires pagehide. Neither is guaranteed —
+  // pagehide does not run for a killed tab, and an unload request can be
+  // dropped — so this is an optimisation of the server's sweep rather than a
+  // replacement for it.
+  const openSession = useRef<string | null>(null)
+  openSession.current = session?.session_id ?? null
+
+  useEffect(() => {
+    const release = () => {
+      const id = openSession.current
+      if (id === null) return
+      // Cleared first, so the unmount that follows a pagehide does not send
+      // the same release twice.
+      openSession.current = null
+      releaseOnUnload(`/ssh-sessions/${id}`)
+    }
+    window.addEventListener('pagehide', release)
+    return () => {
+      window.removeEventListener('pagehide', release)
+      release()
+    }
+  }, [])
 
   // Copy: try the clipboard, and fall back to a panel the operator can copy
   // from by hand. A plain-HTTP origin has no clipboard API at all, and that is

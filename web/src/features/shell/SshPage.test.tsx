@@ -65,11 +65,13 @@ vi.mock('./SshTerminal', async () => {
 const apiPost = vi.fn()
 const apiGet = vi.fn()
 const apiDel = vi.fn()
+const apiRelease = vi.fn()
 
 vi.mock('@/api/client', async () => {
   const actual = await vi.importActual<typeof import('@/api/client')>('@/api/client')
   return {
     ...actual,
+    releaseOnUnload: (...args: unknown[]) => apiRelease(...args),
     api: {
       get: (...args: unknown[]) => apiGet(...args),
       post: (...args: unknown[]) => apiPost(...args),
@@ -412,5 +414,68 @@ describe('SshPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Disconnect' }))
     await waitFor(() => expect(apiDel).toHaveBeenCalledWith('/ssh-sessions/sess-1'))
+  })
+
+  // The session id lives in this page and nowhere else, so a page that goes
+  // away without saying so strands a shell nobody can reach for as long as the
+  // server's sweep allows. Both exits have to give it back.
+  it('gives the session back when the operator navigates away', async () => {
+    apiPost.mockResolvedValue(SESSION)
+    const user = userEvent.setup()
+    const { unmount } = renderPage()
+
+    await screen.findByText(/Connect over SSH/)
+    await fillPassword(user, 'hunter2')
+    await user.click(screen.getByRole('button', { name: 'Connect' }))
+    await screen.findByTestId('terminal')
+
+    unmount()
+    expect(apiRelease).toHaveBeenCalledWith('/ssh-sessions/sess-1')
+  })
+
+  it('gives the session back when the tab closes', async () => {
+    apiPost.mockResolvedValue(SESSION)
+    const user = userEvent.setup()
+    const { unmount } = renderPage()
+
+    await screen.findByText(/Connect over SSH/)
+    await fillPassword(user, 'hunter2')
+    await user.click(screen.getByRole('button', { name: 'Connect' }))
+    await screen.findByTestId('terminal')
+
+    window.dispatchEvent(new Event('pagehide'))
+    expect(apiRelease).toHaveBeenCalledWith('/ssh-sessions/sess-1')
+
+    // The unmount that follows must not send it a second time.
+    unmount()
+    expect(apiRelease).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases nothing when no session was ever opened', async () => {
+    const { unmount } = renderPage()
+    await screen.findByText(/Connect over SSH/)
+
+    unmount()
+    expect(apiRelease).not.toHaveBeenCalled()
+  })
+
+  // Disconnect already closed it, and asking twice would make the second call
+  // a 404 against a session the operator has already given up.
+  it('does not release again after an explicit disconnect', async () => {
+    apiPost.mockResolvedValue(SESSION)
+    apiDel.mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    const { unmount } = renderPage()
+
+    await screen.findByText(/Connect over SSH/)
+    await fillPassword(user, 'hunter2')
+    await user.click(screen.getByRole('button', { name: 'Connect' }))
+    await screen.findByTestId('terminal')
+
+    await user.click(screen.getByRole('button', { name: 'Disconnect' }))
+    await waitFor(() => expect(apiDel).toHaveBeenCalled())
+
+    unmount()
+    expect(apiRelease).not.toHaveBeenCalled()
   })
 })

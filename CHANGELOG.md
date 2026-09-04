@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Fixed: one node going down blanked the whole portal**
+  (PLAT-01, PLAT-05, [ADR 0009](docs/adr/0009-a-platform-is-reached-through-any-cluster-member.md)).
+  A platform was configured with one API address and reached through only that
+  one. When the node behind it went down on 4 September the portal lost
+  inventory, metrics, history and consoles for the entire cluster — including
+  the three nodes that were up and quorate the whole twenty minutes.
+
+  A platform is now configured with one endpoint and reached through a list of
+  them: the address you entered stays first, and the other cluster members are
+  discovered from the platform itself and used when the first one cannot be
+  reached. Failover happens on network failures alone — a rejected token still
+  fails immediately and loudly, because it would be rejected everywhere. Under
+  a pinned certificate each member carries its own pin, learned from the
+  cluster over a connection already verified; a member whose certificate cannot
+  be established is never used. The platform drawer lists the addresses in play.
+
+  What this does not fix: a node that is down still shows as online. Host
+  status is only ever written from a successful listing, and with failover the
+  listing now succeeds — so an absent node is simply absent. Surfacing that is
+  a separate change.
+
 - **Fixed: the SSH console stopped letting you connect after a few sessions**
   (SSH-07, [ADR 0008](docs/adr/0008-detached-ssh-sessions-are-reclaimed-early.md)).
   Closing the browser tab did not give the session back, so each terminal

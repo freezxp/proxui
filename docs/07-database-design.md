@@ -129,6 +129,18 @@ CREATE TABLE platforms (
     deleted_at     timestamptz                        -- soft delete; assets cascade-soft via app
 );
 
+-- The other addresses a platform answers on (ADR 0009). `endpoint_url` above is the one an
+-- administrator typed; these are cluster facts the sync engine rediscovers, so that one node
+-- going down is not an outage of the portal's view of the whole cluster.
+CREATE TABLE platform_endpoints (
+    platform_id  uuid NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,
+    address      text NOT NULL,                       -- host or host:port as the cluster reports it
+    fingerprint  text NOT NULL DEFAULT '',            -- this member's own pin; empty unless tls_mode='fingerprint'
+    source       text NOT NULL DEFAULT 'discovered',  -- configured | discovered
+    refreshed_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform_id, address)
+);
+
 -- Credential storage: envelope encryption. DEK encrypts the secret; master key (env/Docker
 -- secret) wraps the DEK. key_version enables master-key rotation without re-entering secrets.
 CREATE TABLE platform_credentials (

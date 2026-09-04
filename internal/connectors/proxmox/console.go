@@ -102,7 +102,12 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 			apiPrefix, vm.HostID, guestType, vm.ExternalID, url.QueryEscape(port), url.QueryEscape(resp.Ticket))
 	}
 
-	target := *c.client.base
+	// Read the address after the ticket call, not before: that call may have
+	// failed over, and the websocket has to be opened against the member that
+	// answered — with that member's own pinned certificate, which is why the
+	// host and the TLS config are taken from the same target (ADR 0009).
+	serving := c.client.current()
+	target := *serving.base
 	target.Path = ""
 	return &consoleEndpoint{
 		host:     target.Host,
@@ -115,7 +120,7 @@ func (c *Connector) CreateConsoleSession(ctx context.Context, vm connector.VMRef
 		// browser cannot be allowed to connect directly - doing so would mean
 		// handing it the platform credential.
 		authHeader: c.client.authHeader,
-		tlsConfig:  c.client.http.Transport.(*http.Transport).TLSClientConfig,
+		tlsConfig:  serving.http.Transport.(*http.Transport).TLSClientConfig,
 		expires:    time.Now().Add(consoleTicketTTL),
 	}, nil
 }

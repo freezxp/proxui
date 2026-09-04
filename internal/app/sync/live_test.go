@@ -56,6 +56,12 @@ func (livePlatforms) Credential(context.Context, uuid.UUID, *crypto.Vault) (port
 func (livePlatforms) ReplaceCredential(context.Context, uuid.UUID, ports.SealedCredential) error {
 	return nil
 }
+func (livePlatforms) Endpoints(context.Context, uuid.UUID) ([]ports.PlatformEndpoint, error) {
+	return nil, nil
+}
+func (livePlatforms) ReplaceEndpoints(context.Context, uuid.UUID, []ports.PlatformEndpoint, time.Time) error {
+	return nil
+}
 
 // memLiveCache is the Redis store in a map.
 type memLiveCache struct {

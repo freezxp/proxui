@@ -68,12 +68,15 @@ func (c *Connector) Capabilities() []connector.Capability {
 		connector.CapabilityConsole,
 		connector.CapabilityPower,
 		connector.CapabilityNodeAddress,
+		connector.CapabilityEndpointDiscovery,
 	}
 }
 
 // Close implements connector.Connector.
 func (c *Connector) Close() error {
-	c.client.http.CloseIdleConnections()
+	for _, t := range c.client.targets {
+		t.http.CloseIdleConnections()
+	}
 	return nil
 }
 

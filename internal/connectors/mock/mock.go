@@ -93,6 +93,12 @@ type Options struct {
 	MutationRate float64
 	Latency      time.Duration
 	Seed         int64
+	// Endpoints are the addresses the fake cluster claims to answer on, which
+	// is what lets the sync engine's endpoint discovery and storage run in CI
+	// with no Proxmox anywhere (ADR 0009). The failover itself is transport
+	// behaviour and is tested against real TLS servers in the proxmox package,
+	// where it lives.
+	Endpoints []string
 }
 
 func defaults() Options {
@@ -259,6 +265,7 @@ func (c *Connector) Capabilities() []connector.Capability {
 		connector.CapabilityMetricsBackfill,
 		connector.CapabilityConsole,
 		connector.CapabilityPower,
+		connector.CapabilityEndpointDiscovery,
 	}
 }
 
@@ -459,6 +466,35 @@ func (c *Connector) SetFault(f Fault) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.opts.Fault = f
+}
+
+// SetEndpoints changes the addresses the fake cluster reports, so a test can
+// watch a member join or leave the failover list.
+func (c *Connector) SetEndpoints(addrs ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.opts.Endpoints = append([]string(nil), addrs...)
+}
+
+// DiscoverEndpoints implements connector.EndpointDiscoverer.
+//
+// It reports no fingerprints: the fake platform is not reached over TLS, and a
+// pin invented here would assert something the mock cannot honour.
+func (c *Connector) DiscoverEndpoints(ctx context.Context) ([]connector.Endpoint, error) {
+	if err := c.gate(ctx); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	addrs := append([]string(nil), c.opts.Endpoints...)
+	c.mu.Unlock()
+
+	out := make([]connector.Endpoint, 0, len(addrs))
+	for _, a := range addrs {
+		if a != "" {
+			out = append(out, connector.Endpoint{Address: a})
+		}
+	}
+	return out, nil
 }
 
 // RemoveVM deletes a VM from the simulated fleet so deleted-asset detection can

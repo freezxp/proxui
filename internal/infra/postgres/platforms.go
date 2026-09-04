@@ -277,3 +277,70 @@ func nullEmpty(v, def string) string {
 	}
 	return v
 }
+
+// Endpoints lists the addresses a platform answers on, configured first
+// (ADR 0009). The configured endpoint is not stored here — it lives in
+// platforms.endpoint_url and the sync engine puts it at the head of the list —
+// so an empty result is the normal state of a platform nothing has discovered
+// yet, not an error.
+func (r *PlatformRepository) Endpoints(ctx context.Context, platformID uuid.UUID) ([]ports.PlatformEndpoint, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT address, fingerprint, source, refreshed_at
+		FROM platform_endpoints
+		WHERE platform_id = $1
+		ORDER BY source = 'configured' DESC, address`, platformID)
+	if err != nil {
+		return nil, fmt.Errorf("list platform endpoints: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ports.PlatformEndpoint
+	for rows.Next() {
+		var ep ports.PlatformEndpoint
+		if err := rows.Scan(&ep.Address, &ep.Fingerprint, &ep.Source, &ep.RefreshedAt); err != nil {
+			return nil, fmt.Errorf("scan platform endpoint: %w", err)
+		}
+		out = append(out, ep)
+	}
+	return out, rows.Err()
+}
+
+// ReplaceEndpoints rewrites a platform's discovered addresses.
+//
+// Wholesale replacement rather than an upsert, because the list is a statement
+// about the cluster as it is now: a member that has been removed, renamed or
+// taken offline must leave the list, or the portal keeps a dead address it will
+// spend a timeout on during every future failover. Replacing nothing with
+// nothing is left alone so a failed discovery cannot empty the list.
+func (r *PlatformRepository) ReplaceEndpoints(ctx context.Context, platformID uuid.UUID, eps []ports.PlatformEndpoint, at time.Time) error {
+	if len(eps) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin replace endpoints: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `DELETE FROM platform_endpoints WHERE platform_id = $1`, platformID); err != nil {
+		return fmt.Errorf("clear platform endpoints: %w", err)
+	}
+	for _, ep := range eps {
+		source := ep.Source
+		if source == "" {
+			source = "discovered"
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO platform_endpoints (platform_id, address, fingerprint, source, refreshed_at)
+			VALUES ($1,$2,$3,$4,$5)
+			ON CONFLICT (platform_id, address) DO UPDATE
+			SET fingerprint = EXCLUDED.fingerprint,
+			    source      = EXCLUDED.source,
+			    refreshed_at = EXCLUDED.refreshed_at`,
+			platformID, ep.Address, ep.Fingerprint, source, at); err != nil {
+			return fmt.Errorf("store platform endpoint: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
+}

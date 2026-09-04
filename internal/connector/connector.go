@@ -22,16 +22,17 @@ import (
 type Capability string
 
 const (
-	CapabilityVM              Capability = "vm"
-	CapabilityHost            Capability = "host"
-	CapabilityStorage         Capability = "storage"
-	CapabilityNetwork         Capability = "network"
-	CapabilityMetrics         Capability = "metrics"
-	CapabilityMetricsBackfill Capability = "metrics_backfill"
-	CapabilityConsole         Capability = "console"
-	CapabilitySerialConsole   Capability = "serial_console"
-	CapabilityPower           Capability = "power"
-	CapabilityNodeAddress     Capability = "node_address"
+	CapabilityVM                Capability = "vm"
+	CapabilityHost              Capability = "host"
+	CapabilityStorage           Capability = "storage"
+	CapabilityNetwork           Capability = "network"
+	CapabilityMetrics           Capability = "metrics"
+	CapabilityMetricsBackfill   Capability = "metrics_backfill"
+	CapabilityConsole           Capability = "console"
+	CapabilitySerialConsole     Capability = "serial_console"
+	CapabilityPower             Capability = "power"
+	CapabilityNodeAddress       Capability = "node_address"
+	CapabilityEndpointDiscovery Capability = "endpoint_discovery"
 )
 
 // Info identifies a connector implementation.
@@ -50,6 +51,11 @@ type Config struct {
 	Endpoint   string
 	Datacenter string
 	TLS        TLSPolicy
+	// Failover lists further addresses the same platform answers on, tried in
+	// order when Endpoint is unreachable and never otherwise (ADR 0009).
+	// Endpoint stays the address an administrator typed; these are cluster
+	// facts the sync engine discovers and rewrites.
+	Failover []Endpoint
 	// Extra carries connector-specific settings declared by the connector's
 	// config schema, so new platforms need no core schema changes.
 	Extra map[string]any
@@ -70,6 +76,33 @@ type TLSPolicy struct {
 	Mode        TLSMode
 	CAPEM       string
 	Fingerprint string
+}
+
+// Endpoint is one address a platform can be reached at.
+//
+// Fingerprint pins this address specifically, because the members of a cluster
+// each present their own certificate: a pin that is correct for one is
+// correctly rejected by the next. It is only consulted under TLSFingerprint,
+// where it replaces TLSPolicy.Fingerprint for this address alone; the other
+// modes already trust every member through system roots or a cluster CA.
+type Endpoint struct {
+	Address     string
+	Fingerprint string
+}
+
+// EndpointDiscoverer reports the other addresses a platform answers on.
+//
+// The contract is deliberately narrow about trust: an implementation must learn
+// each address, and each address's fingerprint, over the connection it is
+// already using — one whose certificate has already been verified. Reading a
+// certificate from the address being added would be trust-on-first-use under
+// exactly the conditions that make it weakest, since failover happens when the
+// network is already misbehaving (ADR 0009).
+//
+// Returning fewer endpoints than the platform has is always safe. Returning one
+// whose fingerprint could not be established is not, and must not be done.
+type EndpointDiscoverer interface {
+	DiscoverEndpoints(ctx context.Context) ([]Endpoint, error)
 }
 
 // Credentials are decrypted secrets, scoped to a single connector instance.

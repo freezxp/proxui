@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -35,15 +36,37 @@ const (
 	defaultConcurrency = 8
 )
 
+// target is one address the platform answers on, paired with the TLS trust
+// that belongs to that address. Each carries its own http.Client because the
+// members of a cluster present different certificates: under a pinned policy
+// the trust differs per address, so the transport has to as well.
+type target struct {
+	base *url.URL
+	http *http.Client
+}
+
+func (t *target) address() string { return t.base.Host }
+
 // client is a thin Proxmox API client: auth, TLS policy, rate limiting and
 // error classification. Endpoint knowledge lives in the sibling files.
+//
+// It holds every address the platform answers on rather than one, because
+// Proxmox serves the same clustered API from every member and a single
+// configured endpoint made one node's power switch an outage of the whole
+// portal (ADR 0009). targets[0] is always the configured endpoint.
 type client struct {
-	base    *url.URL
-	http    *http.Client
+	targets []*target
+	// pref indexes the target that answered last. Reads are lock-free because
+	// the sync engine issues bounded-concurrency requests through one client,
+	// and a stale read costs at most one extra failover hop.
+	pref    atomic.Int64
 	limiter *rate.Limiter
 	// authHeader is precomputed; it is never logged.
 	authHeader  string
 	concurrency int
+	// timeout is the per-request budget, kept so failover can tell whether
+	// there is room for another attempt before the caller's deadline.
+	timeout time.Duration
 }
 
 func newClient(cfg connector.Config, creds connector.Credentials, opts connector.Options) (*client, error) {
@@ -69,10 +92,6 @@ func newClient(cfg connector.Config, creds connector.Credentials, opts connector
 	if err != nil {
 		return nil, err
 	}
-	tlsCfg, err := tlsConfig(cfg.TLS, base.Hostname())
-	if err != nil {
-		return nil, err
-	}
 
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -87,7 +106,42 @@ func newClient(cfg connector.Config, creds connector.Credentials, opts connector
 		concurrency = defaultConcurrency
 	}
 
+	primary, err := newTarget(base, cfg.TLS, timeout, concurrency)
+	if err != nil {
+		return nil, err
+	}
+	targets := []*target{primary}
+	for _, ep := range cfg.Failover {
+		t, err := failoverTarget(ep, cfg.TLS, timeout, concurrency)
+		if err != nil || t == nil {
+			// A candidate that cannot be trusted or parsed is dropped, not
+			// fatal: the configured endpoint still works, and refusing to
+			// build the connector would turn a stale discovered address into
+			// an outage of its own.
+			continue
+		}
+		if t.address() == primary.address() {
+			continue
+		}
+		targets = append(targets, t)
+	}
+
 	return &client{
+		targets:     targets,
+		limiter:     rate.NewLimiter(rate.Limit(rps), defaultBurst),
+		authHeader:  auth,
+		concurrency: concurrency,
+		timeout:     timeout,
+	}, nil
+}
+
+// newTarget builds one address's transport under a TLS policy.
+func newTarget(base *url.URL, policy connector.TLSPolicy, timeout time.Duration, concurrency int) (*target, error) {
+	tlsCfg, err := tlsConfig(policy, base.Hostname())
+	if err != nil {
+		return nil, err
+	}
+	return &target{
 		base: base,
 		http: &http.Client{
 			Timeout: timeout,
@@ -97,10 +151,100 @@ func newClient(cfg connector.Config, creds connector.Credentials, opts connector
 				IdleConnTimeout:     90 * time.Second,
 			},
 		},
-		limiter:     rate.NewLimiter(rate.Limit(rps), defaultBurst),
-		authHeader:  auth,
-		concurrency: concurrency,
 	}, nil
+}
+
+// failoverTarget builds a discovered cluster member's transport.
+//
+// Under a pinned policy the member's own fingerprint replaces the configured
+// one, because each node presents its own certificate. A member whose
+// fingerprint is unknown is dropped rather than trusted loosely: the point of
+// pinning is that a self-signed cluster is trusted exactly, and an outage is
+// not a reason to trust more (ADR 0009). Every other mode already covers the
+// whole cluster through system roots or a cluster CA, so it passes through.
+func failoverTarget(ep connector.Endpoint, policy connector.TLSPolicy, timeout time.Duration, concurrency int) (*target, error) {
+	if ep.Address == "" {
+		return nil, nil
+	}
+	raw := ep.Address
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	base, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if base.Scheme != "https" && base.Scheme != "http" {
+		return nil, nil
+	}
+	if base.Port() == "" && base.Scheme == "https" {
+		base.Host = net.JoinHostPort(base.Hostname(), "8006")
+	}
+	if policy.Mode == connector.TLSFingerprint {
+		if ep.Fingerprint == "" {
+			return nil, nil
+		}
+		policy.Fingerprint = ep.Fingerprint
+	}
+	return newTarget(base, policy, timeout, concurrency)
+}
+
+// current returns the target requests are being sent to. Callers that build a
+// URL of their own — the console dialer, the standalone node fallback — must
+// use this rather than a remembered base, or they will address a node the
+// client has already failed away from.
+func (c *client) current() *target { return c.targets[c.prefIndex()] }
+
+func (c *client) prefIndex() int {
+	i := int(c.pref.Load())
+	if i < 0 || i >= len(c.targets) {
+		return 0
+	}
+	return i
+}
+
+// order lists target indexes to try: the preferred one, then the rest in
+// configured order. The configured endpoint is therefore tried first on a cold
+// client and second-at-worst on a warm one.
+func (c *client) order() []int {
+	pref := c.prefIndex()
+	out := make([]int, 0, len(c.targets))
+	out = append(out, pref)
+	for i := range c.targets {
+		if i != pref {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// minAttemptBudget is the least time worth starting another attempt with.
+// Below it the request would be cut off before a handshake could finish, so
+// trying costs a wasted connection and tells us nothing.
+const minAttemptBudget = 250 * time.Millisecond
+
+// roomForAnother reports whether the caller's deadline leaves time to try
+// another address.
+//
+// The bar is deliberately low, because the thing it once guarded against
+// cannot happen: an attempt is bounded by the caller's context as well as by
+// the client timeout, so a member that hangs is cut off by the deadline rather
+// than allowed to overrun the cycle that asked.
+//
+// This originally demanded a full client timeout of headroom, which read as
+// prudence and was in fact a silent disabling of failover in the place it was
+// needed most. The health probe runs under a 30-second task deadline
+// (jobs.NewSyncHealthTask) and the client timeout is also 30 seconds, so there
+// was never room for a second address: with the configured endpoint dead, every
+// inventory sync failed over and succeeded while every health probe reported
+// the platform unreachable, and the platform flapped between healthy and
+// unreachable once a minute. Verified against a live cluster, not a test.
+func (c *client) roomForAnother(ctx context.Context) bool {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return true
+	}
+	return time.Until(deadline) > minAttemptBudget
 }
 
 // authHeader builds the PVEAPIToken header. Token IDs look like
@@ -203,16 +347,72 @@ func (c *client) post(ctx context.Context, path string, form url.Values, out any
 	return c.do(ctx, http.MethodPost, path, nil, form, out)
 }
 
+// do performs one API call, failing over to another cluster member when — and
+// only when — the address it used could not be reached.
+//
+// Every other failure class is returned from the first attempt untouched. The
+// token is cluster-wide, so a 401 from one member is a 401 from all of them,
+// and trying each in turn would multiply one clear, actionable failure into
+// several identical ones while delaying the alert an administrator needs
+// (ADR 0009). A malformed response is not a transport failure either: the
+// platform answered, and asking a different one is unlikely to change what it
+// says.
 func (c *client) do(ctx context.Context, method, path string, query, form url.Values, out any) error {
-	if err := c.limiter.Wait(ctx); err != nil {
-		return connector.Wrap(connector.ErrUnreachable, opFromPath(path), err)
+	var firstErr error
+	tried := make([]string, 0, len(c.targets))
+
+	for attempt, idx := range c.order() {
+		if attempt > 0 && !c.roomForAnother(ctx) {
+			break
+		}
+		t := c.targets[idx]
+		tried = append(tried, t.address())
+
+		transport, err := c.attempt(ctx, t, method, path, query, form, out)
+		if err == nil {
+			// Preference is sticky: whatever answered keeps answering until it
+			// stops, rather than drifting back to a configured endpoint that is
+			// still down.
+			c.pref.Store(int64(idx))
+			return nil
+		}
+		if !transport {
+			return err
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
 	}
 
-	target := c.base.JoinPath(apiPrefix + path)
+	if firstErr == nil {
+		// Unreachable with nothing attempted: the deadline was already spent.
+		return connector.Errorf(connector.ErrUnreachable, opFromPath(path),
+			"no time left to try any endpoint")
+	}
+	if len(tried) < 2 {
+		return firstErr
+	}
+	return connector.Wrap(connector.ErrUnreachable, opFromPath(path),
+		fmt.Errorf("no endpoint answered (tried %s): %w", strings.Join(tried, ", "), firstErr))
+}
+
+// attempt performs one request against one address.
+//
+// It reports separately whether the failure was at the transport layer, which
+// is the only kind a different address could plausibly answer differently. The
+// returned error keeps its existing classification either way, so the sync
+// engine's retry and circuit-breaker decisions are unchanged.
+func (c *client) attempt(ctx context.Context, t *target, method, path string, query, form url.Values, out any) (transport bool, err error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return false, connector.Wrap(connector.ErrUnreachable, opFromPath(path), err)
+	}
+
+	target := t.base.JoinPath(apiPrefix + path)
 	if len(query) > 0 {
 		target.RawQuery = query.Encode()
 	}
 	endpoint := target.String()
+	// Rebuilt per attempt: a reader is consumed by the request that failed.
 	var body io.Reader
 	if form != nil {
 		body = strings.NewReader(form.Encode())
@@ -220,7 +420,7 @@ func (c *client) do(ctx context.Context, method, path string, query, form url.Va
 
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
-		return connector.Wrap(connector.ErrInvalidConfig, opFromPath(path), err)
+		return false, connector.Wrap(connector.ErrInvalidConfig, opFromPath(path), err)
 	}
 	req.Header.Set("Authorization", c.authHeader)
 	req.Header.Set("Accept", "application/json")
@@ -228,9 +428,9 @@ func (c *client) do(ctx context.Context, method, path string, query, form url.Va
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 
-	resp, err := c.http.Do(req)
+	resp, err := t.http.Do(req)
 	if err != nil {
-		return classifyTransportError(path, err)
+		return true, classifyTransportError(path, err)
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
@@ -238,23 +438,23 @@ func (c *client) do(ctx context.Context, method, path string, query, form url.Va
 	}()
 
 	if err := classifyStatus(path, resp); err != nil {
-		return err
+		return false, err
 	}
 	if out == nil {
-		return nil
+		return false, nil
 	}
 
 	var env envelope
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(&env); err != nil {
-		return connector.Wrap(connector.ErrUnreachable, opFromPath(path), fmt.Errorf("decode response: %w", err))
+		return false, connector.Wrap(connector.ErrUnreachable, opFromPath(path), fmt.Errorf("decode response: %w", err))
 	}
 	if len(env.Data) == 0 || string(env.Data) == "null" {
-		return nil
+		return false, nil
 	}
 	if err := json.Unmarshal(env.Data, out); err != nil {
-		return connector.Wrap(connector.ErrUnreachable, opFromPath(path), fmt.Errorf("decode data: %w", err))
+		return false, connector.Wrap(connector.ErrUnreachable, opFromPath(path), fmt.Errorf("decode data: %w", err))
 	}
-	return nil
+	return false, nil
 }
 
 // classifyStatus maps HTTP status codes onto connector error classes, which is

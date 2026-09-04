@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -62,7 +63,8 @@ func (s *Service) Connect(ctx context.Context, p *inventory.Platform) (connector
 			CAPEM:       p.TLSCAPEM,
 			Fingerprint: p.TLSFingerprint,
 		},
-		Extra: p.Config,
+		Failover: s.failoverEndpoints(ctx, p),
+		Extra:    p.Config,
 	}
 	creds := connector.Credentials{Kind: cred.Kind, TokenID: cred.TokenID, Secret: cred.Secret}
 
@@ -110,7 +112,117 @@ func (s *Service) SyncInventory(ctx context.Context, platformID uuid.UUID, trigg
 	}
 
 	s.recordSuccess(ctx, p, conn)
+	s.refreshEndpoints(ctx, p, conn)
 	return result, nil
+}
+
+// EndpointRefreshInterval is how often the failover list is rebuilt from the
+// cluster. Membership changes on the timescale of an administrator adding a
+// node, not of a sync cycle, so rediscovering it every minute would spend a
+// /cluster/status and one certificate read per member to learn nothing.
+const EndpointRefreshInterval = 15 * time.Minute
+
+// failoverEndpoints loads the other addresses this platform answers on.
+//
+// A failure here is deliberately not fatal: the configured endpoint is still
+// the primary and still works, and refusing to sync because the failover list
+// could not be read would turn an optimization into an outage.
+func (s *Service) failoverEndpoints(ctx context.Context, p *inventory.Platform) []connector.Endpoint {
+	stored, err := s.Platforms.Endpoints(ctx, p.ID)
+	if err != nil {
+		s.Log.Warn().Str("platform", p.Name).Err(err).Msg("failover endpoints unavailable")
+		return nil
+	}
+	out := make([]connector.Endpoint, 0, len(stored))
+	for _, ep := range stored {
+		out = append(out, connector.Endpoint{Address: ep.Address, Fingerprint: ep.Fingerprint})
+	}
+	return out
+}
+
+// refreshEndpoints rebuilds the failover list after a successful sync.
+//
+// After, and only after: discovery asks the cluster to describe itself over a
+// connection whose certificate has already been verified, which is what makes
+// the fingerprints it learns trustworthy (ADR 0009). A discovery that fails or
+// comes back empty leaves the stored list alone — the addresses that worked
+// yesterday are a better guess than none.
+func (s *Service) refreshEndpoints(ctx context.Context, p *inventory.Platform, conn connector.Connector) {
+	d, ok := conn.(connector.EndpointDiscoverer)
+	if !ok {
+		return
+	}
+	now := s.Clock.Now()
+	stored, err := s.Platforms.Endpoints(ctx, p.ID)
+	if err != nil {
+		return
+	}
+	if !endpointsStale(stored, now) {
+		return
+	}
+
+	found, err := d.DiscoverEndpoints(ctx)
+	if err != nil {
+		s.Log.Debug().Str("platform", p.Name).Err(err).Msg("endpoint discovery failed")
+		return
+	}
+	if len(found) == 0 {
+		return
+	}
+
+	configured := endpointHost(p.EndpointURL)
+	rows := make([]ports.PlatformEndpoint, 0, len(found))
+	for _, ep := range found {
+		source := "discovered"
+		if endpointHost(ep.Address) == configured {
+			source = "configured"
+		}
+		rows = append(rows, ports.PlatformEndpoint{
+			Address:     ep.Address,
+			Fingerprint: ep.Fingerprint,
+			Source:      source,
+			RefreshedAt: now,
+		})
+	}
+	if err := s.Platforms.ReplaceEndpoints(ctx, p.ID, rows, now); err != nil {
+		s.Log.Warn().Str("platform", p.Name).Err(err).Msg("storing failover endpoints failed")
+		return
+	}
+	s.Log.Debug().Str("platform", p.Name).Int("endpoints", len(rows)).
+		Msg("failover endpoints refreshed")
+}
+
+// endpointsStale reports whether the failover list is due a rebuild. An empty
+// list is always stale: it is the state of a platform nothing has discovered
+// yet, which is exactly when the list is most worth having.
+func endpointsStale(stored []ports.PlatformEndpoint, now time.Time) bool {
+	if len(stored) == 0 {
+		return true
+	}
+	newest := stored[0].RefreshedAt
+	for _, ep := range stored[1:] {
+		if ep.RefreshedAt.After(newest) {
+			newest = ep.RefreshedAt
+		}
+	}
+	return now.Sub(newest) >= EndpointRefreshInterval
+}
+
+// endpointHost reduces an address to the host it names, so "https://10.0.30.111:8006",
+// "10.0.30.111:8006" and "10.0.30.111" are recognised as the same machine.
+func endpointHost(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	raw := addr
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return addr
+	}
+	return u.Hostname()
 }
 
 // SyncMetrics samples a platform once. It is separate from inventory because it

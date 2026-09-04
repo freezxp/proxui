@@ -44,11 +44,11 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 
 | ID | Pri | Requirement |
 |---|---|---|
-| PLAT-01 | M | Admin can register a platform: type (`proxmox`), name, API base URL, API token, TLS options (CA bundle or pinned fingerprint; `insecure` allowed but warned and audited). |
+| PLAT-01 | M | Admin can register a platform: type (`proxmox`), name, API base URL, API token, TLS options (CA bundle or pinned fingerprint; `insecure` allowed but warned and audited). The configured URL is the address the portal prefers, not the only one it will use: further cluster members are discovered and failed over to when it is unreachable ([ADR 0009](adr/0009-a-platform-is-reached-through-any-cluster-member.md)). |
 | PLAT-02 | M | "Test connection" validates reachability, token validity, permission sufficiency, and reports the platform version — before saving. |
 | PLAT-03 | M | Credentials are envelope-encrypted at rest (AES-256-GCM, master key outside DB) and never returned by any API. |
 | PLAT-04 | M | Platforms can be enabled/disabled; disabled platforms stop syncing but retain data (marked stale). |
-| PLAT-05 | M | Admin can trigger an immediate full sync and see per-platform sync status, last success, and recent errors. |
+| PLAT-05 | M | Admin can trigger an immediate full sync and see per-platform sync status, last success, recent errors, and the other addresses the platform is reachable at. |
 | PLAT-06 | S | Per-platform sync interval configurable (default inventory 60 s, metrics 60 s, health 30 s). |
 
 ## 3.4 Synchronization (SYNC) — summary; full design in [10-sync-engine.md](10-sync-engine.md)

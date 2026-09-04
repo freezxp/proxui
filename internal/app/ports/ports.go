@@ -230,6 +230,21 @@ type PlatformRepository interface {
 	SoftDelete(ctx context.Context, id uuid.UUID, at time.Time) error
 	Credential(ctx context.Context, platformID uuid.UUID, vault *crypto.Vault) (PlainCredential, error)
 	ReplaceCredential(ctx context.Context, platformID uuid.UUID, cred SealedCredential) error
+	Endpoints(ctx context.Context, platformID uuid.UUID) ([]PlatformEndpoint, error)
+	ReplaceEndpoints(ctx context.Context, platformID uuid.UUID, eps []PlatformEndpoint, at time.Time) error
+}
+
+// PlatformEndpoint is one address a platform answers on, beyond the one an
+// administrator configured (ADR 0009).
+//
+// Fingerprint pins this address alone and is empty under every TLS mode but
+// `fingerprint`, because cluster members each present their own certificate.
+type PlatformEndpoint struct {
+	Address     string
+	Fingerprint string
+	// Source is "configured" or "discovered".
+	Source      string
+	RefreshedAt time.Time
 }
 
 // DomainEvent is something that happened, queued for reliable publication.

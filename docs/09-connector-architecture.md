@@ -113,7 +113,8 @@ classDiagram
 | Power | `POST …/status/{start\|stop\|shutdown\|reboot}` → returns UPID task ref; engine polls task status |
 | Health | `GET /version` + `GET /cluster/status` (quorum) |
 | Throttling | Client-side limiter 10 req/s per platform; honors 429/5xx with backoff |
-| TLS | Per-platform: system CAs / custom CA / SHA-256 pin / insecure (warned + audited) |
+| TLS | Per-platform: system CAs / custom CA / SHA-256 pin / insecure (warned + audited). Under a pin, each discovered cluster member carries its own fingerprint — members present different certificates, so one pin cannot cover them all ([ADR 0009](adr/0009-a-platform-is-reached-through-any-cluster-member.md)) |
+| Failover | `GET /cluster/status` names every member and whether it is online; `GET /nodes/{n}/certificates/info` supplies each member's pin, read through the connection already in use. A call that fails as `ErrUnreachable` — and only that class — is retried against the next member, preference sticking with whichever answered |
 | Required token privileges | `PVEAuditor` on `/` minimum; `VM.Console` for console; `VM.PowerMgmt` for power — `TestConnection` verifies via `/access/permissions` and reports what's missing |
 
 ## 9.5 The mock connector

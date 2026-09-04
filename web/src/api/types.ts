@@ -186,6 +186,15 @@ export interface Platform {
   sync_intervals: { inventory: number; metrics: number; health: number }
   breaker_open: boolean
   created_at: string
+  /** Every address the platform answers on, configured first (ADR 0009). Detail responses only. */
+  endpoints?: PlatformEndpoint[]
+}
+
+export interface PlatformEndpoint {
+  address: string
+  fingerprint?: string
+  source: string
+  refreshed_at: string
 }
 
 export interface TestReport {

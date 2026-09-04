@@ -12,6 +12,15 @@ export function PlatformDetail({ platform, onClose }: { platform: Platform; onCl
   const [danger, setDanger] = useState(false)
   const [error, setError] = useState('')
 
+  // The list response carries no failover addresses — they are a per-platform
+  // query — so the drawer asks for the platform again to learn where else it
+  // can be reached (ADR 0009).
+  const detail = useQuery({
+    queryKey: ['platform', platform.id],
+    queryFn: () => api.get<Platform>(`/platforms/${platform.id}`),
+  })
+  const endpoints = detail.data?.endpoints ?? []
+
   const runs = useQuery({
     queryKey: ['sync-runs', platform.id],
     queryFn: () => api.get<{ data: SyncRun[] }>(`/platforms/${platform.id}/sync-runs`),
@@ -50,6 +59,20 @@ export function PlatformDetail({ platform, onClose }: { platform: Platform; onCl
           </dd>
           <dt className="text-muted">Endpoint</dt>
           <dd className="break-all font-mono text-xs">{platform.endpoint_url}</dd>
+          {endpoints.length > 1 && (
+            <>
+              <dt className="text-muted">Also reachable at</dt>
+              <dd className="space-y-0.5 font-mono text-xs">
+                {endpoints
+                  .filter((ep) => ep.source !== 'configured')
+                  .map((ep) => (
+                    <span key={ep.address} className="block break-all" title={ep.fingerprint}>
+                      {ep.address}
+                    </span>
+                  ))}
+              </dd>
+            </>
+          )}
           <dt className="text-muted">Datacenter</dt>
           <dd>{platform.datacenter || '—'}</dd>
           <dt className="text-muted">Certificate</dt>

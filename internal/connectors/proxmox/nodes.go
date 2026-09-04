@@ -41,7 +41,7 @@ func (c *Connector) NodeAddresses(ctx context.Context) (map[string]string, error
 	if err := c.client.get(ctx, "/nodes", &nodes); err != nil {
 		return nil, err
 	}
-	host := c.client.base.Hostname()
+	host := c.client.current().base.Hostname()
 	if host == "" {
 		return out, nil
 	}

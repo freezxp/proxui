@@ -66,6 +66,21 @@ type platformResponse struct {
 	SyncIntervals   inventory.SyncIntervals `json:"sync_intervals"`
 	BreakerOpen     bool                    `json:"breaker_open"`
 	CreatedAt       string                  `json:"created_at"`
+	// Endpoints lists every address the platform is reachable at, configured
+	// first (ADR 0009). Detail only: it is a per-platform query, and the list
+	// view has no use for it. Absent until the first discovery has run.
+	Endpoints []platformEndpointResponse `json:"endpoints,omitempty"`
+}
+
+// platformEndpointResponse is one failover address. The fingerprint is
+// deliberately included: it is the thing an operator compares by hand when they
+// want to know the portal is talking to the machine they think it is, and it is
+// public information — the certificate is presented to anyone who connects.
+type platformEndpointResponse struct {
+	Address     string `json:"address"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	Source      string `json:"source"`
+	RefreshedAt string `json:"refreshed_at"`
 }
 
 func toPlatformResponse(p *inventory.Platform, now func() time.Time) platformResponse {
@@ -126,7 +141,20 @@ func (s *Server) handleGetPlatform(w http.ResponseWriter, r *http.Request) {
 		s.writePlatformError(w, r, err)
 		return
 	}
-	WriteJSON(w, http.StatusOK, toPlatformResponse(p, s.clock))
+	resp := toPlatformResponse(p, s.clock)
+	// A failover list that cannot be read is not worth failing a page over:
+	// everything else on it is still correct, and the field is optional.
+	if eps, err := s.platforms.Platforms.Endpoints(r.Context(), id); err == nil {
+		for _, ep := range eps {
+			resp.Endpoints = append(resp.Endpoints, platformEndpointResponse{
+				Address:     ep.Address,
+				Fingerprint: ep.Fingerprint,
+				Source:      ep.Source,
+				RefreshedAt: ep.RefreshedAt.Format(timeFormat),
+			})
+		}
+	}
+	WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleCreatePlatform(w http.ResponseWriter, r *http.Request) {

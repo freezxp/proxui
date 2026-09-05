@@ -197,6 +197,24 @@ func TestPortalKeyConnectSendsNoSecretAndAuthenticates(t *testing.T) {
 	if !found {
 		t.Fatal("opening a session should be audited")
 	}
+
+	// Getting in with the key is proof it is in that account's
+	// authorized_keys, and better proof than a row saying the portal put it
+	// there. Recording it here is what stops the connect form telling somebody
+	// to install a key that arrived some other way — cloud-init on a
+	// provisioned guest, a golden image — and is already working.
+	installs, err := f.keys.Installs(context.Background(), f.vmID())
+	if err != nil {
+		t.Fatalf("installs: %v", err)
+	}
+	if len(installs) != 1 || installs[0].SSHUser != "tester" {
+		t.Fatalf("installs = %+v, want one for tester — the form will keep offering a password",
+			installs)
+	}
+	if installs[0].Fingerprint != key.Fingerprint {
+		t.Errorf("recorded fingerprint %q, want the key that actually authenticated %q",
+			installs[0].Fingerprint, key.Fingerprint)
+	}
 }
 
 func TestPortalKeyConnectWithoutAKeyIsAClearRefusal(t *testing.T) {

@@ -260,6 +260,10 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Runner: sshclient.NewDialer(),
 			Log:    log,
 		},
+		// A guest provisioned with the portal's public key already has it; this
+		// is what stops the connect form telling somebody to install a key that
+		// is there and working (SSH-15).
+		Keys: postgres.NewPortalKeyRepository(pool, vault),
 	}
 	defer queue.Close()
 

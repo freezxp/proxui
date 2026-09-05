@@ -204,6 +204,15 @@ func (h *OpenShell) Handle(ctx context.Context, in OpenShellInput) (OpenShellOut
 
 	now := h.Clock.Now()
 
+	// A portal-key connect that got in is proof the key is in that account's
+	// authorized_keys, which is better evidence than the record the portal
+	// keeps of having put it there. The record exists only to decide what the
+	// connect form offers first, and it goes stale for every route the key
+	// takes that the portal did not drive — cloud-init on a new guest, a golden
+	// image, somebody's configuration management. Noting it here makes it
+	// self-correcting: the form is wrong at most once (SSH-15).
+	h.noteKeyWorked(ctx, in, now)
+
 	session := &shell.Session{
 		ID: uuid.New(), UserID: in.Actor.UserID, VMID: in.VMID,
 		SSHUser: in.Username, Address: target.Address(),
@@ -253,6 +262,24 @@ func (h *OpenShell) Handle(ctx context.Context, in OpenShellInput) (OpenShellOut
 		out.FilesDetail = err.Error()
 	}
 	return out, nil
+}
+
+// noteKeyWorked records that the portal's key authenticated on this account.
+//
+// Best-effort and never fatal: the session is open, and a bookkeeping row is
+// not worth refusing it over.
+func (h *OpenShell) noteKeyWorked(ctx context.Context, in OpenShellInput, now time.Time) {
+	if !in.UsePortalKey || h.Keys == nil {
+		return
+	}
+	key, err := h.Keys.Get(ctx)
+	if err != nil {
+		return
+	}
+	_ = h.Keys.RecordInstall(ctx, shell.KeyInstall{
+		VMID: in.VMID, SSHUser: in.Username, Fingerprint: key.Fingerprint,
+		InstalledAt: now, InstalledBy: in.Actor.UserID,
+	})
 }
 
 // credential resolves what to authenticate with.

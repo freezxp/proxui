@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **A guest built with the portal's key was told to install the portal's key**
+  (SSH-15). Provisioning offers to put the public half into cloud-init, and it
+  works — the key is on the guest and authenticates — but nothing recorded it,
+  so the SSH page said *the portal's key is not installed for this account here
+  yet* about a key that was installed and working.
+
+  The record was only ever written by the portal's own **Install portal key**
+  button, which made it a record of what the portal did rather than of what is
+  true. Every other way the key reaches a guest — cloud-init on a new guest, a
+  golden image, somebody's configuration management — left it silent.
+
+  Three changes, and the middle one is the load-bearing one. A guest provisioned
+  with the portal's key is recorded once it appears in the inventory, matched by
+  key rather than by the trailing comment. **A connect that authenticates with
+  the portal key records it too**, which makes the whole thing self-correcting:
+  getting in is better proof than a row saying somebody once put it there, and
+  guests provisioned before this change fix themselves the first time anyone
+  uses the key. And where there is no record the form now says it has none
+  rather than asserting the key is absent — the guest's `authorized_keys` is the
+  authority, and the portal cannot see it without connecting.
+
 - **A guest that never boots is no longer reported as a clean success**
   (PROV-16). Provisioning gained a `verifying` step between `starting` and
   `ready`: once the portal has started a guest it waits, up to six minutes, for

@@ -21,6 +21,7 @@ import (
 	"github.com/freezxp/proxui/internal/domain/access"
 	"github.com/freezxp/proxui/internal/domain/inventory"
 	"github.com/freezxp/proxui/internal/domain/provision"
+	"github.com/freezxp/proxui/internal/domain/shell"
 	"github.com/freezxp/proxui/internal/infra/crypto"
 )
 
@@ -893,5 +894,119 @@ func TestAGuestThatWasNotStartedIsNotWaitedFor(t *testing.T) {
 	if !done.VerifyUntil.IsZero() || done.Error != "" {
 		t.Errorf("a guest that was never started was waited on anyway: until=%s note=%q",
 			done.VerifyUntil, done.Error)
+	}
+}
+
+// memKeys is the portal's key store, remembering only what the driver writes.
+type memKeys struct {
+	key      shell.PortalKey
+	missing  bool
+	installs []shell.KeyInstall
+}
+
+func (m *memKeys) Get(context.Context) (shell.PortalKey, error) {
+	if m.missing {
+		return shell.PortalKey{}, ports.ErrNotFound
+	}
+	return m.key, nil
+}
+func (m *memKeys) PrivateKey(context.Context) (string, error) { return "", nil }
+func (m *memKeys) Replace(context.Context, shell.PortalKey, string) error {
+	return nil
+}
+func (m *memKeys) Delete(context.Context) error { return nil }
+func (m *memKeys) Installs(context.Context, uuid.UUID) ([]shell.KeyInstall, error) {
+	return m.installs, nil
+}
+func (m *memKeys) RecordInstall(_ context.Context, in shell.KeyInstall) error {
+	m.installs = append(m.installs, in)
+	return nil
+}
+func (m *memKeys) ForgetInstall(context.Context, uuid.UUID, string) error { return nil }
+
+const testPortalKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB2Nk9L8lHqEXAMPLEKEYbodyXXXXXXXXXXXXXXXXXXX proxui-portal"
+
+// A guest provisioned with the portal's own key already has it, and the connect
+// form was telling people to connect with a password and install a key that was
+// there and working. cloud-init wrote it, so the portal knows without asking
+// the guest (SSH-11).
+func TestAProvisionedGuestRecordsTheKeyCloudInitInstalled(t *testing.T) {
+	requests := newMemRequests()
+	requests.found = uuid.New()
+	keys := &memKeys{key: shell.PortalKey{PublicKey: testPortalKey, Fingerprint: "SHA256:portal"}}
+	d := newDriver(t, requests, &memAccess{members: map[uuid.UUID][]uuid.UUID{}}, &nopQueue{}, &nopAudit{})
+	d.Keys = keys
+
+	platform, _ := d.Platforms.Get(context.Background(), uuid.Nil)
+	req := provisionRequest(platform.ID, nil)
+	// The comment differs from the one the portal holds, as a key pasted from
+	// somewhere else would: the same key is the same key.
+	req.Spec.SSHKeys = []string{strings.Replace(testPortalKey, "proxui-portal", "someone@laptop", 1)}
+	req.Spec.CIUser = "almalinux"
+	if err := requests.CreateRequest(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	if done := run(t, d, req.ID); done.State != provision.StateReady {
+		t.Fatalf("state = %s, want ready", done.State)
+	}
+	if len(keys.installs) != 1 {
+		t.Fatalf("recorded %d installs, want 1 — the form will offer a password for a key that works",
+			len(keys.installs))
+	}
+	got := keys.installs[0]
+	if got.VMID != requests.found || got.SSHUser != "almalinux" || got.Fingerprint != "SHA256:portal" {
+		t.Errorf("install = %+v, want the new guest's id, its cloud-init user and the current key", got)
+	}
+}
+
+// A guest given somebody else's key gets no row. The record is what the connect
+// form offers first, and offering a key the portal does not hold would be worse
+// than offering nothing.
+func TestAGuestGivenAnotherKeyRecordsNothing(t *testing.T) {
+	requests := newMemRequests()
+	requests.found = uuid.New()
+	keys := &memKeys{key: shell.PortalKey{PublicKey: testPortalKey, Fingerprint: "SHA256:portal"}}
+	d := newDriver(t, requests, &memAccess{members: map[uuid.UUID][]uuid.UUID{}}, &nopQueue{}, &nopAudit{})
+	d.Keys = keys
+
+	platform, _ := d.Platforms.Get(context.Background(), uuid.Nil)
+	req := provisionRequest(platform.ID, nil)
+	req.Spec.SSHKeys = []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAISomebodyElsesKeyXXXXXXXXXXXXXXXXXXX ops@laptop"}
+	req.Spec.CIUser = "almalinux"
+	if err := requests.CreateRequest(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	if done := run(t, d, req.ID); done.State != provision.StateReady {
+		t.Fatalf("state = %s, want ready", done.State)
+	}
+	if len(keys.installs) != 0 {
+		t.Errorf("recorded %+v for a guest that never got the portal's key", keys.installs)
+	}
+}
+
+// Without a cloud-init user there is no account to attribute the key to, and a
+// row naming the wrong one would send the form to an account that will refuse.
+func TestNoCloudInitUserMeansNoRecord(t *testing.T) {
+	requests := newMemRequests()
+	requests.found = uuid.New()
+	keys := &memKeys{key: shell.PortalKey{PublicKey: testPortalKey, Fingerprint: "SHA256:portal"}}
+	d := newDriver(t, requests, &memAccess{members: map[uuid.UUID][]uuid.UUID{}}, &nopQueue{}, &nopAudit{})
+	d.Keys = keys
+
+	platform, _ := d.Platforms.Get(context.Background(), uuid.Nil)
+	req := provisionRequest(platform.ID, nil)
+	req.Spec.SSHKeys = []string{testPortalKey}
+	req.Spec.CIUser = ""
+	if err := requests.CreateRequest(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	if done := run(t, d, req.ID); done.State != provision.StateReady {
+		t.Fatalf("state = %s, want ready", done.State)
+	}
+	if len(keys.installs) != 0 {
+		t.Errorf("recorded %+v with no account to attribute it to", keys.installs)
 	}
 }

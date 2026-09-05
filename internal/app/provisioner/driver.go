@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ import (
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/domain/inventory"
 	"github.com/freezxp/proxui/internal/domain/provision"
+	"github.com/freezxp/proxui/internal/domain/shell"
 )
 
 // ErrStillRunning reports that the platform has not finished the step being
@@ -69,10 +71,15 @@ type Driver struct {
 	// Optional: without it templates are built exactly as they were before,
 	// which is to say without a guest agent (PROV-14).
 	Images ImagePreparer
-	Queue  ports.ProvisionEnqueuer
-	Audit  ports.AuditWriter
-	Clock  ports.Clock
-	Log    zerolog.Logger
+	// Keys records that the portal's key reached a guest through cloud-init,
+	// so the connect form knows it is there. Optional: without it a guest
+	// provisioned with the key still has it and the form simply does not know
+	// (SSH-15, ADR 0006).
+	Keys  ports.PortalKeyStore
+	Queue ports.ProvisionEnqueuer
+	Audit ports.AuditWriter
+	Clock ports.Clock
+	Log   zerolog.Logger
 }
 
 // Step advances one request as far as it can without waiting.
@@ -498,7 +505,11 @@ func (d *Driver) finish(ctx context.Context, req *provision.Request, now time.Ti
 		return nil
 	}
 
-	if req.VMGroupID == nil {
+	// The guest's own identifier is needed for two things now — filing it into
+	// a group, and recording that the portal's key went in with cloud-init —
+	// so it is looked up whether or not a group was chosen.
+	wantsKey := d.installedKeyUser(req) != ""
+	if req.VMGroupID == nil && !wantsKey {
 		d.auditOutcome(ctx, req, ports.OutcomeSuccess, nil)
 		return nil
 	}
@@ -508,12 +519,27 @@ func (d *Driver) finish(ctx context.Context, req *provision.Request, now time.Ti
 		if now.Sub(req.Created) < groupAssignmentGrace {
 			return ErrStillRunning
 		}
+		if req.VMGroupID == nil {
+			// Nothing was being filed; only the key record is missed, and that
+			// is a form that offers a password rather than anything broken.
+			d.Log.Warn().Str("request", req.ID.String()).Str("vmid", req.VMID).
+				Msg("provisioned guest did not appear in inventory; portal key install not recorded")
+			d.auditOutcome(ctx, req, ports.OutcomeSuccess, nil)
+			return nil
+		}
 		// Out of patience. The guest exists and works; say plainly that the
 		// filing did not happen rather than failing a request that succeeded.
 		req.Error = "the guest was created but did not appear in inventory in time to be added to its group"
 		d.Log.Warn().Str("request", req.ID.String()).Str("vmid", req.VMID).
 			Msg("provisioned guest not filed into its group")
 		d.auditOutcome(ctx, req, ports.OutcomeSuccess, map[string]any{"group_assigned": false})
+		return nil
+	}
+
+	d.recordKeyInstall(ctx, req, vmID, now)
+
+	if req.VMGroupID == nil {
+		d.auditOutcome(ctx, req, ports.OutcomeSuccess, nil)
 		return nil
 	}
 
@@ -535,6 +561,66 @@ func (d *Driver) finish(ctx context.Context, req *provision.Request, now time.Ti
 	}
 	d.auditOutcome(ctx, req, ports.OutcomeSuccess, map[string]any{"group_assigned": true})
 	return nil
+}
+
+// installedKeyUser names the account cloud-init put the portal's own key on, or
+// empty when the request did not carry it.
+//
+// Cloud-init writes the keys it was given to the account it was given, so the
+// portal knows both without asking the guest — and it is worth knowing, because
+// the connect form's whole job is to offer key authentication where it will
+// work rather than as an option that fails for most people who pick it.
+func (d *Driver) installedKeyUser(req *provision.Request) string {
+	if d.Keys == nil || req.Kind != provision.KindProvision {
+		return ""
+	}
+	user := strings.TrimSpace(req.Spec.CIUser)
+	if user == "" || len(req.Spec.SSHKeys) == 0 {
+		return ""
+	}
+	return user
+}
+
+// recordKeyInstall notes that the portal's key is on the new guest, if it is.
+//
+// Best-effort throughout. The record is not the authority for whether the key
+// works — the guest's own authorized_keys is, and this row only decides what
+// the connect form offers first. A guest that was given somebody else's key and
+// not the portal's gets no row, which is the truth.
+func (d *Driver) recordKeyInstall(ctx context.Context, req *provision.Request, vmID uuid.UUID, now time.Time) {
+	user := d.installedKeyUser(req)
+	if user == "" {
+		return
+	}
+	key, err := d.Keys.Get(ctx)
+	if err != nil {
+		return
+	}
+	installed := false
+	for _, candidate := range req.Spec.SSHKeys {
+		if shell.SameKey(candidate, key.PublicKey) {
+			installed = true
+			break
+		}
+	}
+	if !installed {
+		return
+	}
+
+	by := uuid.Nil
+	if req.RequestedBy != nil {
+		by = *req.RequestedBy
+	}
+	if err := d.Keys.RecordInstall(ctx, shell.KeyInstall{
+		VMID: vmID, SSHUser: user, Fingerprint: key.Fingerprint,
+		InstalledAt: now, InstalledBy: by,
+	}); err != nil {
+		d.Log.Warn().Err(err).Str("vmid", req.VMID).
+			Msg("could not record the portal key cloud-init installed")
+		return
+	}
+	d.Log.Info().Str("vmid", req.VMID).Str("ssh_user", user).
+		Msg("recorded the portal key cloud-init installed on a new guest")
 }
 
 func (d *Driver) pollTask(ctx context.Context, conn connector.Connector, req *provision.Request) (done, ok bool, detail string, err error) {

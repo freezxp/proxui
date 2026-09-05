@@ -494,10 +494,15 @@ export function SshPage() {
                     </div>
 
                     {auth === 'portal' ? (
+                      // The record is what the portal did, never what is true:
+                      // a guest given the key by cloud-init, a golden image or
+                      // somebody's configuration management has it and no row
+                      // says so. Saying "not installed" made the portal claim
+                      // something it cannot know, about a key that works.
                       <p className="rounded-md border border-border px-3 py-2 text-xs text-muted">
                         {keyReady
                           ? `The portal's key is installed for ${username} on this VM. No password needed.`
-                          : `The portal's key is not installed for ${username} here yet. Connect with a password once, then use Install portal key.`}
+                          : `The portal has no record of its key for ${username} here — but it will still work if the guest was given it another way, such as cloud-init when it was created. Try it. If it is refused, connect with a password once and use Install portal key.`}
                       </p>
                     ) : auth === 'password' ? (
                       <Field label="Password">

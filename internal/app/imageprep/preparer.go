@@ -153,11 +153,19 @@ func (p *Preparer) diskPath(ctx context.Context, target ports.SSHTarget, cred po
 //   - clears cloud-init's record of having run, so the settings the portal
 //     writes are applied on the clone's first boot rather than skipped.
 //
-// It deliberately does not enable the service. On Debian and its derivatives
-// the package ships a udev rule that starts the agent when the virtio port
-// appears, which the template has because provisioning sets agent=1; a
-// `systemctl enable` reports success, creates no symlink, and would only
-// mislead whoever reads this next.
+// It deliberately does not enable the service. On Debian and its derivatives,
+// and on the RHEL family too, the package ships a udev rule that starts the
+// agent when the virtio port appears, which the template has because
+// provisioning sets agent=1; a `systemctl enable` reports success, creates no
+// symlink, and would only mislead whoever reads this next.
+//
+// Nothing here relabels for SELinux, and it deliberately does not try. A file
+// written into a RHEL-family image from outside arrives unlabelled, and
+// libguestfs handles that by touching /.autorelabel so the guest relabels
+// itself on its first boot — which it does, and the agent comes up. Passing
+// --selinux-relabel was tried against a live AlmaLinux 10 template and made no
+// difference: relabelling needs the guest's policy loaded, which the appliance
+// on a Debian host cannot do, so it falls back to the same /.autorelabel.
 func customizeCommand(path string) string {
 	return "virt-customize -a " + path +
 		" --install qemu-guest-agent" +

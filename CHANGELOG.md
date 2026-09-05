@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- **An AlmaLinux template produced guests that never booted**, and the symptom
+  was a guest reporting no address — which reads as "the agent is not
+  configured" and sent me looking at the agent for an hour.
+
+  It was the processor. Proxmox's API default is `kvm64`, the plain x86-64
+  baseline with no SSE4.2 and no POPCNT. RHEL 10 and everything rebuilt from it
+  — AlmaLinux 10, Rocky 10 — are compiled for **x86-64-v3**, so glibc aborts
+  before `init` runs:
+
+  ```
+  Fatal glibc error: CPU does not support x86-64-v3
+  Kernel panic - not syncing: Attempted to kill init!
+  ```
+
+  Nothing above the serial console can see that. There is no agent, no address,
+  no log inside the guest to read, and every layer the portal can reach reports
+  success: the template built, the clone succeeded, the guest is "running".
+
+  The baseline is a property of the image, so that is where it lives. The
+  shipped catalogue records `cpu` for the entries that need it, the build form
+  sends it and says so beside the image, and `POST /platforms/{id}/templates`
+  takes `cpu` for an image the portal does not ship. Guests otherwise get
+  `x86-64-v2-AES`, which is Proxmox's own default for a new guest and a strict
+  improvement on `kvm64`. It is deliberately not v3 everywhere: v3 needs
+  Haswell or Zen and would break both older nodes and migration between unlike
+  ones.
+
+  Verified against a live cluster: template built with `cpu: x86-64-v3`, guest
+  cloned from it, agent up and an address in the inventory about two minutes
+  later. The two minutes are the guest running its own SELinux relabel and
+  rebooting, which is also why nothing needed to change in image preparation —
+  `--selinux-relabel` was tried there first, made no difference, and was
+  removed rather than left in claiming a fix it did not make.
+
 - **The look is a choice now.** Appearance has two independent axes in the
   account menu: **Mode** (light, dark, or whatever the machine says) and
   **Theme** — **Slate**, the dnsprox palette with IBM Plex, or **Classic**, the

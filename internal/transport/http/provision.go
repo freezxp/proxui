@@ -329,6 +329,11 @@ type buildTemplateBody struct {
 	Cores        int    `json:"cores"`
 	MemoryMB     int    `json:"memory_mb"`
 	Bridge       string `json:"bridge"`
+	// CPU is the processor model the template gets. The catalogue supplies it
+	// for the images the portal ships, and the form sends what it was given;
+	// it is here so an image the portal does not know about can still say what
+	// it needs.
+	CPU string `json:"cpu"`
 }
 
 func (s *Server) handleBuildTemplate(w http.ResponseWriter, r *http.Request) {
@@ -351,6 +356,7 @@ func (s *Server) handleBuildTemplate(w http.ResponseWriter, r *http.Request) {
 		Checksum: body.Checksum, ChecksumAlgo: body.ChecksumAlgo,
 		SkipChecksum: body.SkipChecksum,
 		Cores:        body.Cores, MemoryMB: body.MemoryMB, Bridge: body.Bridge,
+		CPU: body.CPU,
 	})
 	if err != nil {
 		s.writeProvisionError(w, r, err)

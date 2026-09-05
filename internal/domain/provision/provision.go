@@ -88,6 +88,10 @@ type Spec struct {
 	Bridge string `json:"bridge,omitempty"`
 	VLAN   int    `json:"vlan,omitempty"`
 
+	// CPU is the processor model a built template gets. Only a template build
+	// uses it: a clone inherits whatever its template was given.
+	CPU string `json:"cpu,omitempty"`
+
 	// DiskName and DiskGrowBytes are a pair: growing needs to know which disk.
 	// Zero growth skips the resize step entirely rather than sending a no-op
 	// the platform would reject.

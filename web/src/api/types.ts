@@ -761,6 +761,11 @@ export interface CatalogueImage {
    *  only .ova/.qcow2/.raw/.vmdk for an imported disk, and Ubuntu publishes a
    *  qcow2 file called .img. */
   filename: string
+  /** The processor model the guest has to be given, when the default will not
+   *  boot it. RHEL 10 and its rebuilds are compiled for x86-64-v3 and their
+   *  glibc aborts before init on anything less. Absent means the default is
+   *  fine. */
+  cpu?: string
   notes?: string
 }
 
@@ -779,6 +784,9 @@ export interface BuildTemplateBody {
   cores?: number
   memory_mb?: number
   bridge?: string
+  /** The processor model, for an image whose distribution needs more than the
+   *  conservative default. */
+  cpu?: string
 }
 
 /** One of your own folders (INV-17).

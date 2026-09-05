@@ -184,8 +184,19 @@ Admin-only, every one of them. The platform token can now create and destroy gue
 | DELETE `/vms/{id}` | admin | `{confirm_name}` must equal the guest's name, matched server-side → 202 `{request_id, state}`. Templates are refused with 409 `template_protected` |
 | GET `/provision-requests` | admin | Recent requests, newest first; `?platform_id=&limit=` |
 | GET `/provision-requests/{id}` | admin | One request: `{state, step, vmid, error, …}`. Poll this — provisioning is four platform operations and the guest does not exist when the 202 returns |
-| GET `/image-catalogue` | admin | The shipped cloud images → `[{id, name, url, checksum_url, checksum_algo, login_user}]`. No digests: a bundled one goes stale with the next point release, so the checksum *file* is linked instead |
-| POST `/platforms/{id}/templates` | admin | `{name, node, image_url, image_storage, disk_storage, checksum?, checksum_algo?, skip_checksum?, cores?, memory_mb?, bridge?}` → 202 `{request_id, state}`. A checksum and algorithm are required unless `skip_checksum` is true, which is audited (PROV-11) |
+| GET `/image-catalogue` | admin | The shipped cloud images → `[{id, name, url, checksum_url, checksum_algo, login_user, filename?, cpu?, notes?}]`. No digests: a bundled one goes stale with the next point release, so the checksum *file* is linked instead. `cpu` is present only where the default will not boot the image |
+| POST `/platforms/{id}/templates` | admin | `{name, node, image_url, image_storage, disk_storage, checksum?, checksum_algo?, skip_checksum?, cores?, memory_mb?, bridge?, cpu?}` → 202 `{request_id, state}`. A checksum and algorithm are required unless `skip_checksum` is true, which is audited (PROV-11) |
+
+**The processor model is part of the image, not of the portal.** Proxmox's API
+default is `kvm64`, the plain x86-64 baseline; the portal sends
+`x86-64-v2-AES` — Proxmox's own default for a new guest — unless told otherwise.
+RHEL 10 and everything rebuilt from it (AlmaLinux 10, Rocky 10) are compiled for
+**x86-64-v3** and their glibc aborts before `init` runs on anything less, which
+from outside looks exactly like a guest whose agent will not start: no address,
+no logs, nothing. The catalogue carries `cpu` for the images that need it and the
+build form sends it; `cpu` on the request covers everything else. It is not
+raised to v3 globally because v3 needs Haswell/Zen or newer and would break both
+older nodes and migration between unlike ones.
 
 States run `pending → cloning → configuring → resizing → starting → ready` for a creation, `pending → deleting → deleted` for a destruction, and `pending → downloading → creating → importing → converting → ready` for a template build; `failed` from any of them. A build whose image is already on the storage skips `downloading`. Resizing and starting are skipped when nothing was asked for. A failed request keeps its `vmid`: the partially created guest is left in place rather than cleaned up automatically (PROV-06).
 

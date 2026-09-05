@@ -471,6 +471,11 @@ func TestCreateGuestGivesACloudImageWhatItNeeds(t *testing.T) {
 		"vmid": "9000", "name": "debian-13-cloud", "ostype": "l26",
 		"scsihw": "virtio-scsi-single", "agent": "1",
 		"serial0": "socket", "vga": "serial0", "net0": "virtio,bridge=vmbr0",
+		// The API default is kvm64, which is the plain x86-64 baseline. A
+		// guest built for x86-64-v2 — AlmaLinux 10, RHEL 10 and everything
+		// derived from them — aborts in glibc before init runs and panics,
+		// which looks from the outside exactly like a guest with no agent.
+		"cpu": "x86-64-v2-AES",
 	} {
 		if got.form.Get(k) != want {
 			t.Errorf("%s = %q, want %q", k, got.form.Get(k), want)

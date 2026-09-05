@@ -39,7 +39,12 @@ type Image struct {
 	// is in fact qcow2 — so it is stored under the extension that describes
 	// what it is. Empty means the published name is already fine.
 	Filename string `json:"filename"`
-	Notes    string `json:"notes,omitempty"`
+	// CPU is the processor model the guest has to be given, when the default
+	// will not boot it. RHEL 10 and everything rebuilt from it — AlmaLinux 10,
+	// Rocky 10 — are compiled for x86-64-v3, and their glibc aborts before
+	// init runs on anything less. Empty means the default is fine.
+	CPU   string `json:"cpu,omitempty"`
+	Notes string `json:"notes,omitempty"`
 }
 
 // catalogue is the shipped list. Kept small on purpose: every entry is a claim
@@ -81,6 +86,8 @@ var catalogue = []Image{
 		ChecksumURL:  "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2.CHECKSUM",
 		ChecksumAlgo: "sha256",
 		LoginUser:    "rocky",
+		CPU:          "x86-64-v3",
+		Notes:        "needs an x86-64-v3 host: Haswell, Zen, or newer",
 	},
 	{
 		ID:           "alma-10",
@@ -89,6 +96,12 @@ var catalogue = []Image{
 		ChecksumURL:  "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/CHECKSUM",
 		ChecksumAlgo: "sha256",
 		LoginUser:    "almalinux",
+		// Found the hard way: with Proxmox's default CPU the guest prints
+		// "Fatal glibc error: CPU does not support x86-64-v3" and panics
+		// before init, which from outside is indistinguishable from a guest
+		// whose agent will not start.
+		CPU:   "x86-64-v3",
+		Notes: "needs an x86-64-v3 host: Haswell, Zen, or newer",
 	},
 }
 

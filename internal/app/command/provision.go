@@ -308,6 +308,11 @@ type BuildTemplateInput struct {
 	Cores        int
 	MemoryMB     int
 	Bridge       string
+	// CPU is the processor model to give the template, for an image whose
+	// distribution needs more than the conservative default. The catalogue
+	// carries it for the images the portal ships; anything else can say so
+	// here.
+	CPU string
 }
 
 // BuildTemplate creates the image everything else is cloned from.
@@ -397,6 +402,7 @@ func (h *BuildTemplate) Handle(ctx context.Context, in BuildTemplateInput) (Prov
 			Cores:        in.Cores,
 			MemoryMB:     in.MemoryMB,
 			Bridge:       in.Bridge,
+			CPU:          strings.TrimSpace(in.CPU),
 		},
 		Created: now,
 		Updated: now,

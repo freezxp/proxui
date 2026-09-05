@@ -116,6 +116,17 @@ func (c *Connector) CreateGuest(ctx context.Context, spec connector.GuestCreateS
 	form.Set("agent", "1")
 	form.Set("serial0", "socket")
 	form.Set("vga", "serial0")
+	// Proxmox's API default is kvm64, which advertises the plain x86-64
+	// baseline: no SSE4.2, no POPCNT. AlmaLinux 10 and RHEL 10 are built for
+	// x86-64-v2, so their glibc aborts before init has run — "Fatal glibc
+	// error: CPU does not support x86-64-v2", then a kernel panic, then a guest
+	// that boots to nothing and reports no address. Found by attaching to the
+	// serial console of a guest that was silently doing exactly that.
+	//
+	// x86-64-v2-AES rather than `host`: it is Proxmox's own default for a new
+	// guest, every x86 CPU since about 2013 provides it, and unlike `host` it
+	// survives a live migration to a different model of node.
+	form.Set("cpu", orString(spec.CPU, "x86-64-v2-AES"))
 	if spec.Bridge != "" {
 		form.Set("net0", "virtio,bridge="+spec.Bridge)
 	}
@@ -196,6 +207,13 @@ func (c *Connector) ConvertToTemplate(ctx context.Context, vm connector.VMRef) (
 		return connector.TaskRef{}, err
 	}
 	return connector.TaskRef{ID: upid, Node: vm.HostID}, nil
+}
+
+func orString(v, fallback string) string {
+	if strings.TrimSpace(v) != "" {
+		return v
+	}
+	return fallback
 }
 
 func orDefault(v, fallback int) int {

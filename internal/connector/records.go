@@ -264,12 +264,17 @@ type ImageDownloadSpec struct {
 
 // GuestCreateSpec is the shell of a guest, before it has a disk.
 type GuestCreateSpec struct {
-	Node        string
-	VMID        string
-	Name        string
-	Cores       int
-	MemoryMB    int
-	Bridge      string
+	Node     string
+	VMID     string
+	Name     string
+	Cores    int
+	MemoryMB int
+	Bridge   string
+	// CPU is the processor model to present to the guest. Empty leaves it to
+	// the connector's default, which has to be conservative because it is used
+	// for every image; an image whose distribution needs more than that says
+	// so, and this is how it says it.
+	CPU         string
 	Description string
 }
 

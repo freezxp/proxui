@@ -362,6 +362,7 @@ func (d *Driver) createTemplateShell(ctx context.Context, conn connector.Connect
 	task, err := b.CreateGuest(ctx, connector.GuestCreateSpec{
 		Node: req.TargetNode, VMID: req.VMID, Name: req.GuestName,
 		Cores: req.Spec.Cores, MemoryMB: req.Spec.MemoryMB, Bridge: req.Spec.Bridge,
+		CPU:         req.Spec.CPU,
 		Description: "Cloud-init template built by ProxUI from " + req.Spec.ImageURL,
 	})
 	if err != nil {

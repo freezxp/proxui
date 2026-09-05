@@ -72,6 +72,11 @@ export function BuildTemplateForm({
         image_storage: imageStorage.trim(),
         disk_storage: diskStorage.trim(),
         bridge: bridge.trim() || undefined,
+        // The catalogue knows which images need more than the default
+        // processor. Sending it here rather than deciding on the server keeps
+        // one answer for "what will this template be built with", and it is
+        // the answer shown beside the image.
+        cpu: chosen?.cpu || undefined,
         ...(skipChecksum
           ? { skip_checksum: true }
           : { checksum: checksum.trim(), checksum_algo: chosen?.checksum_algo ?? 'sha256' }),
@@ -155,6 +160,12 @@ export function BuildTemplateForm({
 
         {chosen && (
           <p className="-mt-2 text-xs text-muted">
+            {chosen.cpu && (
+              <span className="mb-1 block">
+                Built with a <span className="font-mono text-content">{chosen.cpu}</span> processor
+                — this image will not boot on less. {chosen.notes}
+              </span>
+            )}
             Logs in as <span className="font-mono text-content">{chosen.login_user}</span>. Use that
             as the login user when provisioning from this template.
           </p>

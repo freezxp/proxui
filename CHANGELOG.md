@@ -23,6 +23,15 @@
   audit entry naming who asked and which image, because this file becomes the
   ancestor of every guest cloned from it.
 
+  A guest that becomes a template now leaves the VM list as a conversion. For
+  the half-minute before it is converted it is a real guest, so a sync can file
+  it as one — and it would then have been reported **missing** for three cycles,
+  which is the word for a machine that vanished on its own. The synchronization
+  now asks the platform which guests are templates, so it can tell the two
+  apart: the row is closed out in a single run and the history says
+  `converted_to_template`. This also covers a template converted by hand
+  outside the portal, which produced the same misleading "missing" before.
+
   An image already on the storage is not fetched again, and template-building
   privileges are reported separately from provisioning ones: cloning from a
   template someone else built needs strictly less than building one. The four

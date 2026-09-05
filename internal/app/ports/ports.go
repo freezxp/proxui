@@ -361,6 +361,9 @@ type SweptAsset struct {
 	Name         string
 	SyncState    inventory.SyncState
 	MissingCount int
+	// Converted marks a guest that left the inventory by becoming a template
+	// rather than by going missing.
+	Converted bool
 }
 
 // VMSample is one row of VM telemetry ready for storage.

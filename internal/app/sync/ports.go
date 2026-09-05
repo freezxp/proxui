@@ -30,8 +30,12 @@ type AssetStore interface {
 		rec connector.StorageRecord, now time.Time) error
 	UpsertNetwork(ctx context.Context, tx ports.Querier, platformID uuid.UUID, hostID *uuid.UUID,
 		rec connector.NetworkRecord, now time.Time) error
+	// SweepMissingVMs advances the mark-and-sweep for VMs absent from a run.
+	// templates names those that are absent because they became templates,
+	// which is a conversion rather than a disappearance and is closed out at
+	// once rather than counted missing (ADR 0010).
 	SweepMissingVMs(ctx context.Context, tx ports.Querier, platformID uuid.UUID,
-		seen []string, now time.Time) ([]ports.SweptAsset, error)
+		seen, templates []string, now time.Time) ([]ports.SweptAsset, error)
 	RecordHistory(ctx context.Context, tx ports.Querier, assetType string, assetID, platformID uuid.UUID,
 		syncRunID int64, changes []inventory.FieldChange, now time.Time) error
 }

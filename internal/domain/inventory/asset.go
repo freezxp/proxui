@@ -21,6 +21,12 @@ const (
 	FieldCreated = "_created"
 	FieldDeleted = "_deleted"
 	FieldMissing = "_missing"
+	// FieldConverted marks a guest that left the inventory because it became a
+	// template. It is not FieldDeleted and it is certainly not FieldMissing:
+	// the machine did not vanish, it was deliberately turned into the thing
+	// other machines are cloned from, and an operator reading the trail needs
+	// to be able to tell those apart.
+	FieldConverted = "_converted_to_template"
 	// FieldRestored marks a VM the platform started reporting again after it
 	// had been swept away. It is distinct from _created: the row, its history,
 	// its portal tags and its notes all survived, and an operator reading the

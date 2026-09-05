@@ -67,6 +67,7 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 | PROV-10 | M | The portal ships a small catalogue of images with the URL, the distribution's checksum-file link and the default login user; any other URL can be entered by hand. No digests are bundled — a stale one is worse than none. |
 | PROV-11 | M | A build requires a checksum and its algorithm. Building without verification is possible, must be stated explicitly, and writes a `template.build.unverified` audit entry naming the requester and the image. |
 | PROV-12 | M | An image already present on the storage is not downloaded again. Template-building privileges are reported apart from provisioning ones, because cloning from a template needs strictly less than building one. |
+| PROV-13 | M | A guest that becomes a template leaves the VM inventory as a conversion, recorded as such, rather than being reported `missing` until the mark-and-sweep deletes it. A platform whose inventory includes templates keeps the row. |
 
 ## 3.4 Synchronization (SYNC) — summary; full design in [10-sync-engine.md](10-sync-engine.md)
 

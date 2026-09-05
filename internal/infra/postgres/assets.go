@@ -177,18 +177,31 @@ func diffVM(existing ports.StoredAsset, rec connector.VMRecord, hostID *uuid.UUI
 // enough. It returns the VMs whose state changed so the caller can record
 // history and emit events.
 func (r *AssetRepository) SweepMissingVMs(ctx context.Context, tx ports.Querier, platformID uuid.UUID,
-	seen []string, now time.Time) ([]ports.SweptAsset, error) {
+	seen, templates []string, now time.Time) ([]ports.SweptAsset, error) {
 
+	// A guest that became a template is absent from the listing for a reason
+	// the platform can state, so it is closed out at once rather than counted
+	// missing three times first. Deciding it here, in the same statement that
+	// does the counting, is what keeps it immune to timing: it does not matter
+	// whether the conversion happened before or after any particular run began
+	// (ADR 0010).
 	rows, err := tx.Query(ctx, `
 		UPDATE vms SET
-			missing_count = missing_count + 1,
-			sync_state    = CASE WHEN missing_count + 1 >= $3 THEN 'deleted'::sync_state ELSE 'missing'::sync_state END,
-			deleted_at    = CASE WHEN missing_count + 1 >= $3 THEN $4::timestamptz ELSE NULL END
+			missing_count = CASE WHEN external_id = ANY($5) THEN missing_count ELSE missing_count + 1 END,
+			sync_state    = CASE
+				WHEN external_id = ANY($5) THEN 'deleted'::sync_state
+				WHEN missing_count + 1 >= $3 THEN 'deleted'::sync_state
+				ELSE 'missing'::sync_state END,
+			deleted_at    = CASE
+				WHEN external_id = ANY($5) THEN $4::timestamptz
+				WHEN missing_count + 1 >= $3 THEN $4::timestamptz
+				ELSE NULL END
 		WHERE platform_id = $1
 		  AND sync_state <> 'deleted'
 		  AND NOT (external_id = ANY($2))
-		RETURNING id, external_id, name, sync_state::text, missing_count`,
-		platformID, seen, inventory.MissingThreshold, now)
+		RETURNING id, external_id, name, sync_state::text, missing_count,
+		          external_id = ANY($5) AS converted`,
+		platformID, seen, inventory.MissingThreshold, now, nonNilStrings(templates))
 	if err != nil {
 		return nil, fmt.Errorf("sweep missing vms: %w", err)
 	}
@@ -198,7 +211,7 @@ func (r *AssetRepository) SweepMissingVMs(ctx context.Context, tx ports.Querier,
 	for rows.Next() {
 		var a ports.SweptAsset
 		var state string
-		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &state, &a.MissingCount); err != nil {
+		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &state, &a.MissingCount, &a.Converted); err != nil {
 			return nil, fmt.Errorf("scan swept vm: %w", err)
 		}
 		a.SyncState = inventory.SyncState(state)

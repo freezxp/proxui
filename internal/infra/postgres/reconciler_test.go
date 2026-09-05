@@ -540,3 +540,98 @@ func TestCredentialsRoundTripThroughVault(t *testing.T) {
 		t.Fatal("the credential was stored in plaintext")
 	}
 }
+
+// A guest that becomes a template leaves the inventory as a conversion.
+//
+// It is a real guest for the half-minute between being created and being
+// converted, so a sync in that window files it as one. Left to the ordinary
+// sweep it would then be reported `missing` for three runs — the word for an
+// asset that vanished on its own, which is the opposite of what happened to it.
+//
+// Deciding this in the sweep rather than when a build finishes is what makes it
+// immune to timing: it does not matter whether the conversion happened before
+// or after any particular run began, and it works for a template somebody
+// converted by hand outside the portal (ADR 0010).
+func TestAGuestThatBecameATemplateIsClosedOutNotReportedMissing(t *testing.T) {
+	f := newSyncFixture(t, nil)
+	ctx := context.Background()
+
+	first := f.reconcile(t)
+	if first.Stats.VMs == 0 {
+		t.Fatal("nothing was synced to convert")
+	}
+
+	// Pick a guest and turn it into a template on the fake platform, exactly as
+	// a build does: it leaves ListVMs and appears in ListTemplates.
+	vms, err := f.conn.ListVMs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := vms[0]
+	if _, err := f.conn.ConvertToTemplate(ctx,
+		connector.VMRef{ExternalID: target.ExternalID, HostID: target.HostID, Type: "qemu"}); err != nil {
+		t.Fatalf("ConvertToTemplate: %v", err)
+	}
+
+	f.reconcile(t)
+
+	var state string
+	var missing int
+	var deletedAt *time.Time
+	if err := f.pool.QueryRow(ctx, `
+		SELECT sync_state::text, missing_count, deleted_at FROM vms
+		WHERE platform_id=$1 AND external_id=$2`,
+		f.platform.ID, target.ExternalID).Scan(&state, &missing, &deletedAt); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if state != "deleted" || deletedAt == nil {
+		t.Errorf("sync_state=%q deleted_at=%v after one run; want it closed out at once",
+			state, deletedAt)
+	}
+	if missing != 0 {
+		t.Errorf("missing_count = %d; a conversion is not a disappearance", missing)
+	}
+
+	// And the trail has to say which of the two it was.
+	var field string
+	if err := f.pool.QueryRow(ctx, `
+		SELECT h.field FROM asset_state_history h
+		JOIN vms v ON v.id = h.asset_id
+		WHERE v.external_id=$1 AND v.platform_id=$2
+		ORDER BY h.changed_at DESC LIMIT 1`,
+		target.ExternalID, f.platform.ID).Scan(&field); err != nil {
+		t.Fatalf("read history: %v", err)
+	}
+	if field != inventory.FieldConverted {
+		t.Errorf("history field = %q, want %q — an operator cannot otherwise tell a "+
+			"converted guest from one that went missing", field, inventory.FieldConverted)
+	}
+}
+
+// An ordinary guest that stops being listed is still missing, then deleted.
+// The conversion path must not have swallowed the behaviour it sits beside.
+func TestAGuestThatSimplyVanishesIsStillReportedMissing(t *testing.T) {
+	f := newSyncFixture(t, nil)
+	ctx := context.Background()
+	f.reconcile(t)
+
+	vms, err := f.conn.ListVMs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := vms[0].ExternalID
+	f.conn.RemoveVM(gone)
+
+	f.reconcile(t)
+
+	var state string
+	var missing int
+	if err := f.pool.QueryRow(ctx, `
+		SELECT sync_state::text, missing_count FROM vms WHERE platform_id=$1 AND external_id=$2`,
+		f.platform.ID, gone).Scan(&state, &missing); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if state != "missing" || missing != 1 {
+		t.Errorf("sync_state=%q missing_count=%d, want the ordinary mark-and-sweep", state, missing)
+	}
+}

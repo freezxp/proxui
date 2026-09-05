@@ -108,7 +108,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, platform *inventory.Platform
 		return Result{RunID: runID, Status: "failed"}, err
 	}
 
-	if err := r.reconcileVMs(ctx, tx, platform, snapshot.vms, hostIDs, runID, &stats, now); err != nil {
+	if err := r.reconcileVMs(ctx, tx, platform, snapshot.vms, snapshot.templates, hostIDs, runID, &stats, now); err != nil {
 		r.finish(ctx, runID, "failed", stats, err.Error(), now)
 		return Result{RunID: runID, Status: "failed"}, err
 	}
@@ -140,10 +140,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, platform *inventory.Platform
 }
 
 type snapshot struct {
-	hosts     []connector.HostRecord
-	vms       []connector.VMRecord
-	storage   []connector.StorageRecord
-	networks  []connector.NetworkRecord
+	hosts    []connector.HostRecord
+	vms      []connector.VMRecord
+	storage  []connector.StorageRecord
+	networks []connector.NetworkRecord
+	// templates are the external ids the platform now reports as templates,
+	// so the sweep can tell a guest that was converted from one that vanished.
+	templates []string
 	vmsFailed bool
 }
 
@@ -159,6 +162,22 @@ func (r *Reconciler) fetch(ctx context.Context, conn connector.Connector) (snaps
 		snap snapshot
 		errs []scopedError
 	)
+
+	// Templates are excluded from the VM listing on purpose, so a guest that
+	// became one looks exactly like a guest that vanished. Asking which ones
+	// they are is what lets the sweep tell those apart — including for a
+	// template somebody converted by hand, outside the portal entirely.
+	//
+	// A failure here is not worth failing a run over: without the list the
+	// sweep behaves as it always did, counting the guest missing, which is
+	// merely the old wording rather than a wrong outcome.
+	if c, ok := conn.(connector.Provisioner); ok {
+		if templates, err := c.ListTemplates(ctx); err == nil {
+			for _, t := range templates {
+				snap.templates = append(snap.templates, t.ExternalID)
+			}
+		}
+	}
 
 	if c, ok := conn.(connector.HostCollector); ok {
 		hosts, err := c.ListHosts(ctx)
@@ -222,7 +241,8 @@ func (r *Reconciler) reconcileHosts(ctx context.Context, tx Tx, platformID uuid.
 }
 
 func (r *Reconciler) reconcileVMs(ctx context.Context, tx Tx, platform *inventory.Platform,
-	vms []connector.VMRecord, hostIDs map[string]*uuid.UUID, runID int64, stats *Stats, now time.Time) error {
+	vms []connector.VMRecord, templates []string, hostIDs map[string]*uuid.UUID,
+	runID int64, stats *Stats, now time.Time) error {
 
 	index, err := r.Assets.LoadVMIndex(ctx, platform.ID)
 	if err != nil {
@@ -269,22 +289,34 @@ func (r *Reconciler) reconcileVMs(ctx context.Context, tx Tx, platform *inventor
 		}
 	}
 
-	swept, err := r.Assets.SweepMissingVMs(ctx, tx, platform.ID, seen, now)
+	swept, err := r.Assets.SweepMissingVMs(ctx, tx, platform.ID, seen, templates, now)
 	if err != nil {
 		return err
 	}
 	for _, asset := range swept {
 		field := inventory.FieldMissing
-		if asset.SyncState == inventory.SyncDeleted {
+		switch {
+		case asset.Converted:
+			// Not a disappearance and not a deletion an operator should be
+			// warned about: the guest is still there, as the thing other
+			// guests are cloned from.
+			field = inventory.FieldConverted
+			stats.Deleted++
+		case asset.SyncState == inventory.SyncDeleted:
 			field = inventory.FieldDeleted
 			stats.Deleted++
-		} else {
+		default:
 			stats.Missing++
 		}
 
 		changes := []inventory.FieldChange{{Field: field, Old: asset.Name}}
 		if err := r.Assets.RecordHistory(ctx, tx, "vm", asset.ID, platform.ID, runID, changes, now); err != nil {
 			return err
+		}
+		if asset.Converted {
+			// Nothing to notify: nobody needs telling that a template they
+			// just built is no longer listed as a guest.
+			continue
 		}
 		if asset.SyncState != inventory.SyncDeleted {
 			// A missing asset is an anomaly the UI shows, not yet news worth

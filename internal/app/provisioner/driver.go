@@ -361,6 +361,9 @@ func (d *Driver) finish(ctx context.Context, req *provision.Request, now time.Ti
 	// A template is not a guest: it belongs to no VM group, and it is excluded
 	// from the inventory by design, so there is nothing to wait for or file.
 	if req.Kind == provision.KindTemplate {
+		// Nothing to file and nothing to tidy: a guest that a sync caught
+		// mid-build is closed out by the sweep itself, which can tell a
+		// conversion from a disappearance whenever it happens (ADR 0010).
 		d.auditOutcome(ctx, req, ports.OutcomeSuccess, nil)
 		return nil
 	}

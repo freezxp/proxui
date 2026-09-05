@@ -308,3 +308,14 @@ func (c *Connector) NodeAddresses(ctx context.Context) (map[string]string, error
 	}
 	return out, nil
 }
+
+// AgentReady implements connector.GuestAgentProbe.
+//
+// Always ready. The mock exists so `make dev` has an estate to look at, and a
+// development guest that spent six minutes in `verifying` before every request
+// went green would teach the wrong thing about what that state means. The path
+// that matters — a guest whose agent never answers — is covered by the driver's
+// own tests, where the clock does not have to be waited on.
+func (c *Connector) AgentReady(context.Context, connector.VMRef) (bool, error) {
+	return true, nil
+}

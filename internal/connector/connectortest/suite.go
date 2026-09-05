@@ -77,6 +77,7 @@ func testCapabilities(t *testing.T, cfg Config) {
 		{connector.CapabilityDestroy, isDestroyer(c)},
 		{connector.CapabilityTemplateBuild, isTemplateBuilder(c)},
 		{connector.CapabilityNodePrerequisites, isPrerequisiteLister(c)},
+		{connector.CapabilityGuestAgent, isAgentProbe(c)},
 	}
 	for _, check := range checks {
 		declared := connector.Supports(c, check.capability)
@@ -343,6 +344,11 @@ func isTemplateBuilder(c connector.Connector) bool {
 
 func isPrerequisiteLister(c connector.Connector) bool {
 	_, ok := c.(connector.NodePrerequisiteLister)
+	return ok
+}
+
+func isAgentProbe(c connector.Connector) bool {
+	_, ok := c.(connector.GuestAgentProbe)
 	return ok
 }
 

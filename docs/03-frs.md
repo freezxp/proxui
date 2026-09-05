@@ -70,6 +70,7 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 | PROV-13 | M | A guest that becomes a template leaves the VM inventory as a conversion, recorded as such, rather than being reported `missing` until the mark-and-sweep deletes it. A platform whose inventory includes templates keeps the row. |
 | PROV-14 | M | A template's disk is prepared before it is sealed: qemu-guest-agent installed, and machine-id, SSH host keys and cloud-init state cleared so clones do not inherit one identity. Without the agent a guest reports no address, and an address is what the portal needs before it can offer SSH. |
 | PROV-15 | M | Preparation is never fatal. A node without `libguestfs-tools` still produces a working template; the request records that guests cloned from it will report no address, and says which node to install it on. |
+| PROV-16 | M | A guest the portal started is watched until its agent answers, and a guest that never answers within six minutes is recorded on the request rather than reported as a clean success. Never fatal: the guest exists and was created as asked. This is the only signal that separates "the machine came up" from "the platform accepted every call" — a guest that panics before init leaves every other step reporting success. |
 
 ## 3.3b Node prerequisites (NODE) — [ADR 0011](adr/0011-the-portal-can-install-what-it-needs-on-a-node.md)
 

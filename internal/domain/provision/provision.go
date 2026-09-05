@@ -39,7 +39,13 @@ const (
 	StateConfiguring State = "configuring"
 	StateResizing    State = "resizing"
 	StateStarting    State = "starting"
-	StateReady       State = "ready"
+	// StateVerifying waits for the guest's agent to answer after the portal
+	// started it. It is the difference between "the platform accepted every
+	// call" and "the machine came up": a guest that panics before init leaves
+	// every step reporting success, and the only evidence anything is wrong is
+	// an agent that never speaks (PROV-16).
+	StateVerifying State = "verifying"
+	StateReady     State = "ready"
 
 	// Destruction.
 	StateDeleting State = "deleting"
@@ -135,11 +141,16 @@ type Request struct {
 	VMID               string
 	VMGroupID          *uuid.UUID
 
-	Spec    Spec
-	TaskID  string
-	Error   string
-	Created time.Time
-	Updated time.Time
+	Spec   Spec
+	TaskID string
+	Error  string
+	// VerifyUntil is when the portal stops waiting for a started guest's agent
+	// and records that it never answered. Held on the request rather than
+	// inferred from a timestamp so that "how long is it still going to wait"
+	// is a fact the row states, not arithmetic somebody has to redo.
+	VerifyUntil time.Time
+	Created     time.Time
+	Updated     time.Time
 }
 
 // ErrTerminal reports an attempt to move a request that has already finished.
@@ -204,6 +215,8 @@ func (r *Request) NextState() State {
 		}
 		return StateReady
 	case StateStarting:
+		return StateVerifying
+	case StateVerifying:
 		return StateReady
 	default:
 		return StateFailed

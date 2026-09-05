@@ -39,6 +39,10 @@ const (
 	// CapabilityNodePrerequisites: the connector can say what its nodes need
 	// installed on them, and how (ADR 0011).
 	CapabilityNodePrerequisites Capability = "node_prerequisites"
+	// CapabilityGuestAgent: the connector can ask a guest's agent whether it is
+	// answering, which is how the portal tells "the machine came up" from "the
+	// platform accepted every call" (PROV-16).
+	CapabilityGuestAgent Capability = "guest_agent"
 )
 
 // Info identifies a connector implementation.
@@ -234,6 +238,22 @@ func (p NodePrerequisite) Installable() bool { return p.Install != "" }
 // implements nothing here reports nothing rather than guessing.
 type NodePrerequisiteLister interface {
 	NodePrerequisites() []NodePrerequisite
+}
+
+// GuestAgentProbe reports whether a guest's agent is answering.
+//
+// It exists because every other signal a platform offers says yes. A guest that
+// panics before init has a clone that succeeded, a configuration the platform
+// accepted, a start task that finished and a status of "running"; the only
+// thing that never happens is the agent speaking. Separate from the inventory's
+// address collection, which reads the same endpoint for a different reason —
+// there the absence is normal and worth no more than a note on a row, and here
+// it is the answer being waited for.
+type GuestAgentProbe interface {
+	// AgentReady reports whether the guest's agent answered. A false with a nil
+	// error is the ordinary case for a guest that is still booting, and is not
+	// a failure of the call.
+	AgentReady(ctx context.Context, vm VMRef) (bool, error)
 }
 
 // Provisioner creates guests from a platform's own templates.

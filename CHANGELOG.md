@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **A guest that never boots is no longer reported as a clean success**
+  (PROV-16). Provisioning gained a `verifying` step between `starting` and
+  `ready`: once the portal has started a guest it waits, up to six minutes, for
+  the guest's agent to answer.
+
+  That answer is the only signal separating *the machine came up* from *the
+  platform accepted every call*. An AlmaLinux 10 template built for a processor
+  the guest was not given panicked before `init`, and behind that panic the
+  clone had succeeded, the configuration had been accepted, the start task had
+  finished and the platform reported the guest as running. The request said
+  `ready`. Nothing anywhere said the machine was dead.
+
+  A guest that never answers still reaches `ready` — it exists, and was created
+  exactly as asked; the portal is in no position to call a quiet machine a
+  failed one — but the request now carries the note, naming the three things
+  that cause it, including the one that cost an afternoon. The deadline lives on
+  the row, so a portal restarted mid-wait resumes the same wait rather than
+  starting a new one.
+
+  While it waits, the status panel says so in words rather than showing a state
+  name. And a note on a finished request stopped being red: a template built
+  without a guest agent and a guest that never answered are both worth reading
+  and neither is a failure.
+
 - **An AlmaLinux template produced guests that never booted**, and the symptom
   was a guest reporting no address — which reads as "the agent is not
   configured" and sent me looking at the agent for an hour.

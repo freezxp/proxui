@@ -303,3 +303,25 @@ func (c *Connector) Destroy(ctx context.Context, vm connector.VMRef, opts connec
 	}
 	return connector.TaskRef{ID: upid, Node: vm.HostID}, nil
 }
+
+// AgentReady implements connector.GuestAgentProbe.
+//
+// The same endpoint the inventory reads for addresses, asked as a question
+// rather than for its answer: it is the cheapest call that only succeeds once
+// the agent inside the guest is running, and it needs no privilege the portal
+// does not already require. Any failure means "not yet" — a guest that is still
+// booting, one with no agent installed, and one that is not booting at all are
+// indistinguishable here, and telling them apart is the operator's job with the
+// note the portal writes.
+func (c *Connector) AgentReady(ctx context.Context, vm connector.VMRef) (bool, error) {
+	if vm.HostID == "" || vm.ExternalID == "" {
+		return false, connector.Errorf(connector.ErrInvalidConfig, "agent_ready",
+			"asking a guest's agent needs a node and an identifier")
+	}
+	var ifaces agentInterfaces
+	path := fmt.Sprintf("/nodes/%s/qemu/%s/agent/network-get-interfaces", vm.HostID, vm.ExternalID)
+	if err := c.client.get(ctx, path, &ifaces); err != nil {
+		return false, nil
+	}
+	return true, nil
+}

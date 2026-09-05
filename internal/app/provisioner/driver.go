@@ -193,6 +193,9 @@ func (d *Driver) begin(ctx context.Context, conn connector.Connector, req *provi
 		req.TaskID = task.ID
 		return true, nil
 
+	case provision.StateVerifying:
+		return false, d.verify(ctx, conn, req, now)
+
 	case provision.StateDeleting:
 		dz, ok := conn.(connector.Destroyer)
 		if !ok {
@@ -369,6 +372,65 @@ func (d *Driver) createTemplateShell(ctx context.Context, conn connector.Connect
 		return err
 	}
 	req.TaskID = task.ID
+	return nil
+}
+
+// verifyWindow is how long a started guest is given to answer from its agent.
+//
+// Long enough for a first boot that runs cloud-init, grows a filesystem and —
+// on a RHEL-family image the portal has just written a package into — relabels
+// itself for SELinux and reboots, which is the slowest honest case at about two
+// minutes. Short enough that nobody watching has gone away.
+const verifyWindow = 6 * time.Minute
+
+// verify waits for the guest the portal has just started to answer from its
+// agent, and records it when that never happens (PROV-16).
+//
+// This exists because every other signal says yes. The clone succeeded, the
+// configuration was accepted, the start task finished and the platform reports
+// the guest as running — and an AlmaLinux 10 template built for a processor the
+// guest was not given panics before init behind all of that. Nothing above the
+// serial console could see it, and the request said `ready`.
+//
+// It is never fatal, and deliberately so. The guest exists, it was created
+// exactly as asked, and the portal is in no position to decide that a machine
+// which has not spoken in six minutes is a machine that failed. What it can do
+// is stop reporting success in a way that hides the question.
+func (d *Driver) verify(ctx context.Context, conn connector.Connector, req *provision.Request, now time.Time) error {
+	probe, ok := conn.(connector.GuestAgentProbe)
+	if !ok {
+		return nil
+	}
+
+	// First turn through: the deadline is set and saved, so the row says how
+	// long it will keep asking rather than leaving that to be worked out.
+	if req.VerifyUntil.IsZero() {
+		req.VerifyUntil = now.Add(verifyWindow)
+		if err := d.Requests.SaveRequest(ctx, req); err != nil {
+			return err
+		}
+	}
+
+	ready, err := probe.AgentReady(ctx, d.guestRef(req))
+	if err != nil {
+		// The platform itself is unhappy, which is a different thing from the
+		// guest being quiet, and worth retrying rather than concluding on.
+		return err
+	}
+	if ready {
+		return nil
+	}
+	if now.Before(req.VerifyUntil) {
+		return ErrStillRunning
+	}
+
+	d.Log.Warn().Str("request", req.ID.String()).Str("vmid", req.VMID).
+		Msg("a provisioned guest never reported a guest agent")
+	req.Error = "the guest was created and started, but has not reported a guest agent in " +
+		verifyWindow.String() + ". Three things do this: the image has no qemu-guest-agent " +
+		"installed; the guest has no network, so cloud-init never finished; or the guest is " +
+		"not booting at all — an image built for a newer processor than the guest was given " +
+		"panics before init and looks exactly like this from here. Open the console to see which."
 	return nil
 }
 

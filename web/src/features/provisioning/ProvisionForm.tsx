@@ -372,10 +372,14 @@ export function ProvisionStatus({ requestID }: { requestID: string }) {
   const request = useQuery({
     queryKey: ['provision-request', requestID],
     queryFn: () => api.get<ProvisionRequest>(`/provision-requests/${requestID}`),
-    // Stops polling once there is nothing left to happen.
+    // Stops polling once there is nothing left to happen. Waiting for a guest
+    // to answer is minutes rather than seconds, so it is asked about less
+    // often — a first boot does not become quicker for being watched.
     refetchInterval: (query) => {
       const state = query.state.data?.state
-      return state && ['ready', 'deleted', 'failed'].includes(state) ? false : 3000
+      if (!state) return 3000
+      if (['ready', 'deleted', 'failed'].includes(state)) return false
+      return state === 'verifying' ? 10000 : 3000
     },
   })
 
@@ -390,13 +394,24 @@ export function ProvisionStatus({ requestID }: { requestID: string }) {
         <span
           className={data.state === 'failed' ? 'text-danger' : done ? 'text-running' : 'text-muted'}
         >
-          {data.state}
+          {data.state === 'verifying' ? 'waiting for the guest' : data.state}
         </span>
       </div>
       {data.vmid && <p className="mt-1 font-mono text-xs text-muted">VMID {data.vmid}</p>}
+      {data.state === 'verifying' && (
+        <p className="mt-1 text-xs text-muted">
+          The guest is up on the platform. This waits for its agent, which is what proves it
+          actually booted rather than that the platform accepted every call.
+        </p>
+      )}
       {data.error && (
-        <p className="mt-2 text-xs text-danger">
-          {data.step && <span className="font-medium">{data.step}: </span>}
+        // A finished request can carry a note rather than a failure: a template
+        // built without a guest agent, or a guest that never answered. Both are
+        // worth reading and neither is red.
+        <p className={`mt-2 text-xs ${data.state === 'failed' ? 'text-danger' : 'text-paused'}`}>
+          {data.step && data.state === 'failed' && (
+            <span className="font-medium">{data.step}: </span>
+          )}
           {data.error}
         </p>
       )}

@@ -40,7 +40,11 @@ func walk(t *testing.T, r *Request) []State {
 func TestFullProvisioningRunVisitsEveryStepInOrder(t *testing.T) {
 	r := provisionRequest(Spec{DiskGrowBytes: 20 << 30, DiskName: "scsi0", StartAfterCreate: true})
 
-	want := []State{StatePending, StateCloning, StateConfiguring, StateResizing, StateStarting, StateReady}
+	// Verifying sits between starting and ready because "the platform accepted
+	// every call" and "the machine came up" are different claims, and only the
+	// second is what `ready` was being read as (PROV-16).
+	want := []State{StatePending, StateCloning, StateConfiguring, StateResizing,
+		StateStarting, StateVerifying, StateReady}
 	got := walk(t, r)
 
 	if len(got) != len(want) {

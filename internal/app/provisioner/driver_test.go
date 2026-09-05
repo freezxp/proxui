@@ -157,10 +157,16 @@ func (f fixedClock) Now() time.Time { return f.t }
 // real platform does not forget the guest it just made when the portal
 // reconnects. The mock keeps its fleet per instance, so each step would
 // otherwise see a fresh, empty cluster.
-type persistentPlatform struct{ conn *mock.Connector }
+type persistentPlatform struct {
+	conn *mock.Connector
+	// agentReady overrides what the guest's agent says, for the case the mock
+	// cannot produce: a guest that was created and started and then never
+	// spoke.
+	agentReady func() bool
+}
 
 func (p persistentPlatform) Connect(context.Context, *inventory.Platform) (connector.Connector, error) {
-	return sharedFleet{p.conn}, nil
+	return sharedFleet{c: p.conn, agentReady: p.agentReady}, nil
 }
 
 // sharedFleet is the mock with a Close that does not end it, and with the
@@ -171,7 +177,10 @@ func (p persistentPlatform) Connect(context.Context, *inventory.Platform) (conne
 // Provisioner, Destroyer, PowerManager, TaskWatcher — are not part of the base
 // interface, so every one of them would silently come back "not supported".
 // Forwarding them by hand is what keeps the wrapper honest.
-type sharedFleet struct{ c *mock.Connector }
+type sharedFleet struct {
+	c          *mock.Connector
+	agentReady func() bool
+}
 
 func (s sharedFleet) Info() connector.Info                      { return s.c.Info() }
 func (s sharedFleet) ValidateConfig(cfg connector.Config) error { return s.c.ValidateConfig(cfg) }
@@ -223,6 +232,12 @@ func (s sharedFleet) ConvertToTemplate(ctx context.Context, vm connector.VMRef) 
 func (s sharedFleet) NodeAddresses(ctx context.Context) (map[string]string, error) {
 	return s.c.NodeAddresses(ctx)
 }
+func (s sharedFleet) AgentReady(ctx context.Context, vm connector.VMRef) (bool, error) {
+	if s.agentReady != nil {
+		return s.agentReady(), nil
+	}
+	return s.c.AgentReady(ctx, vm)
+}
 
 func newDriver(t *testing.T, requests *memRequests, acc *memAccess, q *nopQueue, audit *nopAudit) *Driver {
 	t.Helper()
@@ -249,6 +264,12 @@ func newDriver(t *testing.T, requests *memRequests, acc *memAccess, q *nopQueue,
 		Log:       zerolog.Nop(),
 	}
 }
+
+// movingClock is a clock a test can wind forward, for the one behaviour that is
+// about elapsed time rather than about a sequence of calls.
+type movingClock struct{ at *time.Time }
+
+func (m movingClock) Now() time.Time { return *m.at }
 
 // run turns the driver until the request settles, the way the job layer does.
 func run(t *testing.T, d *Driver, id uuid.UUID) *provision.Request {
@@ -748,5 +769,129 @@ func TestTemplateBuildWithoutAPreparerIsUnchanged(t *testing.T) {
 	done := run(t, d, req.ID)
 	if done.State != provision.StateReady || done.Error != "" {
 		t.Errorf("state = %s, error = %q; want an ordinary build", done.State, done.Error)
+	}
+}
+
+// A guest that was created and started and then never spoke used to finish as
+// `ready` with nothing recorded — which is how an AlmaLinux 10 template built
+// for a processor the guest was not given panicked before init behind four
+// steps that all reported success (PROV-16).
+func TestAGuestThatNeverAnswersIsRecordedRatherThanCalledReady(t *testing.T) {
+	requests := newMemRequests()
+	acc := &memAccess{members: map[uuid.UUID][]uuid.UUID{}}
+	d := newDriver(t, requests, acc, &nopQueue{}, &nopAudit{})
+
+	at := time.Now()
+	d.Clock = movingClock{&at}
+	fleet := d.Platform.(persistentPlatform)
+	fleet.agentReady = func() bool { return false }
+	d.Platform = fleet
+
+	platform, _ := d.Platforms.Get(context.Background(), uuid.Nil)
+	req := provisionRequest(platform.ID, nil)
+	if err := requests.CreateRequest(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Up to the point the guest is started, then waiting on an agent that will
+	// never answer.
+	for i := 0; i < 20; i++ {
+		if err := d.Step(context.Background(), req.ID); !errors.Is(err, ErrStillRunning) {
+			if err != nil {
+				t.Fatalf("step: %v", err)
+			}
+			continue
+		}
+		break
+	}
+	waiting, err := requests.GetRequest(context.Background(), req.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waiting.State != provision.StateVerifying {
+		t.Fatalf("state = %s (step %s), want verifying", waiting.State, waiting.Step)
+	}
+	// The deadline is on the row, so a restart resumes the same wait rather
+	// than beginning a new one.
+	if waiting.VerifyUntil.IsZero() {
+		t.Fatal("nothing on the request says how long it will keep asking")
+	}
+	deadline := waiting.VerifyUntil
+
+	// Still inside the window: nothing has been concluded.
+	at = at.Add(time.Minute)
+	if err := d.Step(context.Background(), req.ID); !errors.Is(err, ErrStillRunning) {
+		t.Fatalf("step inside the window = %v, want ErrStillRunning", err)
+	}
+	again, _ := requests.GetRequest(context.Background(), req.ID)
+	if !again.VerifyUntil.Equal(deadline) {
+		t.Errorf("the deadline moved from %s to %s; waiting would never end",
+			deadline, again.VerifyUntil)
+	}
+
+	at = at.Add(verifyWindow)
+	done := run(t, d, req.ID)
+
+	// Not a failure. The guest exists and was made exactly as asked; the
+	// portal is in no position to call a quiet machine a broken one.
+	if done.State != provision.StateReady {
+		t.Fatalf("state = %s, want ready — a quiet guest is not a failed request", done.State)
+	}
+	if done.VMID == "" {
+		t.Error("the request no longer names the guest it created")
+	}
+	for _, want := range []string{"has not reported a guest agent", "newer processor", "console"} {
+		if !strings.Contains(done.Error, want) {
+			t.Errorf("the note does not mention %q:\n%s", want, done.Error)
+		}
+	}
+}
+
+// The ordinary case: the agent answers and the request finishes clean, with no
+// note for anybody to have to dismiss.
+func TestAGuestThatAnswersFinishesWithoutANote(t *testing.T) {
+	requests := newMemRequests()
+	acc := &memAccess{members: map[uuid.UUID][]uuid.UUID{}}
+	d := newDriver(t, requests, acc, &nopQueue{}, &nopAudit{})
+
+	platform, _ := d.Platforms.Get(context.Background(), uuid.Nil)
+	req := provisionRequest(platform.ID, nil)
+	if err := requests.CreateRequest(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	done := run(t, d, req.ID)
+	if done.State != provision.StateReady {
+		t.Fatalf("state = %s (step %s, error %q), want ready", done.State, done.Step, done.Error)
+	}
+	if done.Error != "" {
+		t.Errorf("a guest whose agent answered carries a note: %q", done.Error)
+	}
+}
+
+// A guest nobody asked to start is never waited on: there is no agent coming,
+// and six minutes of "verifying" would be a lie about what is happening.
+func TestAGuestThatWasNotStartedIsNotWaitedFor(t *testing.T) {
+	requests := newMemRequests()
+	acc := &memAccess{members: map[uuid.UUID][]uuid.UUID{}}
+	d := newDriver(t, requests, acc, &nopQueue{}, &nopAudit{})
+	fleet := d.Platform.(persistentPlatform)
+	fleet.agentReady = func() bool { return false }
+	d.Platform = fleet
+
+	platform, _ := d.Platforms.Get(context.Background(), uuid.Nil)
+	req := provisionRequest(platform.ID, nil)
+	req.Spec.StartAfterCreate = false
+	if err := requests.CreateRequest(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	done := run(t, d, req.ID)
+	if done.State != provision.StateReady {
+		t.Fatalf("state = %s, want ready", done.State)
+	}
+	if !done.VerifyUntil.IsZero() || done.Error != "" {
+		t.Errorf("a guest that was never started was waited on anyway: until=%s note=%q",
+			done.VerifyUntil, done.Error)
 	}
 }

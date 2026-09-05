@@ -698,16 +698,25 @@ export interface Template {
 export interface ProvisionRequest {
   id: string
   platform_id: string
-  kind: 'provision' | 'destroy'
+  kind: 'provision' | 'destroy' | 'template'
   state:
     | 'pending'
     | 'cloning'
     | 'configuring'
     | 'resizing'
     | 'starting'
+    /** Started, and waiting for the guest's agent — the one signal that says
+     *  the machine came up rather than that the platform accepted every call. */
+    | 'verifying'
     | 'ready'
     | 'deleting'
     | 'deleted'
+    /** Template building. */
+    | 'downloading'
+    | 'creating'
+    | 'importing'
+    | 'preparing'
+    | 'converting'
     | 'failed'
   step?: string
   guest_name: string

@@ -198,7 +198,16 @@ build form sends it; `cpu` on the request covers everything else. It is not
 raised to v3 globally because v3 needs Haswell/Zen or newer and would break both
 older nodes and migration between unlike ones.
 
-States run `pending → cloning → configuring → resizing → starting → ready` for a creation, `pending → deleting → deleted` for a destruction, and `pending → downloading → creating → importing → converting → ready` for a template build; `failed` from any of them. A build whose image is already on the storage skips `downloading`. Resizing and starting are skipped when nothing was asked for. A failed request keeps its `vmid`: the partially created guest is left in place rather than cleaned up automatically (PROV-06).
+States run `pending → cloning → configuring → resizing → starting → verifying → ready` for a creation, `pending → deleting → deleted` for a destruction, and `pending → downloading → creating → importing → converting → ready` for a template build; `failed` from any of them. A build whose image is already on the storage skips `downloading`. Resizing and starting are skipped when nothing was asked for. A failed request keeps its `vmid`: the partially created guest is left in place rather than cleaned up automatically (PROV-06).
+
+`verifying` is entered only when the guest was started, and waits up to six
+minutes for its agent to answer (PROV-16). It is the one signal that separates
+*the machine came up* from *the platform accepted every call*: a guest that
+panics before `init` has a clone that succeeded, a configuration that was
+accepted, a start task that finished and a status of "running". A guest that
+never answers still reaches `ready` — it exists and was created as asked — and
+carries the reason in `error`, which on a non-`failed` request is a note rather
+than a fault. `verify_until` says when the portal will stop asking.
 
 A platform whose token lacks the provisioning privileges answers 409 `platform.not_capable`, which is a configuration an administrator chose rather than a fault. `POST /platforms/test` reports the same thing in advance as `provisioning_available` plus the names of anything missing.
 

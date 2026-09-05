@@ -273,6 +273,7 @@ func (c *Connector) Capabilities() []connector.Capability {
 		connector.CapabilityDestroy,
 		connector.CapabilityTemplateBuild,
 		connector.CapabilityNodeAddress,
+		connector.CapabilityGuestAgent,
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,7 +22,7 @@ func NewProvisionRepository(db *Pool) *ProvisionRepository { return &ProvisionRe
 
 const provisionColumns = `id, platform_id, kind, state, step, requested_by, requested_by_name,
 	template_external_id, target_node, guest_name, vmid, vm_group_id,
-	spec, task_id, error, created_at, updated_at`
+	spec, task_id, error, verify_until, created_at, updated_at`
 
 // CreateRequest stores a new request in its pending state.
 func (r *ProvisionRepository) CreateRequest(ctx context.Context, req *provision.Request) error {
@@ -31,11 +32,11 @@ func (r *ProvisionRepository) CreateRequest(ctx context.Context, req *provision.
 	}
 	_, err = r.db.Exec(ctx, `
 		INSERT INTO provision_requests (`+provisionColumns+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 		req.ID, req.PlatformID, string(req.Kind), string(req.State), req.Step,
 		req.RequestedBy, req.RequestedByName,
 		req.TemplateExternalID, req.TargetNode, req.GuestName, req.VMID, req.VMGroupID,
-		spec, req.TaskID, req.Error, req.Created, req.Updated)
+		spec, req.TaskID, req.Error, nullTime(req.VerifyUntil), req.Created, req.Updated)
 	if err != nil {
 		return fmt.Errorf("create provision request: %w", err)
 	}
@@ -55,10 +56,10 @@ func (r *ProvisionRepository) SaveRequest(ctx context.Context, req *provision.Re
 	tag, err := r.db.Exec(ctx, `
 		UPDATE provision_requests
 		SET state=$2, step=$3, vmid=$4, task_id=$5, error=$6, spec=$7,
-		    vm_group_id=$8, target_node=$9, updated_at=now()
+		    vm_group_id=$8, target_node=$9, verify_until=$10, updated_at=now()
 		WHERE id=$1`,
 		req.ID, string(req.State), req.Step, req.VMID, req.TaskID, req.Error, spec,
-		req.VMGroupID, req.TargetNode)
+		req.VMGroupID, req.TargetNode, nullTime(req.VerifyUntil))
 	if err != nil {
 		return fmt.Errorf("save provision request: %w", err)
 	}
@@ -138,12 +139,16 @@ func scanProvisionRequest(s scanner) (*provision.Request, error) {
 		actor    *uuid.UUID
 		vmGroup  *uuid.UUID
 		platform uuid.UUID
+		verify   *time.Time
 	)
 	if err := s.Scan(&req.ID, &platform, &kind, &state, &req.Step, &actor, &req.RequestedByName,
 		&req.TemplateExternalID, &req.TargetNode, &req.GuestName, &req.VMID, &vmGroup,
-		&spec, &req.TaskID, &req.Error, &req.Created, &req.Updated); err != nil {
+		&spec, &req.TaskID, &req.Error, &verify, &req.Created, &req.Updated); err != nil {
 		return nil, err
 	}
+	// NULL is the normal case: a build, a destruction and a guest nobody asked
+	// to start never wait for an agent.
+	req.VerifyUntil = derefTime(verify)
 	req.PlatformID = platform
 	req.Kind = provision.Kind(kind)
 	req.State = provision.State(state)

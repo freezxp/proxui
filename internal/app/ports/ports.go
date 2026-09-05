@@ -479,10 +479,12 @@ type VMFilter struct {
 	// they have filed nowhere. Personal to the caller in both cases.
 	FolderID uuid.UUID
 	Unfiled  bool
-	Tag      string
-	Sort     string
-	Limit    int
-	Offset   int
+	// FavouritesOnly narrows to what the caller has starred.
+	FavouritesOnly bool
+	Tag            string
+	Sort           string
+	Limit          int
+	Offset         int
 }
 
 // VMListItem is a row in the inventory table.

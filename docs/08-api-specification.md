@@ -86,7 +86,7 @@ Any authenticated role. These are private lists, not permissions: what a caller 
 | PATCH/DELETE `/folders/{id}` | any | Rename or reorder; deleting frees its VMs rather than removing them |
 | PUT `/folders/{id}/vms` | any | `{vm_ids}` — file several at once, all or none |
 
-`/vms` gains `folder_id=` and `folder=unfiled`, and `sort=folder` groups by folder with unfiled last. A VM or folder that is not the caller's is 404 rather than 403: saying it exists is itself a disclosure (RBAC-05).
+`/vms` gains `folder_id=`, `folder=unfiled` and `favourite=1`, and `sort=folder` groups by folder with unfiled last. The Folders view is built entirely from these plus `GET /folders`: selecting a node sets one of the filters, so the contents pane is the ordinary list with an ordinary filter applied. A VM or folder that is not the caller's is 404 rather than 403: saying it exists is itself a disclosure (RBAC-05).
 
 ## 8.4 Console
 

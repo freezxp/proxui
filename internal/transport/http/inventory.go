@@ -55,6 +55,7 @@ func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 	// encoding it as one would mean inventing a sentinel UUID.
 	filter.FolderID = parseUUIDParam(q.Get("folder_id"))
 	filter.Unfiled = q.Get("folder") == "unfiled"
+	filter.FavouritesOnly = q.Get("favourite") == "1"
 
 	page := atoiDefault(q.Get("page"), 1)
 	if page < 1 {

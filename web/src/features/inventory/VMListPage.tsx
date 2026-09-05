@@ -8,6 +8,7 @@ import { bytes, percent, relativeTime, absoluteTime, uptime } from '@/lib/format
 import { useLiveInventory } from './useLiveInventory'
 import { FavouriteStar } from './FavouriteStar'
 import { FolderPicker, useFolders } from './FolderPicker'
+import { FolderSidebar, type FolderSelection } from './FolderSidebar'
 
 const PER_PAGE = 50
 
@@ -24,6 +25,27 @@ export function VMListPage() {
   const platform = params.get('platform_id') ?? ''
   const sort = params.get('sort') ?? 'name'
   const folder = params.get('folder_id') ?? ''
+  const favourite = params.get('favourite') === '1'
+  const view = params.get('view') === 'folders' ? 'folders' : 'list'
+
+  // The selection is derived from the same URL parameters the table filters on,
+  // rather than held beside them: one source of truth means a folder someone is
+  // looking at can be bookmarked and shared, which is what the page already
+  // promises about every other filter.
+  const selection: FolderSelection = favourite
+    ? { kind: 'favourites' }
+    : folder === 'unfiled'
+      ? { kind: 'unfiled' }
+      : folder
+        ? { kind: 'folder', id: folder }
+        : { kind: 'all' }
+
+  function select(next: FolderSelection) {
+    update({
+      folder_id: next.kind === 'folder' ? next.id : next.kind === 'unfiled' ? 'unfiled' : '',
+      favourite: next.kind === 'favourites' ? '1' : '',
+    })
+  }
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1)
 
   function update(changes: Record<string, string>) {
@@ -49,6 +71,7 @@ export function VMListPage() {
   if (state) search.set('state', state)
   if (platform) search.set('platform_id', platform)
   if (folder) search.set(folder === 'unfiled' ? 'folder' : 'folder_id', folder)
+  if (favourite) search.set('favourite', '1')
 
   const folders = useFolders()
 
@@ -119,7 +142,25 @@ export function VMListPage() {
           <option value="unfiled">Unfiled</option>
         </select>
 
-        {(query || state || platform || folder) && (
+        {/* Two ways of looking at the same list. A tree is the wrong shape for
+            searching — you want matches, not a hierarchy — so the flat list
+            stays the default and stays good at what it is good at. */}
+        <div className="flex rounded-md border border-border text-sm">
+          {(['list', 'folders'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => update({ view: mode === 'list' ? '' : mode })}
+              aria-pressed={view === mode}
+              className={`px-3 py-2 first:rounded-l-md last:rounded-r-md ${
+                view === mode ? 'bg-accent/10 text-accent' : 'hover:bg-surface-raised'
+              }`}
+            >
+              {mode === 'list' ? 'List' : 'Folders'}
+            </button>
+          ))}
+        </div>
+
+        {(query || state || platform || folder || favourite) && (
           <button
             onClick={() => setParams(new URLSearchParams(), { replace: true })}
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-raised"
@@ -129,127 +170,142 @@ export function VMListPage() {
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border bg-surface-raised">
-        <table className="w-full min-w-[52rem] text-sm">
-          <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
-            <tr>
-              <th className="w-8 px-2 py-2" aria-label="Favourite" />
-              <SortableHeader
-                label="Name"
-                field="name"
-                sort={sort}
-                onSort={(s) => update({ sort: s })}
-              />
-              <SortableHeader
-                label="State"
-                field="state"
-                sort={sort}
-                onSort={(s) => update({ sort: s })}
-              />
-              <th className="px-4 py-2 font-medium">Node</th>
-              <SortableHeader
-                label="vCPU"
-                field="cpu"
-                sort={sort}
-                onSort={(s) => update({ sort: s })}
-                align="right"
-              />
-              <SortableHeader
-                label="Memory"
-                field="memory"
-                sort={sort}
-                onSort={(s) => update({ sort: s })}
-                align="right"
-              />
-              <th className="px-4 py-2 text-right font-medium">CPU</th>
-              <th className="px-4 py-2 text-right font-medium">Mem</th>
-              <SortableHeader
-                label="Uptime"
-                field="uptime"
-                sort={sort}
-                onSort={(s) => update({ sort: s })}
-                align="right"
-              />
-              <th className="px-4 py-2 font-medium">Addresses</th>
-              <SortableHeader
-                label="Folder"
-                field="folder"
-                sort={sort}
-                onSort={(s) => update({ sort: s })}
-              />
-            </tr>
-          </thead>
-          <tbody>
-            {vms.isLoading && (
+      {/* Two panes side by side on a wide screen; stacked on a narrow one, so
+          the folder list does not eat half a phone. */}
+      <div className={view === 'folders' ? 'flex flex-col gap-4 md:flex-row' : ''}>
+        {view === 'folders' && (
+          <aside className="shrink-0 rounded-lg border border-border bg-surface-raised p-2 md:w-56">
+            <FolderSidebar
+              selection={selection}
+              onSelect={select}
+              totalVMs={selection.kind === 'all' ? total : undefined}
+              favouriteCount={selection.kind === 'favourites' ? total : undefined}
+            />
+          </aside>
+        )}
+
+        <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-border bg-surface-raised">
+          <table className="w-full min-w-[52rem] text-sm">
+            <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
               <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-muted">
-                  Loading…
-                </td>
+                <th className="w-8 px-2 py-2" aria-label="Favourite" />
+                <SortableHeader
+                  label="Name"
+                  field="name"
+                  sort={sort}
+                  onSort={(s) => update({ sort: s })}
+                />
+                <SortableHeader
+                  label="State"
+                  field="state"
+                  sort={sort}
+                  onSort={(s) => update({ sort: s })}
+                />
+                <th className="px-4 py-2 font-medium">Node</th>
+                <SortableHeader
+                  label="vCPU"
+                  field="cpu"
+                  sort={sort}
+                  onSort={(s) => update({ sort: s })}
+                  align="right"
+                />
+                <SortableHeader
+                  label="Memory"
+                  field="memory"
+                  sort={sort}
+                  onSort={(s) => update({ sort: s })}
+                  align="right"
+                />
+                <th className="px-4 py-2 text-right font-medium">CPU</th>
+                <th className="px-4 py-2 text-right font-medium">Mem</th>
+                <SortableHeader
+                  label="Uptime"
+                  field="uptime"
+                  sort={sort}
+                  onSort={(s) => update({ sort: s })}
+                  align="right"
+                />
+                <th className="px-4 py-2 font-medium">Addresses</th>
+                <SortableHeader
+                  label="Folder"
+                  field="folder"
+                  sort={sort}
+                  onSort={(s) => update({ sort: s })}
+                />
               </tr>
-            )}
-            {vms.isError && (
-              <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-danger">
-                  Could not load the inventory.
-                </td>
-              </tr>
-            )}
-            {vms.data?.data.length === 0 && (
-              <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-muted">
-                  {query || state || platform || folder
-                    ? 'No virtual machines match these filters.'
-                    : 'No virtual machines are visible to your account.'}
-                </td>
-              </tr>
-            )}
-            {vms.data?.data.map((vm, i) => (
-              <Fragment key={vm.id}>
-                {headingFor(vms.data.data, i, sort)}
-                <tr className="border-t border-border hover:bg-surface-raised/60">
-                  <td className="px-2 py-2">
-                    <FavouriteStar vmID={vm.id} isFavourite={vm.is_favourite} />
-                  </td>
-                  <td className="px-4 py-2">
-                    <Link
-                      to={`/vms/${vm.id}`}
-                      className="font-medium hover:text-accent hover:underline"
-                    >
-                      {vm.name}
-                    </Link>
-                    <div className="text-xs text-muted">
-                      {vm.vm_type} · {vm.external_id} · {vm.platform_name}
-                    </div>
-                  </td>
-                  <td className="px-4 py-2">
-                    <StateBadge state={vm.state} stale={vm.sync_state === 'missing'} />
-                  </td>
-                  <td className="px-4 py-2 text-muted">{vm.host_name ?? '—'}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{vm.cpu_cores || '—'}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{bytes(vm.memory_bytes)}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {vm.state === 'running' ? percent(vm.cpu_pct) : '—'}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {vm.state === 'running' && vm.mem_pct > 0 ? percent(vm.mem_pct) : '—'}
-                  </td>
-                  <td
-                    className="px-4 py-2 text-right tabular-nums text-muted"
-                    title={absoluteTime(vm.last_seen_at)}
-                  >
-                    {vm.state === 'running' ? uptime(vm.uptime_s) : relativeTime(vm.last_seen_at)}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-muted">
-                    {vm.ip_addresses.length > 0 ? vm.ip_addresses.join(', ') : '—'}
-                  </td>
-                  <td className="px-4 py-2">
-                    <FolderPicker vmID={vm.id} folderID={vm.folder_id} />
+            </thead>
+            <tbody>
+              {vms.isLoading && (
+                <tr>
+                  <td colSpan={11} className="px-4 py-8 text-center text-muted">
+                    Loading…
                   </td>
                 </tr>
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
+              )}
+              {vms.isError && (
+                <tr>
+                  <td colSpan={11} className="px-4 py-8 text-center text-danger">
+                    Could not load the inventory.
+                  </td>
+                </tr>
+              )}
+              {vms.data?.data.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="px-4 py-8 text-center text-muted">
+                    {query || state || platform || folder || favourite
+                      ? 'No virtual machines match these filters.'
+                      : 'No virtual machines are visible to your account.'}
+                  </td>
+                </tr>
+              )}
+              {vms.data?.data.map((vm, i) => (
+                <Fragment key={vm.id}>
+                  {headingFor(vms.data.data, i, sort)}
+                  <tr className="border-t border-border hover:bg-surface-raised/60">
+                    <td className="px-2 py-2">
+                      <FavouriteStar vmID={vm.id} isFavourite={vm.is_favourite} />
+                    </td>
+                    <td className="px-4 py-2">
+                      <Link
+                        to={`/vms/${vm.id}`}
+                        className="font-medium hover:text-accent hover:underline"
+                      >
+                        {vm.name}
+                      </Link>
+                      <div className="text-xs text-muted">
+                        {vm.vm_type} · {vm.external_id} · {vm.platform_name}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2">
+                      <StateBadge state={vm.state} stale={vm.sync_state === 'missing'} />
+                    </td>
+                    <td className="px-4 py-2 text-muted">{vm.host_name ?? '—'}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{vm.cpu_cores || '—'}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{bytes(vm.memory_bytes)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {vm.state === 'running' ? percent(vm.cpu_pct) : '—'}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {vm.state === 'running' && vm.mem_pct > 0 ? percent(vm.mem_pct) : '—'}
+                    </td>
+                    <td
+                      className="px-4 py-2 text-right tabular-nums text-muted"
+                      title={absoluteTime(vm.last_seen_at)}
+                    >
+                      {vm.state === 'running' ? uptime(vm.uptime_s) : relativeTime(vm.last_seen_at)}
+                    </td>
+                    <td className="px-4 py-2 text-xs text-muted">
+                      {vm.ip_addresses.length > 0 ? vm.ip_addresses.join(', ') : '—'}
+                    </td>
+                    <td className="px-4 py-2">
+                      <FolderPicker vmID={vm.id} folderID={vm.folder_id} />
+                    </td>
+                  </tr>
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="flex items-center justify-between text-sm text-muted">

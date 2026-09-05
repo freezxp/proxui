@@ -113,6 +113,11 @@ func (q *InventoryQuery) ListVMs(ctx context.Context, f ports.VMFilter) (ports.V
 	if f.Unfiled {
 		where = append(where, "fm.vm_id IS NULL")
 	}
+	if f.FavouritesOnly {
+		// The join is already there for the ordering, so this is a clause and
+		// nothing else.
+		where = append(where, "fav.vm_id IS NOT NULL")
+	}
 
 	whereSQL := "WHERE " + strings.Join(where, " AND ")
 

@@ -249,6 +249,10 @@ export const api = {
     request<T>(path, { ...options, method: 'POST', body: body ? JSON.stringify(body) : undefined }),
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
+  // PATCH for edits that change part of a thing rather than replacing it — a
+  // folder's name and position, where PUT would imply the rest is being set too.
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
   // A body on DELETE is unusual but not exotic, and it is what removing a
   // second factor needs: the password that authorizes it must not travel in a
   // query string, where it would land in logs and history.

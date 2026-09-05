@@ -289,3 +289,51 @@ func findVM(t *testing.T, items []ports.VMListItem, id uuid.UUID) ports.VMListIt
 	t.Fatalf("VM %s not in the listing", id)
 	return ports.VMListItem{}
 }
+
+// The Favourites node in the folder pane asks for this. It has to respect the
+// caller's scope like every other listing: a favourites filter that leaked a VM
+// somebody's grants do not cover would be a hole dressed up as a convenience.
+func TestFavouritesFilterReturnsOnlyStarredVMs(t *testing.T) {
+	f := newSyncFixture(t, map[string]any{"vm_count": 5})
+	f.reconcile(t)
+	ctx := context.Background()
+
+	repo := postgres.NewPersonalRepository(f.pool)
+	query := postgres.NewInventoryQuery(f.pool)
+	alice := newTestUser(t, f.pool, identity.RoleAdmin)
+	bob := newTestUser(t, f.pool, identity.RoleAdmin)
+
+	all, err := query.ListVMs(ctx, ports.VMFilter{Role: identity.RoleAdmin, UserID: alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	starred := all.Items[0].ID
+	if err := repo.SetFavourite(ctx, alice.ID, starred, true, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	mine, err := query.ListVMs(ctx, ports.VMFilter{
+		Role: identity.RoleAdmin, UserID: alice.ID, FavouritesOnly: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mine.Items) != 1 || mine.Items[0].ID != starred {
+		t.Fatalf("got %d rows, want only the one starred VM", len(mine.Items))
+	}
+	if mine.Total != 1 {
+		t.Errorf("total = %d, want 1 — the count has to narrow with the filter or "+
+			"the pager offers pages that are not there", mine.Total)
+	}
+
+	// Bob starred nothing, and Alice's stars are not his.
+	theirs, err := query.ListVMs(ctx, ports.VMFilter{
+		Role: identity.RoleAdmin, UserID: bob.ID, FavouritesOnly: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(theirs.Items) != 0 {
+		t.Errorf("another user's favourites filter returned %d rows", len(theirs.Items))
+	}
+}

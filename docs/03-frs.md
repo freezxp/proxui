@@ -91,6 +91,7 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 | INV-05 | C | Host, storage, network list & detail pages (v1.x). |
 | INV-06 | S | A user can favourite a VM. Favourites sort above everything else whatever column the list is sorted by, and the ordering is applied server-side — the list is paginated, so sorting the fetched page would leave a starred VM stranded on page 4. |
 | INV-07 | S | A user can file VMs into folders of their own. A folder holds many VMs; a VM is in exactly one, enforced by the primary key, so "where is this VM" has one answer. Filing several at once is one request: all of them or none. |
+| INV-10 | S | The inventory offers a Folders view alongside the list: a pane of folders — All VMs, Favourites, each folder with its count, Unfiled — beside the same table, scoped to whatever is selected. The selection lives in the URL, so a folder can be bookmarked and shared like any other filter. Folders can be created, renamed and deleted from that pane; deleting says plainly that the VMs inside are kept. |
 | INV-08 | S | Favourites and folders are private. Two users may arrange the same VM differently and neither can see the other's arrangement, name a folder the other has used, or file into the other's folders. |
 | INV-09 | S | Organising is not a privilege — any authenticated role may do it — but only for VMs already visible to them, so the tables cannot be used to probe for VM identifiers (RBAC-05). Deleting a folder frees its VMs rather than removing them. |
 

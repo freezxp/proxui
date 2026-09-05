@@ -23,6 +23,15 @@
   so the feature cannot be used to probe for machines behind a grant you do not
   have. Deleting a folder frees its VMs rather than removing them.
 
+  There is also a **Folders view**, switched from the filter bar: a pane listing
+  All VMs, Favourites, each folder with its count, and Unfiled, beside the same
+  table scoped to whatever you pick. It is where folders can finally be renamed
+  and deleted — those endpoints shipped working and unreachable — and deleting
+  one says plainly that the machines inside are kept. The selection lives in the
+  URL, so a folder can be bookmarked and pasted into a ticket like any other
+  filtered view. The flat list stays the default: a tree is the wrong shape for
+  searching, where you want matches rather than a hierarchy.
+
 - **Build cloud-init templates from the portal** (PROV-09…PROV-12,
   [ADR 0010](docs/adr/0010-the-portal-can-create-and-destroy-guests.md)).
   Provisioning shipped and the first thing it told you was to go away and do

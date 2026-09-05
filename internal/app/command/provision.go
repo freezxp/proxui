@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/freezxp/proxui/internal/app/ports"
+	"github.com/freezxp/proxui/internal/app/provisioner"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/domain/identity"
@@ -345,6 +346,14 @@ func (h *BuildTemplate) Handle(ctx context.Context, in BuildTemplateInput) (Prov
 		return ProvisionOutput{}, fmt.Errorf(
 			"%w: a checksum and its algorithm are required unless verification is explicitly skipped",
 			connector.ErrInvalidConfig)
+	}
+
+	// Checked here rather than left to the platform: Proxmox refuses a name
+	// whose extension it does not accept with "invalid filename or wrong
+	// extension", which does not say which ones it would accept, and by then a
+	// request has been recorded and a step has failed.
+	if err := provisioner.ValidateImageFilename(in.ImageFile); err != nil {
+		return ProvisionOutput{}, fmt.Errorf("%w: %s", connector.ErrInvalidConfig, err)
 	}
 
 	platform, err := h.Platforms.Get(ctx, in.PlatformID)

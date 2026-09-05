@@ -752,6 +752,10 @@ export interface CatalogueImage {
   checksum_algo: string
   /** The account cloud-init configures by default; differs per distribution. */
   login_user: string
+  /** The name it is stored under. Not always the published name: Proxmox takes
+   *  only .ova/.qcow2/.raw/.vmdk for an imported disk, and Ubuntu publishes a
+   *  qcow2 file called .img. */
+  filename: string
   notes?: string
 }
 
@@ -760,6 +764,7 @@ export interface BuildTemplateBody {
   name: string
   node: string
   image_url: string
+  image_file?: string
   image_storage: string
   disk_storage: string
   checksum?: string

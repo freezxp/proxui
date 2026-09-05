@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -310,9 +311,13 @@ func (s *Server) handleImageCatalogue(w http.ResponseWriter, r *http.Request) {
 }
 
 type buildTemplateBody struct {
-	Name         string `json:"name"`
-	Node         string `json:"node"`
-	ImageURL     string `json:"image_url"`
+	Name     string `json:"name"`
+	Node     string `json:"node"`
+	ImageURL string `json:"image_url"`
+	// ImageFile is the name it is stored under. Not always the published name:
+	// Proxmox accepts only .ova/.qcow2/.raw/.vmdk for an imported disk, and
+	// Ubuntu publishes a qcow2 file called .img.
+	ImageFile    string `json:"image_file"`
 	ImageStorage string `json:"image_storage"`
 	DiskStorage  string `json:"disk_storage"`
 	Checksum     string `json:"checksum"`
@@ -341,7 +346,7 @@ func (s *Server) handleBuildTemplate(w http.ResponseWriter, r *http.Request) {
 	out, err := s.provision.Build.Handle(r.Context(), command.BuildTemplateInput{
 		Actor: s.actor(r), Role: p.Role, PlatformID: platformID,
 		Name: body.Name, Node: body.Node,
-		ImageURL: body.ImageURL, ImageFile: provisioner.ImageFilename(body.ImageURL),
+		ImageURL: body.ImageURL, ImageFile: imageFilename(body),
 		ImageStorage: body.ImageStorage, DiskStorage: body.DiskStorage,
 		Checksum: body.Checksum, ChecksumAlgo: body.ChecksumAlgo,
 		SkipChecksum: body.SkipChecksum,
@@ -354,4 +359,14 @@ func (s *Server) handleBuildTemplate(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusAccepted, map[string]any{
 		"request_id": out.RequestID.String(), "state": out.State,
 	})
+}
+
+// imageFilename prefers what the operator asked for and falls back to the name
+// the URL implies, so a custom image published under an extension Proxmox will
+// not take can still be stored under one it will.
+func imageFilename(body buildTemplateBody) string {
+	if name := strings.TrimSpace(body.ImageFile); name != "" {
+		return name
+	}
+	return provisioner.ImageFilename(body.ImageURL)
 }

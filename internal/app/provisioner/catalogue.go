@@ -1,6 +1,10 @@
 package provisioner
 
-import "strings"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 // The image catalogue (ADR 0010).
 //
@@ -29,7 +33,13 @@ type Image struct {
 	// LoginUser is the account cloud-init configures by default. It differs per
 	// distribution and is the first thing that goes wrong when guessed.
 	LoginUser string `json:"login_user"`
-	Notes     string `json:"notes,omitempty"`
+	// Filename is the name the image is stored under, which is not always the
+	// name it is published under. Proxmox accepts only .ova, .qcow2, .raw and
+	// .vmdk for imported disks, and Ubuntu publishes a file called .img that
+	// is in fact qcow2 — so it is stored under the extension that describes
+	// what it is. Empty means the published name is already fine.
+	Filename string `json:"filename"`
+	Notes    string `json:"notes,omitempty"`
 }
 
 // catalogue is the shipped list. Kept small on purpose: every entry is a claim
@@ -59,6 +69,10 @@ var catalogue = []Image{
 		ChecksumURL:  "https://cloud-images.ubuntu.com/noble/current/SHA256SUMS",
 		ChecksumAlgo: "sha256",
 		LoginUser:    "ubuntu",
+		// Published as .img, which Proxmox refuses for an imported disk. The
+		// file is qcow2 — `qemu-img info` on the URL says so — so this is the
+		// honest name for it rather than a rename to get past a check.
+		Filename: "noble-server-cloudimg-amd64.qcow2",
 	},
 	{
 		ID:           "rocky-10",
@@ -78,11 +92,43 @@ var catalogue = []Image{
 	},
 }
 
-// Catalogue returns the shipped images.
+// Catalogue returns the shipped images, each with the name it would be stored
+// under filled in, so a caller never has to work out which entries override it.
 func Catalogue() []Image {
 	out := make([]Image, len(catalogue))
 	copy(out, catalogue)
+	for i := range out {
+		if out[i].Filename == "" {
+			out[i].Filename = ImageFilename(out[i].URL)
+		}
+	}
 	return out
+}
+
+// importExtensions are what Proxmox accepts for a disk image it will import.
+// The list is PVE::Storage's UPLOAD_IMPORT_EXT_RE_1, and a name outside it is
+// refused before anything is downloaded.
+var importExtensions = []string{".qcow2", ".raw", ".vmdk", ".ova"}
+
+// ValidateImageFilename reports why a name would be refused, naming what is
+// accepted — Proxmox's own message is "invalid filename or wrong extension",
+// which does not say which extensions are the right ones.
+func ValidateImageFilename(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("the image needs a filename to be stored under")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("%q is a path, not a filename", name)
+	}
+	lower := strings.ToLower(name)
+	for _, ext := range importExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%q must end in one of %s — a cloud image published as .img is usually qcow2, "+
+		"and is stored under the extension that describes it",
+		name, strings.Join(importExtensions, ", "))
 }
 
 // ImageFilename derives the name a downloaded image is stored under.

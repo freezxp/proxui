@@ -15,6 +15,13 @@ import { Drawer } from '@/components/Drawer'
  *  rather than looked up — the portal cannot read the distribution's checksum
  *  file, so it links it instead.
  */
+/** The last path segment, matching what the server derives when no name is
+ *  given, so the field shows what would actually be used. */
+function deriveFilename(url: string): string {
+  const withoutQuery = url.split(/[?#]/)[0].replace(/\/$/, '')
+  return withoutQuery.slice(withoutQuery.lastIndexOf('/') + 1)
+}
+
 export function BuildTemplateForm({
   platform,
   onClose,
@@ -36,6 +43,7 @@ export function BuildTemplateForm({
 
   const [imageID, setImageID] = useState('')
   const [customURL, setCustomURL] = useState('')
+  const [filename, setFilename] = useState('')
   const [name, setName] = useState('')
   const [node, setNode] = useState('')
   const [imageStorage, setImageStorage] = useState('local')
@@ -47,6 +55,11 @@ export function BuildTemplateForm({
   const images = catalogue.data?.data ?? []
   const chosen = images.find((i) => i.id === imageID)
   const url = chosen?.url ?? customURL.trim()
+  // Proxmox refuses an imported disk whose extension it does not recognise, and
+  // says only "invalid filename or wrong extension" — so the name is shown and
+  // editable rather than derived silently from the URL.
+  const storedAs = filename.trim() || chosen?.filename || deriveFilename(url)
+  const acceptedExtension = /\.(qcow2|raw|vmdk|ova)$/i.test(storedAs)
   const custom = imageID === '' && customURL.trim() !== ''
 
   const build = useMutation({
@@ -55,6 +68,7 @@ export function BuildTemplateForm({
         name: name.trim(),
         node: node.trim(),
         image_url: url,
+        image_file: storedAs,
         image_storage: imageStorage.trim(),
         disk_storage: diskStorage.trim(),
         bridge: bridge.trim() || undefined,
@@ -82,6 +96,7 @@ export function BuildTemplateForm({
     node.trim() !== '' &&
     imageStorage.trim() !== '' &&
     diskStorage.trim() !== '' &&
+    acceptedExtension &&
     (skipChecksum || checksum.trim() !== '')
 
   return (
@@ -144,6 +159,30 @@ export function BuildTemplateForm({
             the login user when provisioning from this template.
           </p>
         )}
+
+        <label className="block">
+          <span className="mb-1 block text-muted">Stored as</span>
+          <input
+            value={storedAs}
+            onChange={(e) => setFilename(e.target.value)}
+            className="w-full rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-xs"
+          />
+          {acceptedExtension ? (
+            chosen?.filename &&
+            chosen.filename !== deriveFilename(chosen.url) && (
+              <span className="mt-1 block text-xs text-muted">
+                Published as <span className="font-mono">{deriveFilename(chosen.url)}</span>, which
+                Proxmox will not import. The file is qcow2, so it is stored under the extension that
+                describes it.
+              </span>
+            )
+          ) : (
+            <span className="mt-1 block text-xs text-state-error">
+              Must end in .qcow2, .raw, .vmdk or .ova. A cloud image published as .img is usually
+              qcow2 — rename it here.
+            </span>
+          )}
+        </label>
 
         <div className="space-y-2 rounded-md border border-border p-3">
           <label className="block">

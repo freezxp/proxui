@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Favourites and folders on the inventory page** (INV-06…INV-09). The VM list
+  was a flat table, and the handful of machines you actually work with were
+  scattered through it. Star a VM and it sorts to the top whatever column the
+  table is sorted by; file VMs into folders of your own and sort by folder to
+  see them grouped, with an "Unfiled" heading at the end.
+
+  Both are **private to you**. Two people can arrange the same VM differently
+  and neither sees the other's list — a favourite is an opinion about a machine,
+  not a fact about it. They are also deliberately *not* the existing VM groups:
+  those are what a user group is granted, so tidying your own view must not be
+  able to change who can see what.
+
+  The ordering is done by the database, not the browser. The list is paginated
+  fifty at a time, so sorting the page you already have would float a starred VM
+  to the top of page 4 and leave page 1 exactly as it was.
+
+  Organising is open to any signed-in role — starring a machine you can already
+  see changes nothing but your own list — but only for VMs you can already see,
+  so the feature cannot be used to probe for machines behind a grant you do not
+  have. Deleting a folder frees its VMs rather than removing them.
+
 - **Build cloud-init templates from the portal** (PROV-09…PROV-12,
   [ADR 0010](docs/adr/0010-the-portal-can-create-and-destroy-guests.md)).
   Provisioning shipped and the first thing it told you was to go away and do

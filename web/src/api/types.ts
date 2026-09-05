@@ -87,6 +87,11 @@ export interface VMListItem {
   platform_name: string
   datacenter: string
   host_name?: string
+  /** Yours, not the VM's: two people see different answers and neither can see
+   *  the other's (INV-16, INV-17). */
+  is_favourite: boolean
+  folder_id?: string
+  folder_name?: string
   cpu_pct: number
   mem_pct: number
   /** When the platform itself last confirmed this state. Absent means the row
@@ -774,4 +779,17 @@ export interface BuildTemplateBody {
   cores?: number
   memory_mb?: number
   bridge?: string
+}
+
+/** One of your own folders (INV-17).
+ *
+ *  Not a VM group: a VM group is what a user group is *granted*, so it belongs
+ *  to the permission model. Arranging your view must not change who can see
+ *  what, so these are private and touch nothing in access control. */
+export interface VMFolder {
+  id: string
+  name: string
+  position: number
+  vm_count: number
+  created_at: string
 }

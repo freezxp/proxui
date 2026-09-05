@@ -161,6 +161,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		shells     = postgres.NewShellRepository(pool)
 		hostKeys   = postgres.NewHostKeyStore(pool)
 		provisions = postgres.NewProvisionRepository(pool)
+		personal   = postgres.NewPersonalRepository(pool)
 
 		edgeProviders = postgres.NewEdgeProviderRepository(pool)
 		totpStore     = postgres.NewTOTPRepository(pool)
@@ -444,7 +445,12 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Admin:     adminDeps,
 			Platforms: platformDeps,
 			Provision: provisionDeps,
-			Metrics:   httpapi.MetricsDeps{Metrics: metrics},
+			Personal: httpapi.PersonalDeps{
+				Personal: &command.Personal{
+					Store: personal, Inventory: liveInventory, Clock: clock,
+				},
+			},
+			Metrics: httpapi.MetricsDeps{Metrics: metrics},
 			Inventory: httpapi.InventoryDeps{
 				Inventory: liveInventory, Audit: auditLog, Metrics: metrics, Infra: inventory,
 			},

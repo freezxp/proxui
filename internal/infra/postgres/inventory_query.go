@@ -46,7 +46,19 @@ const vmListColumns = `
 	v.id, v.external_id, v.name, v.vm_type, v.state::text, v.cpu_cores, v.memory_bytes,
 	v.disk_bytes, v.uptime_s, v.ip_addresses, v.platform_tags, v.portal_tags,
 	v.platform_pool, v.sync_state::text, v.last_seen_at,
-	p.id, p.name, p.datacenter, coalesce(h.id::text,''), coalesce(h.name,'')`
+	p.id, p.name, p.datacenter, coalesce(h.id::text,''), coalesce(h.name,''),
+	fav.vm_id IS NOT NULL, coalesce(fld.id::text,''), coalesce(fld.name,'')`
+
+// personalJoins attach the viewer's own favourites and filing.
+//
+// LEFT JOINs on the caller's rows only, so a VM nobody starred still appears and
+// two people looking at the same machine each see their own answer. The user id
+// is passed separately from scopeClause's, which is only added for a role that
+// is scoped at all — an administrator sees every VM and still has favourites.
+const personalJoins = `
+	LEFT JOIN vm_favourites     fav ON fav.vm_id = v.id AND fav.user_id = $%d
+	LEFT JOIN vm_folder_members fm  ON fm.vm_id  = v.id AND fm.user_id = $%d
+	LEFT JOIN vm_folders        fld ON fld.id    = fm.folder_id`
 
 // ListVMs returns a page of VMs the caller may see.
 func (q *InventoryQuery) ListVMs(ctx context.Context, f ports.VMFilter) (ports.VMPage, error) {
@@ -88,12 +100,29 @@ func (q *InventoryQuery) ListVMs(ctx context.Context, f ports.VMFilter) (ports.V
 		where = append(where, clause)
 	}
 
+	// The viewer's own id, for the favourite and folder joins. Separate from
+	// the scope clause's copy, which is only added for a role that is scoped:
+	// an administrator sees every VM and still has favourites of their own.
+	args = append(args, f.UserID)
+	viewer := len(args)
+	joins := fmt.Sprintf(personalJoins, viewer, viewer)
+
+	if f.FolderID != uuid.Nil {
+		add("fm.folder_id = $%d", f.FolderID)
+	}
+	if f.Unfiled {
+		where = append(where, "fm.vm_id IS NULL")
+	}
+
 	whereSQL := "WHERE " + strings.Join(where, " AND ")
 
+	// The count carries the same joins as the listing. It has to: a folder
+	// filter narrows on them, and a total that ignored the filter would page a
+	// short list as though it were long.
 	var total int
 	countSQL := `SELECT count(*) FROM vms v
 		JOIN platforms p ON p.id = v.platform_id
-		LEFT JOIN hosts h ON h.id = v.host_id ` + whereSQL
+		LEFT JOIN hosts h ON h.id = v.host_id ` + joins + " " + whereSQL
 	if err := q.db.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
 		return ports.VMPage{}, fmt.Errorf("count vms: %w", err)
 	}
@@ -107,8 +136,9 @@ func (q *InventoryQuery) ListVMs(ctx context.Context, f ports.VMFilter) (ports.V
 	listSQL := fmt.Sprintf(`SELECT %s FROM vms v
 		JOIN platforms p ON p.id = v.platform_id
 		LEFT JOIN hosts h ON h.id = v.host_id
+		%s
 		%s ORDER BY %s LIMIT $%d OFFSET $%d`,
-		vmListColumns, whereSQL, orderBy(f.Sort), len(args)-1, len(args))
+		vmListColumns, joins, whereSQL, orderBy(f.Sort), len(args)-1, len(args))
 
 	rows, err := q.db.Query(ctx, listSQL, args...)
 	if err != nil {
@@ -142,13 +172,35 @@ func orderBy(sort string) string {
 		"last_seen_at": "v.last_seen_at",
 		"platform":     "p.name",
 	}[key]
+
+	// Favourites sort above everything, whatever column the table is sorted by,
+	// so the pinned block holds while the rest of the list reorders underneath.
+	//
+	// It has to happen here rather than in the browser: the list is paginated
+	// server-side, and sorting the fifty rows already fetched would float a
+	// favourite to the top of page 4 and leave page 1 exactly as it was.
+	const favouritesFirst = "(fav.vm_id IS NOT NULL) DESC, "
+
+	// Grouping is a sort rather than a tree, which is what lets it survive
+	// paging: rows arrive in folder order and the table draws a heading
+	// whenever the folder changes. Unfiled VMs sort last — they are where
+	// everything starts, not a folder somebody made.
+	if key == "folder" {
+		direction := "ASC"
+		if desc {
+			direction = "DESC"
+		}
+		return favouritesFirst + "fld.position " + direction + " NULLS LAST, fld.name " +
+			direction + " NULLS LAST, v.name ASC"
+	}
+
 	if column == "" {
-		return "v.name ASC"
+		return favouritesFirst + "v.name ASC"
 	}
 	if desc {
-		return column + " DESC NULLS LAST"
+		return favouritesFirst + column + " DESC NULLS LAST"
 	}
-	return column + " ASC"
+	return favouritesFirst + column + " ASC"
 }
 
 func scanVMListItem(s scanner) (ports.VMListItem, error) {
@@ -160,11 +212,13 @@ func scanVMListItem(s scanner) (ports.VMListItem, error) {
 		mem, disk *int64
 		uptime    *int64
 		hostID    string
+		folderID  string
 	)
 	err := s.Scan(&item.ID, &item.ExternalID, &item.Name, &item.VMType, &item.State,
 		&cpu, &mem, &disk, &uptime, &ips, &item.PlatformTags, &item.PortalTags,
 		&item.Pool, &item.SyncState, &lastSeen,
-		&item.PlatformID, &item.PlatformName, &item.Datacenter, &hostID, &item.HostName)
+		&item.PlatformID, &item.PlatformName, &item.Datacenter, &hostID, &item.HostName,
+		&item.IsFavourite, &folderID, &item.FolderName)
 	if err != nil {
 		return ports.VMListItem{}, fmt.Errorf("scan vm: %w", err)
 	}
@@ -176,6 +230,11 @@ func scanVMListItem(s scanner) (ports.VMListItem, error) {
 	if hostID != "" {
 		if id, err := uuid.Parse(hostID); err == nil {
 			item.HostID = &id
+		}
+	}
+	if folderID != "" {
+		if id, err := uuid.Parse(folderID); err == nil {
+			item.FolderID = &id
 		}
 	}
 	if len(ips) > 0 {
@@ -195,9 +254,15 @@ func (q *InventoryQuery) GetVM(ctx context.Context, id uuid.UUID, role identity.
 		where += " AND " + clause
 	}
 
+	// The viewer's own favourite and folder, same as the listing — a detail
+	// page that could not draw the star it was opened from would be odd.
+	args = append(args, userID)
+	viewer := len(args)
 	sql := fmt.Sprintf(`SELECT %s, v.notes, v.attrs, v.first_seen_at
 		FROM vms v JOIN platforms p ON p.id = v.platform_id
-		LEFT JOIN hosts h ON h.id = v.host_id WHERE %s`, vmListColumns, where)
+		LEFT JOIN hosts h ON h.id = v.host_id
+		%s
+		WHERE %s`, vmListColumns, fmt.Sprintf(personalJoins, viewer, viewer), where)
 
 	var (
 		detail    ports.VMDetail
@@ -208,12 +273,14 @@ func (q *InventoryQuery) GetVM(ctx context.Context, id uuid.UUID, role identity.
 		mem, disk *int64
 		uptime    *int64
 		hostID    string
+		folderID  string
 	)
 	err := q.db.QueryRow(ctx, sql, args...).Scan(
 		&detail.ID, &detail.ExternalID, &detail.Name, &detail.VMType, &detail.State,
 		&cpu, &mem, &disk, &uptime, &ips, &detail.PlatformTags, &detail.PortalTags,
 		&detail.Pool, &detail.SyncState, &lastSeen,
 		&detail.PlatformID, &detail.PlatformName, &detail.Datacenter, &hostID, &detail.HostName,
+		&detail.IsFavourite, &folderID, &detail.FolderName,
 		&detail.Notes, &attrs, &detail.FirstSeenAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.VMDetail{}, ports.ErrNotFound
@@ -230,6 +297,11 @@ func (q *InventoryQuery) GetVM(ctx context.Context, id uuid.UUID, role identity.
 	if hostID != "" {
 		if parsed, err := uuid.Parse(hostID); err == nil {
 			detail.HostID = &parsed
+		}
+	}
+	if folderID != "" {
+		if parsed, err := uuid.Parse(folderID); err == nil {
+			detail.FolderID = &parsed
 		}
 	}
 	if len(ips) > 0 {

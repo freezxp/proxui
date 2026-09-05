@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { api, ApiError } from '@/api/client'
 import { PowerControls, type PowerAction } from './PowerControls'
 import { DestroyButton } from '@/features/provisioning/DestroyButton'
+import { FavouriteStar } from './FavouriteStar'
+import { FolderPicker } from './FolderPicker'
 import type { HistoryEntry, VMDetail, VMState } from '@/api/types'
 import { StateBadge } from '@/components/StateBadge'
 import { absoluteTime, bytes, percent, relativeTime, uptime } from '@/lib/format'
@@ -92,11 +94,22 @@ export function VMDetailPage() {
             ← Inventory
           </Link>
           <div className="flex items-center gap-3">
+            {/* Same star as the list, refreshing this page's own query. */}
+            <FavouriteStar
+              vmID={detail.id}
+              isFavourite={detail.is_favourite}
+              invalidate={['vm', detail.id]}
+            />
             <h1 className="text-xl font-semibold">{detail.name}</h1>
             <StateBadge
               state={detail.state}
               stale={detail.sync_state === 'missing'}
               liveAt={detail.live_at}
+            />
+            <FolderPicker
+              vmID={detail.id}
+              folderID={detail.folder_id}
+              invalidate={['vm', detail.id]}
             />
           </div>
           <p className="text-sm text-muted">

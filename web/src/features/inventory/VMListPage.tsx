@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
@@ -5,6 +6,8 @@ import type { Paged, PlatformHealth, VMListItem } from '@/api/types'
 import { StateBadge } from '@/components/StateBadge'
 import { bytes, percent, relativeTime, absoluteTime, uptime } from '@/lib/format'
 import { useLiveInventory } from './useLiveInventory'
+import { FavouriteStar } from './FavouriteStar'
+import { FolderPicker, useFolders } from './FolderPicker'
 
 const PER_PAGE = 50
 
@@ -20,6 +23,7 @@ export function VMListPage() {
   const state = params.get('state') ?? ''
   const platform = params.get('platform_id') ?? ''
   const sort = params.get('sort') ?? 'name'
+  const folder = params.get('folder_id') ?? ''
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1)
 
   function update(changes: Record<string, string>) {
@@ -44,6 +48,9 @@ export function VMListPage() {
   if (query) search.set('q', query)
   if (state) search.set('state', state)
   if (platform) search.set('platform_id', platform)
+  if (folder) search.set(folder === 'unfiled' ? 'folder' : 'folder_id', folder)
+
+  const folders = useFolders()
 
   const vms = useQuery({
     queryKey: ['vms', search.toString()],
@@ -98,7 +105,21 @@ export function VMListPage() {
             </option>
           ))}
         </select>
-        {(query || state || platform) && (
+        <select
+          value={folder}
+          onChange={(e) => update({ folder_id: e.target.value })}
+          className="rounded-md border border-border bg-surface px-3 py-2 text-sm"
+        >
+          <option value="">All folders</option>
+          {(folders.data?.data ?? []).map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name} ({f.vm_count})
+            </option>
+          ))}
+          <option value="unfiled">Unfiled</option>
+        </select>
+
+        {(query || state || platform || folder) && (
           <button
             onClick={() => setParams(new URLSearchParams(), { replace: true })}
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-raised"
@@ -112,6 +133,7 @@ export function VMListPage() {
         <table className="w-full min-w-[52rem] text-sm">
           <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
             <tr>
+              <th className="w-8 px-2 py-2" aria-label="Favourite" />
               <SortableHeader
                 label="Name"
                 field="name"
@@ -149,67 +171,82 @@ export function VMListPage() {
                 align="right"
               />
               <th className="px-4 py-2 font-medium">Addresses</th>
+              <SortableHeader
+                label="Folder"
+                field="folder"
+                sort={sort}
+                onSort={(s) => update({ sort: s })}
+              />
             </tr>
           </thead>
           <tbody>
             {vms.isLoading && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-muted">
+                <td colSpan={11} className="px-4 py-8 text-center text-muted">
                   Loading…
                 </td>
               </tr>
             )}
             {vms.isError && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-danger">
+                <td colSpan={11} className="px-4 py-8 text-center text-danger">
                   Could not load the inventory.
                 </td>
               </tr>
             )}
             {vms.data?.data.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-muted">
-                  {query || state || platform
+                <td colSpan={11} className="px-4 py-8 text-center text-muted">
+                  {query || state || platform || folder
                     ? 'No virtual machines match these filters.'
                     : 'No virtual machines are visible to your account.'}
                 </td>
               </tr>
             )}
-            {vms.data?.data.map((vm) => (
-              <tr key={vm.id} className="border-t border-border hover:bg-surface-raised/60">
-                <td className="px-4 py-2">
-                  <Link
-                    to={`/vms/${vm.id}`}
-                    className="font-medium hover:text-accent hover:underline"
+            {vms.data?.data.map((vm, i) => (
+              <Fragment key={vm.id}>
+                {headingFor(vms.data.data, i, sort)}
+                <tr className="border-t border-border hover:bg-surface-raised/60">
+                  <td className="px-2 py-2">
+                    <FavouriteStar vmID={vm.id} isFavourite={vm.is_favourite} />
+                  </td>
+                  <td className="px-4 py-2">
+                    <Link
+                      to={`/vms/${vm.id}`}
+                      className="font-medium hover:text-accent hover:underline"
+                    >
+                      {vm.name}
+                    </Link>
+                    <div className="text-xs text-muted">
+                      {vm.vm_type} · {vm.external_id} · {vm.platform_name}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2">
+                    <StateBadge state={vm.state} stale={vm.sync_state === 'missing'} />
+                  </td>
+                  <td className="px-4 py-2 text-muted">{vm.host_name ?? '—'}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{vm.cpu_cores || '—'}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{bytes(vm.memory_bytes)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {vm.state === 'running' ? percent(vm.cpu_pct) : '—'}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {vm.state === 'running' && vm.mem_pct > 0 ? percent(vm.mem_pct) : '—'}
+                  </td>
+                  <td
+                    className="px-4 py-2 text-right tabular-nums text-muted"
+                    title={absoluteTime(vm.last_seen_at)}
                   >
-                    {vm.name}
-                  </Link>
-                  <div className="text-xs text-muted">
-                    {vm.vm_type} · {vm.external_id} · {vm.platform_name}
-                  </div>
-                </td>
-                <td className="px-4 py-2">
-                  <StateBadge state={vm.state} stale={vm.sync_state === 'missing'} />
-                </td>
-                <td className="px-4 py-2 text-muted">{vm.host_name ?? '—'}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{vm.cpu_cores || '—'}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{bytes(vm.memory_bytes)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {vm.state === 'running' ? percent(vm.cpu_pct) : '—'}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {vm.state === 'running' && vm.mem_pct > 0 ? percent(vm.mem_pct) : '—'}
-                </td>
-                <td
-                  className="px-4 py-2 text-right tabular-nums text-muted"
-                  title={absoluteTime(vm.last_seen_at)}
-                >
-                  {vm.state === 'running' ? uptime(vm.uptime_s) : relativeTime(vm.last_seen_at)}
-                </td>
-                <td className="px-4 py-2 text-xs text-muted">
-                  {vm.ip_addresses.length > 0 ? vm.ip_addresses.join(', ') : '—'}
-                </td>
-              </tr>
+                    {vm.state === 'running' ? uptime(vm.uptime_s) : relativeTime(vm.last_seen_at)}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-muted">
+                    {vm.ip_addresses.length > 0 ? vm.ip_addresses.join(', ') : '—'}
+                  </td>
+                  <td className="px-4 py-2">
+                    <FolderPicker vmID={vm.id} folderID={vm.folder_id} />
+                  </td>
+                </tr>
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -269,5 +306,43 @@ function SortableHeader({
         {active && <span aria-hidden>{descending ? '↓' : '↑'}</span>}
       </button>
     </th>
+  )
+}
+
+/** A heading row whenever the group changes, when the list is grouped.
+ *
+ *  Grouping is a sort rather than a tree, which is what lets it survive
+ *  pagination: rows arrive in folder order and a heading is drawn where the
+ *  folder changes. A folder spanning a page boundary simply continues under a
+ *  repeated heading, which is the honest rendering of a paginated list.
+ *
+ *  Favourites are sorted above everything by the server whatever the column, so
+ *  they get their own heading first.
+ */
+function headingFor(rows: VMListItem[], i: number, sort: string) {
+  const row = rows[i]
+  const previous = i > 0 ? rows[i - 1] : undefined
+
+  if (row.is_favourite && !previous?.is_favourite) {
+    return <GroupHeading label="Favourites" />
+  }
+  if (!sort.endsWith('folder') || row.is_favourite) return null
+  // The first unfavourited row starts a new group even if the folder happens to
+  // match the favourite above it.
+  const changed = !previous || previous.is_favourite || previous.folder_id !== row.folder_id
+  if (!changed) return null
+  return <GroupHeading label={row.folder_name || 'Unfiled'} />
+}
+
+function GroupHeading({ label }: { label: string }) {
+  return (
+    <tr className="border-t border-border bg-surface-raised/60">
+      <td
+        colSpan={11}
+        className="px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted"
+      >
+        {label}
+      </td>
+    </tr>
   )
 }

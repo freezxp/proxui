@@ -74,6 +74,20 @@ Set-Cookie: proxui_rt=…; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth
   "sync_state": "active", "last_seen_at": "2026-08-13T09:41:00Z" }
 ```
 
+### 8.3a A user's own view ([INV-06…INV-09](03-frs.md))
+
+Any authenticated role. These are private lists, not permissions: what a caller may organise is checked per VM inside the command, so the role gate has nothing to say about it.
+
+| Method & URI | Roles | Description |
+|---|---|---|
+| PUT/DELETE `/vms/{id}/favourite` | any | Star or unstar, idempotent either way. Favourites sort above everything in `/vms`, server-side, because the list is paginated |
+| PUT `/vms/{id}/folder` | any | `{folder_id}` or `null` to unfile. Re-filing moves rather than duplicating: a VM is in one folder |
+| GET/POST `/folders` | any | The caller's own folders with VM counts; `{name}` → 201. A duplicate name is 409 — two identically named folders are indistinguishable in the picker they exist for |
+| PATCH/DELETE `/folders/{id}` | any | Rename or reorder; deleting frees its VMs rather than removing them |
+| PUT `/folders/{id}/vms` | any | `{vm_ids}` — file several at once, all or none |
+
+`/vms` gains `folder_id=` and `folder=unfiled`, and `sort=folder` groups by folder with unfiled last. A VM or folder that is not the caller's is 404 rather than 403: saying it exists is itself a disclosure (RBAC-05).
+
 ## 8.4 Console
 
 | Method & URI | Roles | Description |

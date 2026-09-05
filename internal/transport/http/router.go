@@ -55,6 +55,7 @@ type ServerConfig struct {
 	Admin      AdminDeps
 	Platforms  PlatformDeps
 	Provision  ProvisionDeps
+	Personal   PersonalDeps
 	Metrics    MetricsDeps
 	Inventory  InventoryDeps
 	Console    ConsoleDeps
@@ -109,6 +110,7 @@ type Server struct {
 	admin         AdminDeps
 	platforms     PlatformDeps
 	provision     ProvisionDeps
+	personal      PersonalDeps
 	metrics       MetricsDeps
 	inventory     InventoryDeps
 	console       ConsoleDeps
@@ -146,6 +148,7 @@ func NewServer(cfg ServerConfig) *Server {
 		admin:         cfg.Admin,
 		platforms:     cfg.Platforms,
 		provision:     cfg.Provision,
+		personal:      cfg.Personal,
 		metrics:       cfg.Metrics,
 		inventory:     cfg.Inventory,
 		console:       cfg.Console,
@@ -364,6 +367,20 @@ func (s *Server) Routes() http.Handler {
 				Delete("/vms/{vmID}", s.handleDestroyVM)
 			r.With(RequireRole(identity.RoleAdmin)).
 				Get("/image-catalogue", s.handleImageCatalogue)
+
+			// Favourites and folders: any authenticated role. Arranging your
+			// own view is not a privilege — and what you may arrange is
+			// checked per VM inside the command, not by the role gate.
+			r.Put("/vms/{vmID}/favourite", s.handleSetFavourite)
+			r.Delete("/vms/{vmID}/favourite", s.handleClearFavourite)
+			r.Put("/vms/{vmID}/folder", s.handleFileVM)
+			r.Route("/folders", func(r chi.Router) {
+				r.Get("/", s.handleListFolders)
+				r.Post("/", s.handleCreateFolder)
+				r.Patch("/{folderID}", s.handleUpdateFolder)
+				r.Delete("/{folderID}", s.handleDeleteFolder)
+				r.Put("/{folderID}/vms", s.handleFileVMs)
+			})
 			r.Route("/provision-requests", func(r chi.Router) {
 				r.Use(RequireRole(identity.RoleAdmin))
 				r.Get("/", s.handleListProvisionRequests)

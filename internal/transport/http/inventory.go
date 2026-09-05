@@ -50,6 +50,11 @@ func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 	filter.PlatformID = parseUUIDParam(q.Get("platform_id"))
 	filter.HostID = parseUUIDParam(q.Get("host_id"))
 	filter.GroupID = parseUUIDParam(q.Get("group_id"))
+	// The caller's own folders (INV-17). `folder=unfiled` is a separate
+	// parameter from `folder_id` because "no folder" is not an id, and
+	// encoding it as one would mean inventing a sentinel UUID.
+	filter.FolderID = parseUUIDParam(q.Get("folder_id"))
+	filter.Unfiled = q.Get("folder") == "unfiled"
 
 	page := atoiDefault(q.Get("page"), 1)
 	if page < 1 {

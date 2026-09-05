@@ -366,6 +366,36 @@ type SweptAsset struct {
 	Converted bool
 }
 
+// VMFolder is one of a user's own folders (INV-17).
+//
+// Not a VMGroup: a VM group is what a user group is granted, so it is part of
+// the permission model, and arranging your own view must not touch that. These
+// are private to the user who made them and are read for nobody else.
+type VMFolder struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	// Position is the user's own ordering. Alphabetical is rarely the order
+	// somebody wants their own folders in.
+	Position  int       `json:"position"`
+	VMCount   int       `json:"vm_count"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// PersonalRepository stores a user's own view of the inventory: what they have
+// starred and how they have filed it.
+type PersonalRepository interface {
+	SetFavourite(ctx context.Context, userID, vmID uuid.UUID, on bool, at time.Time) error
+	ListFolders(ctx context.Context, userID uuid.UUID) ([]VMFolder, error)
+	CreateFolder(ctx context.Context, f *VMFolder, userID uuid.UUID) error
+	UpdateFolder(ctx context.Context, userID, folderID uuid.UUID, name string, position int) error
+	// DeleteFolder frees the VMs in it rather than removing them.
+	DeleteFolder(ctx context.Context, userID, folderID uuid.UUID) error
+	// FileVMs moves VMs into a folder, or out of any folder when folderID is
+	// nil. All of them or none: filing three at once is what it is for.
+	FileVMs(ctx context.Context, userID uuid.UUID, vmIDs []uuid.UUID, folderID *uuid.UUID, at time.Time) error
+	FolderOf(ctx context.Context, userID, vmID uuid.UUID) (*uuid.UUID, error)
+}
+
 // VMSample is one row of VM telemetry ready for storage.
 type VMSample struct {
 	Time          time.Time
@@ -445,10 +475,14 @@ type VMFilter struct {
 	PlatformID uuid.UUID
 	HostID     uuid.UUID
 	GroupID    uuid.UUID
-	Tag        string
-	Sort       string
-	Limit      int
-	Offset     int
+	// FolderID narrows to one of the caller's own folders; Unfiled to the VMs
+	// they have filed nowhere. Personal to the caller in both cases.
+	FolderID uuid.UUID
+	Unfiled  bool
+	Tag      string
+	Sort     string
+	Limit    int
+	Offset   int
 }
 
 // VMListItem is a row in the inventory table.
@@ -473,8 +507,14 @@ type VMListItem struct {
 	Datacenter   string     `json:"datacenter"`
 	HostID       *uuid.UUID `json:"host_id,omitempty"`
 	HostName     string     `json:"host_name,omitempty"`
-	CPUPct       float64    `json:"cpu_pct"`
-	MemPct       float64    `json:"mem_pct"`
+	// IsFavourite and Folder* are the caller's own, not the VM's: two people
+	// looking at the same machine see different answers, and neither can see
+	// the other's.
+	IsFavourite bool       `json:"is_favourite"`
+	FolderID    *uuid.UUID `json:"folder_id,omitempty"`
+	FolderName  string     `json:"folder_name,omitempty"`
+	CPUPct      float64    `json:"cpu_pct"`
+	MemPct      float64    `json:"mem_pct"`
 	// LiveAt is when the platform itself last confirmed this state. Zero means
 	// the row is as the last sync left it, which is what the UI needs in order
 	// to say so rather than implying a freshness it does not have.

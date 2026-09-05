@@ -139,9 +139,22 @@ var permissionMap = map[string]Permission{
 	"POST /api/v1/platforms/{platformID}/provision": roles(identity.RoleAdmin),
 	"POST /api/v1/platforms/{platformID}/templates": roles(identity.RoleAdmin),
 	"GET /api/v1/image-catalogue":                   roles(identity.RoleAdmin),
-	"DELETE /api/v1/vms/{vmID}":                     roles(identity.RoleAdmin),
-	"GET /api/v1/provision-requests":                roles(identity.RoleAdmin),
-	"GET /api/v1/provision-requests/{requestID}":    roles(identity.RoleAdmin),
+
+	// A user's own view of the inventory (INV-16…INV-19). Authenticated rather
+	// than role-gated: starring a machine you can already see changes nothing
+	// but your own list. Which machines those are is enforced per VM in the
+	// command, which the role gate could not express.
+	"PUT /api/v1/vms/{vmID}/favourite":           {Access: AccessAuthenticated},
+	"DELETE /api/v1/vms/{vmID}/favourite":        {Access: AccessAuthenticated},
+	"PUT /api/v1/vms/{vmID}/folder":              {Access: AccessAuthenticated},
+	"GET /api/v1/folders":                        {Access: AccessAuthenticated},
+	"POST /api/v1/folders":                       {Access: AccessAuthenticated},
+	"PATCH /api/v1/folders/{folderID}":           {Access: AccessAuthenticated},
+	"DELETE /api/v1/folders/{folderID}":          {Access: AccessAuthenticated},
+	"PUT /api/v1/folders/{folderID}/vms":         {Access: AccessAuthenticated},
+	"DELETE /api/v1/vms/{vmID}":                  roles(identity.RoleAdmin),
+	"GET /api/v1/provision-requests":             roles(identity.RoleAdmin),
+	"GET /api/v1/provision-requests/{requestID}": roles(identity.RoleAdmin),
 	// Edge providers (ADR 0004). Admin only without exception: publishing an
 	// app puts something on the public internet, which is a statement about
 	// the network's boundary rather than about one machine. An operator's

@@ -141,6 +141,40 @@ CREATE TABLE platform_endpoints (
     PRIMARY KEY (platform_id, address)
 );
 
+-- A user's own view of the inventory (INV-06…INV-09). The portal's first
+-- per-user state: `settings` is global, and nothing else stores a preference
+-- against a person.
+--
+-- Deliberately NOT vm_groups. A VM group is what a user group is granted, so it
+-- is part of the permission model; if arranging your own view meant editing
+-- those, tidying your sidebar would change who can see what.
+CREATE TABLE vm_favourites (
+    user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    vm_id      uuid NOT NULL REFERENCES vms(id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, vm_id)
+);
+
+CREATE TABLE vm_folders (
+    id         uuid PRIMARY KEY,
+    user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       text NOT NULL,
+    position   integer NOT NULL DEFAULT 0,        -- the user's own ordering
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (user_id, name)
+);
+
+-- The primary key is the design: (user_id, vm_id) makes "one folder per VM per
+-- user" a constraint rather than a convention, which is why user_id is carried
+-- here rather than reached through folder_id.
+CREATE TABLE vm_folder_members (
+    user_id   uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    vm_id     uuid NOT NULL REFERENCES vms(id) ON DELETE CASCADE,
+    folder_id uuid NOT NULL REFERENCES vm_folders(id) ON DELETE CASCADE,
+    filed_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, vm_id)
+);
+
 -- Credential storage: envelope encryption. DEK encrypts the secret; master key (env/Docker
 -- secret) wraps the DEK. key_version enables master-key rotation without re-entering secrets.
 CREATE TABLE platform_credentials (

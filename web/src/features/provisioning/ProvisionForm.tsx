@@ -1,7 +1,15 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
-import type { Platform, PortalKey, ProvisionBody, ProvisionRequest, Template } from '@/api/types'
+import type {
+  Paged,
+  PlatformHealth,
+  PortalKey,
+  ProvisionBody,
+  ProvisionRequest,
+  Template,
+  VMGroup,
+} from '@/api/types'
 import { Drawer } from '@/components/Drawer'
 
 /** Create a guest from a cloud-init template (ADR 0010).
@@ -13,24 +21,38 @@ import { Drawer } from '@/components/Drawer'
  *  reach over SSH is one whose console and file browser work immediately.
  */
 export function ProvisionForm({
-  platform,
   onClose,
   onStarted,
-  onBuildTemplate,
 }: {
-  platform: Platform
   onClose: () => void
   onStarted: (requestID: string) => void
-  /** Opens the template builder, for the case this form cannot proceed without
-   *  one. Offering the way forward beats describing it. */
-  onBuildTemplate: () => void
 }) {
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
 
+  // The form starts from the inventory rather than from one platform, so the
+  // platform is the first thing it asks for: a template belongs to a cluster,
+  // and everything after this depends on which one.
+  const platforms = useQuery({
+    queryKey: ['platforms'],
+    queryFn: () => api.get<Paged<PlatformHealth>>('/platforms'),
+    staleTime: 60_000,
+  })
+  const [platformID, setPlatformID] = useState('')
+
   const templates = useQuery({
-    queryKey: ['templates', platform.id],
-    queryFn: () => api.get<{ data: Template[] }>(`/platforms/${platform.id}/templates`),
+    queryKey: ['templates', platformID],
+    queryFn: () => api.get<{ data: Template[] }>(`/platforms/${platformID}/templates`),
+    enabled: platformID !== '',
+  })
+
+  // Filing the guest into a VM group is the difference between a machine only
+  // administrators can see and one its owners can. The API has taken this since
+  // provisioning shipped and nothing offered it.
+  const groups = useQuery({
+    queryKey: ['vm-groups'],
+    queryFn: () => api.get<{ data: VMGroup[] }>('/vm-groups'),
+    staleTime: 60_000,
   })
   const portalKey = useQuery({
     queryKey: ['portal-key'],
@@ -39,6 +61,8 @@ export function ProvisionForm({
 
   const [templateID, setTemplateID] = useState('')
   const [name, setName] = useState('')
+  const [node, setNode] = useState('')
+  const [groupID, setGroupID] = useState('')
   const [storage, setStorage] = useState('')
   const [cores, setCores] = useState(2)
   const [memoryMB, setMemoryMB] = useState(2048)
@@ -50,8 +74,13 @@ export function ProvisionForm({
   const [usePortalKey, setUsePortalKey] = useState(true)
   const [startAfter, setStartAfter] = useState(true)
 
+  const platformList = platforms.data?.data ?? []
+  const platform = platformList.find((p) => p.id === platformID)
   const list = templates.data?.data ?? []
   const chosen = list.find((t) => t.external_id === templateID)
+  // A full clone can land on another node; the template's own is the sensible
+  // default and the only one guaranteed to work for a linked clone.
+  const targetNode = node.trim() || chosen?.node || ''
   const portalPublicKey = (portalKey.data?.exists && portalKey.data.public_key) || ''
 
   const create = useMutation({
@@ -66,7 +95,8 @@ export function ProvisionForm({
       const body: ProvisionBody = {
         template_id: templateID,
         name: name.trim(),
-        node: chosen?.node ?? '',
+        node: targetNode,
+        vm_group_id: groupID || undefined,
         storage: storage.trim() || undefined,
         full_clone: true,
         ci_user: ciUser.trim() || undefined,
@@ -82,7 +112,7 @@ export function ProvisionForm({
         start_after_create: startAfter,
       }
       return api.post<{ request_id: string; state: string }>(
-        `/platforms/${platform.id}/provision`,
+        `/platforms/${platformID}/provision`,
         body,
       )
     },
@@ -95,11 +125,11 @@ export function ProvisionForm({
       setError(err instanceof Error ? err.message : 'The guest could not be requested.'),
   })
 
-  const ready = templateID !== '' && name.trim() !== ''
+  const ready = platformID !== '' && templateID !== '' && name.trim() !== '' && targetNode !== ''
 
   return (
     <Drawer
-      title={`New guest on ${platform.name}`}
+      title="Create a VM"
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -115,21 +145,37 @@ export function ProvisionForm({
       }
     >
       <div className="space-y-4 text-sm">
-        {templates.isLoading ? (
+        <label className="block">
+          <span className="mb-1 block text-muted">Platform</span>
+          <select
+            value={platformID}
+            onChange={(e) => {
+              setPlatformID(e.target.value)
+              // Everything below belongs to whichever platform was chosen.
+              setTemplateID('')
+              setNode('')
+            }}
+            className="w-full rounded-md border border-border bg-surface px-2 py-1.5"
+          >
+            <option value="">Choose one…</option>
+            {platformList.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {platformID === '' ? (
+          <p className="text-muted">Pick a platform to see what it can be cloned from.</p>
+        ) : templates.isLoading ? (
           <p className="text-muted">Loading templates…</p>
         ) : list.length === 0 ? (
-          <div className="space-y-2 rounded-md bg-surface-raised p-3">
-            <p className="text-muted">
-              This platform has no templates yet. The portal can build one: it has the node download
-              a cloud image, import it, attach a cloud-init drive and convert the result.
-            </p>
-            <button
-              onClick={onBuildTemplate}
-              className="rounded-md border border-border px-2 py-1 text-xs"
-            >
-              Build one
-            </button>
-          </div>
+          <p className="rounded-md bg-surface-raised p-3 text-muted">
+            {platform?.name} has no templates yet. Build one from its page under Platforms — the
+            node downloads a cloud image, imports it, attaches a cloud-init drive and converts the
+            result.
+          </p>
         ) : (
           <label className="block">
             <span className="mb-1 block text-muted">Template</span>
@@ -165,6 +211,37 @@ export function ProvisionForm({
             className="w-full rounded-md border border-border bg-surface px-2 py-1.5"
           />
         </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="mb-1 block text-muted">Node</span>
+            <input
+              value={targetNode}
+              onChange={(e) => setNode(e.target.value)}
+              placeholder={chosen?.node ?? 'the template’s node'}
+              className="w-full rounded-md border border-border bg-surface px-2 py-1.5"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-muted">VM group</span>
+            <select
+              value={groupID}
+              onChange={(e) => setGroupID(e.target.value)}
+              className="w-full rounded-md border border-border bg-surface px-2 py-1.5"
+            >
+              <option value="">None</option>
+              {(groups.data?.data ?? []).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p className="-mt-2 text-xs text-muted">
+          A guest in no group is visible only to administrators — groups are what grants reach.
+          Moving to another node needs the template on shared storage.
+        </p>
 
         <div className="grid grid-cols-3 gap-3">
           <label className="block">

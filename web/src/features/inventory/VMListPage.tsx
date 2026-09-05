@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
@@ -9,6 +9,8 @@ import { useLiveInventory } from './useLiveInventory'
 import { FavouriteStar } from './FavouriteStar'
 import { FolderPicker, useFolders } from './FolderPicker'
 import { FolderSidebar, type FolderSelection } from './FolderSidebar'
+import { ProvisionForm, ProvisionStatus } from '@/features/provisioning/ProvisionForm'
+import { useAuth } from '@/features/auth/useAuth'
 
 const PER_PAGE = 50
 
@@ -19,6 +21,9 @@ export function VMListPage() {
   // ticket, and survives a reload - the states an operator actually returns to.
   const [params, setParams] = useSearchParams()
   const { connected } = useLiveInventory()
+  const { user } = useAuth()
+  const [creating, setCreating] = useState(false)
+  const [startedRequest, setStartedRequest] = useState('')
 
   const query = params.get('q') ?? ''
   const state = params.get('state') ?? ''
@@ -160,6 +165,18 @@ export function VMListPage() {
           ))}
         </div>
 
+        {/* Creating a machine belongs where somebody looking for one already
+            is. It used to sit inside a platform's drawer, which meant knowing
+            which cluster you wanted before you could ask for anything. */}
+        {user?.role === 'admin' && (
+          <button
+            onClick={() => setCreating(true)}
+            className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white"
+          >
+            Create VM
+          </button>
+        )}
+
         {(query || state || platform || folder || favourite) && (
           <button
             onClick={() => setParams(new URLSearchParams(), { replace: true })}
@@ -169,6 +186,12 @@ export function VMListPage() {
           </button>
         )}
       </div>
+
+      {startedRequest && <ProvisionStatus requestID={startedRequest} />}
+
+      {creating && (
+        <ProvisionForm onClose={() => setCreating(false)} onStarted={setStartedRequest} />
+      )}
 
       {/* Two panes side by side on a wide screen; stacked on a narrow one, so
           the folder list does not eat half a phone. */}

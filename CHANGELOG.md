@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Create VM moved to the inventory.** It used to live inside a platform's
+  drawer, which meant deciding which cluster you wanted before you could ask for
+  a machine at all. The button is now on the inventory page, where somebody who
+  wants a VM is already looking, and the form asks for the platform as its first
+  question.
+
+  It also offers two things it should have from the start: the **VM group** to
+  file the new guest into — the API has accepted that since provisioning shipped
+  and nothing sent it, so every guest created through the portal was visible to
+  administrators only — and the **target node**, defaulting to the template's
+  own, which is the only one a linked clone can use.
+
+  Building a template stays on the platform page. It is about that cluster's
+  nodes and storage, and it is configuration rather than day-to-day work.
+
 - **Templates are prepared before they are sealed** (PROV-14, PROV-15). A
   published cloud image carries no `qemu-guest-agent`, so every guest built from
   one reported no IP address — which is exactly what left the portal unable to

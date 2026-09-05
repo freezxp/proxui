@@ -72,6 +72,7 @@ func (c *Connector) Capabilities() []connector.Capability {
 		connector.CapabilityProvision,
 		connector.CapabilityDestroy,
 		connector.CapabilityTemplateBuild,
+		connector.CapabilityNodePrerequisites,
 	}
 }
 

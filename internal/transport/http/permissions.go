@@ -138,7 +138,11 @@ var permissionMap = map[string]Permission{
 	"GET /api/v1/platforms/{platformID}/templates":  roles(identity.RoleAdmin),
 	"POST /api/v1/platforms/{platformID}/provision": roles(identity.RoleAdmin),
 	"POST /api/v1/platforms/{platformID}/templates": roles(identity.RoleAdmin),
-	"GET /api/v1/image-catalogue":                   roles(identity.RoleAdmin),
+	// Node prerequisites (ADR 0011). Installing changes software on a
+	// hypervisor, which is the largest thing the portal does to a node.
+	"GET /api/v1/platforms/{platformID}/readiness":             roles(identity.RoleAdmin),
+	"POST /api/v1/platforms/{platformID}/nodes/{node}/install": roles(identity.RoleAdmin),
+	"GET /api/v1/image-catalogue":                              roles(identity.RoleAdmin),
 
 	// A user's own view of the inventory (INV-16…INV-19). Authenticated rather
 	// than role-gated: starring a machine you can already see changes nothing

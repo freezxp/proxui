@@ -23,6 +23,7 @@ import (
 	appalert "github.com/freezxp/proxui/internal/app/alert"
 	"github.com/freezxp/proxui/internal/app/command"
 	"github.com/freezxp/proxui/internal/app/imageprep"
+	"github.com/freezxp/proxui/internal/app/nodecheck"
 	appnotify "github.com/freezxp/proxui/internal/app/notify"
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/app/provisioner"
@@ -321,6 +322,18 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Platforms: platforms,
 		Runs:      syncRepo,
 		Sync:      queue,
+		// What a node needs before the parts of the portal that run on a node
+		// work at all, and the button that installs the two it can (ADR 0011).
+		// The same SSH seam sensors and template preparation already use.
+		Nodes: &nodecheck.Checker{
+			Hosts:  sensorRepo,
+			SSH:    sensorRepo,
+			Key:    postgres.NewPortalKeyRepository(pool, vault),
+			Runner: sshclient.NewDialer(),
+			Audit:  audit,
+			Clock:  clock.Now,
+			Log:    log,
+		},
 	}
 
 	// Migrations run on API startup under an advisory lock; worker-only

@@ -313,6 +313,12 @@ func (s *Server) Routes() http.Handler {
 					// empty template list is a button rather than an
 					// instruction to go and run four commands elsewhere.
 					r.Post("/{platformID}/templates", s.handleBuildTemplate)
+					// What the nodes themselves need, and installing what the
+					// portal can (ADR 0011). Admin-only for the same reason
+					// the rest of this group is, and more so: installing a
+					// package changes software on a hypervisor.
+					r.Get("/{platformID}/readiness", s.handleReadiness)
+					r.Post("/{platformID}/nodes/{node}/install", s.handleInstallPrerequisite)
 				})
 			})
 

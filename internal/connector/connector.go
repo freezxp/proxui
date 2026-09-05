@@ -36,6 +36,9 @@ const (
 	CapabilityProvision         Capability = "provision"
 	CapabilityDestroy           Capability = "destroy"
 	CapabilityTemplateBuild     Capability = "template_build"
+	// CapabilityNodePrerequisites: the connector can say what its nodes need
+	// installed on them, and how (ADR 0011).
+	CapabilityNodePrerequisites Capability = "node_prerequisites"
 )
 
 // Info identifies a connector implementation.
@@ -186,6 +189,51 @@ type MetricsBackfiller interface {
 // set the platform's own inventory.
 type NodeAddresser interface {
 	NodeAddresses(ctx context.Context) (map[string]string, error)
+}
+
+// NodePrerequisite is one thing a node must have before some part of the
+// portal works on it, together with the fixed commands that check for it and
+// install it (ADR 0011).
+//
+// Every field is a constant in the binary. Nothing a request carries reaches
+// any of them: a request names an ID, the server looks the prerequisite up, and
+// an ID it does not recognise is refused. That indirection is what keeps this
+// inside the boundary ADR 0007 drew — the command and its arguments are the
+// portal's, and only the choice of which fixed command to run is the
+// operator's.
+type NodePrerequisite struct {
+	// ID is the stable name the API accepts and the audit log records.
+	ID string
+	// Name is what an operator calls it, usually the package.
+	Name string
+	// Needed says what stops working without it, so the report can explain the
+	// consequence rather than just state an absence.
+	Needed string
+	// Probe proves it is present. Its exit status is the answer; its output is
+	// not read.
+	Probe string
+	// Install is the command that fixes it, empty when the portal cannot. A
+	// prerequisite the portal cannot install is still worth reporting — the
+	// portal's own SSH key is the case that matters, since installing it needs
+	// the access it grants.
+	Install string
+	// Packages is what Install adds, named separately so the confirmation and
+	// the audit entry can say exactly what is about to be put on a hypervisor
+	// without parsing a command line.
+	Packages []string
+}
+
+// Installable reports whether the portal can fix this itself.
+func (p NodePrerequisite) Installable() bool { return p.Install != "" }
+
+// NodePrerequisiteLister names what a platform's nodes need.
+//
+// On the connector because the answer is platform-specific in two ways: which
+// tools are needed at all, and which package manager installs them. A connector
+// whose nodes are not Debian supplies its own list or none, and a platform that
+// implements nothing here reports nothing rather than guessing.
+type NodePrerequisiteLister interface {
+	NodePrerequisites() []NodePrerequisite
 }
 
 // Provisioner creates guests from a platform's own templates.

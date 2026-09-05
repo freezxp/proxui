@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/freezxp/proxui/internal/app/command"
+	"github.com/freezxp/proxui/internal/app/nodecheck"
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/domain/identity"
@@ -32,6 +33,10 @@ type PlatformDeps struct {
 	Platforms ports.PlatformRepository
 	Runs      SyncRunLister
 	Sync      SyncEnqueuer
+	// Nodes checks what a platform's nodes are missing and installs what it
+	// can (ADR 0011). Nil on a portal built without it, which reports no
+	// prerequisites rather than failing.
+	Nodes *nodecheck.Checker
 }
 
 type platformRequest struct {
@@ -197,10 +202,18 @@ func (s *Server) handleTestPlatform(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// The capability half is included because it was already being computed
+	// and thrown away: a token that syncs but cannot provision is a correct
+	// configuration, and an administrator adding a platform should be told
+	// which one they have made (ADR 0010, ADR 0011).
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"reachable": report.Reachable, "authenticated": report.Authenticated,
 		"version": report.Version, "nodes": report.NodeCount,
 		"missing_permissions": report.MissingPermissions, "warnings": report.Warnings,
+		"provisioning_available":          report.ProvisioningAvailable,
+		"missing_provisioning_privileges": orEmpty(report.MissingProvisioningPrivileges),
+		"template_build_available":        report.TemplateBuildAvailable,
+		"missing_template_privileges":     orEmpty(report.MissingTemplatePrivileges),
 	})
 }
 

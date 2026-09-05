@@ -191,6 +191,32 @@ States run `pending → cloning → configuring → resizing → starting → re
 
 A platform whose token lacks the provisioning privileges answers 409 `platform.not_capable`, which is a configuration an administrator chose rather than a fault. `POST /platforms/test` reports the same thing in advance as `provisioning_available` plus the names of anything missing.
 
+## 8.5b Node readiness ([ADR 0011](adr/0011-the-portal-can-install-what-it-needs-on-a-node.md))
+
+Three of the portal's features run *on* a node rather than against the API,
+because Proxmox has no API for what they do. None of them fails loudly when the
+node is missing what it needs — a chart simply has no line on it, or a guest
+arrives with no agent — so this is where the requirement is said out loud.
+
+| Method & URI | Roles | Description |
+|---|---|---|
+| GET `/platforms/{id}/readiness` | admin | `{portal_key, nodes: [{node, address, reachable, problem?, fingerprint?, prerequisites: [{id, name, needed, present, installable, packages[], command, install?}]}], privileges: {missing[], provisioning_available, missing_provisioning[], template_build_available, missing_template[], warnings[]}}`. One SSH handshake per node, on demand from a button — never on page load. A node that could not be reached reports `problem` and **no** prerequisites: unknown is not the same as missing. Checking pins an unmet node's host key, because the sensor collector pins only after a node answers `sensors -j` and so never meets a node that has no lm-sensors |
+| POST `/platforms/{id}/nodes/{node}/install` | admin | `{prerequisite}` → 202 `{node, prerequisite, state, started_at}`. **An identifier, never a package**: the server maps it to a command compiled into the binary and answers 422 for one it does not recognise. 409 `node.not_pinned` when the portal has not met the node (check first), `node.install_running` when one is already in flight, `node.no_portal_key` when the portal has no key of its own. Audited as `node.install` naming the node, the packages and the command |
+
+The 202 is the whole answer: `apt-get` takes minutes and this API's deadline is
+30 seconds. Nothing is stored, because nothing needs to be — checking again asks
+the node, which is the only authority on whether the tool is there. The
+outcome of the last attempt rides along on the next readiness report as
+`prerequisites[].install`, and who asked for it is in the audit trail.
+
+`privileges` is the credential's half of the same question. It was already being
+computed by `POST /platforms/test` and dropped from the response, and that
+endpoint only works *before* a platform is saved, since the credential is
+write-only — so a configured platform had nowhere to show it. `POST
+/platforms/test` now returns it too, as `provisioning_available`,
+`missing_provisioning_privileges`, `template_build_available` and
+`missing_template_privileges`.
+
 ## 8.6 Groups, grants, users
 
 | Method & URI | Roles | Description |

@@ -33,6 +33,12 @@ sensors-detect --auto      # answer nothing; the defaults are right
 sensors -j                 # should print JSON, not an error
 ```
 
+The portal can do this part for you once step 2 is done and it can reach the
+node: **Platforms → the platform → Readiness → Check**, then *Install* beside
+lm-sensors. It runs the same two commands, admin-only and audited
+([ADR 0011](adr/0011-the-portal-can-install-what-it-needs-on-a-node.md)). Step 2
+is the one nobody can do for you.
+
 If `sensors -j` prints an empty object, the kernel found no hwmon devices it
 recognises. That is a hardware and driver question, and nothing in the portal
 can help with it. A VM pretending to be a node — the usual case in a lab —
@@ -68,6 +74,14 @@ Worth being precise about, because it is `root` on a hypervisor.
 - **The address comes from the platform**, out of `/cluster/status`. A node the
   cluster did not name has no address to dial.
 - **On the scheduler**, every five minutes, with nobody signed in.
+
+Two other things reach a node over the same connection and are worth naming
+here, because both break the last bullet: preparing a template's disk (PROV-14)
+and installing a node prerequisite ([ADR 0011](adr/0011-the-portal-can-install-what-it-needs-on-a-node.md)),
+each of which runs because somebody pressed a button. Neither takes a command
+from the request. Installing takes an *identifier*, which the binary maps to a
+command it already contained, and refuses one it does not recognise — so the
+first three bullets still hold for every node connection the portal makes.
 
 ## 30.4 The host key
 
@@ -107,7 +121,7 @@ The host page says which of these it is.
 | What it says | What to do |
 |---|---|
 | *the node refused the portal's key* | the public key is not in that node's `authorized_keys`, or is not in root's |
-| *lm-sensors is not installed on the node* | `apt install lm-sensors` there |
+| *lm-sensors is not installed on the node* | `apt install lm-sensors` there, or install it from **Platforms → Readiness** |
 | *the node could not be reached on port 22* | sshd is not listening, or the address from `/cluster/status` is not reachable from the portal |
 | *the node presented a different host key* | the node was rebuilt (clear the pin), or it is not the node the portal met |
 | *This node has not been read yet* | the first poll has not run, or the portal has no SSH key of its own — generate one in **Settings → SSH key** |

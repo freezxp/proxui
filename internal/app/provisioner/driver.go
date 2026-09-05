@@ -408,7 +408,8 @@ func (d *Driver) prepareDisk(ctx context.Context, conn connector.Connector, req 
 	case errors.Is(err, imageprep.ErrToolMissing):
 		d.Log.Warn().Str("node", req.TargetNode).Msg("template built without a guest agent")
 		return "the template was built without a guest agent: install libguestfs-tools on " +
-			req.TargetNode + " and rebuild to have one. Guests cloned from it will report no IP address."
+			req.TargetNode + " and rebuild to have one. Guests cloned from it will report no IP " +
+			"address. The platform's Readiness section installs it (ADR 0011)."
 	default:
 		d.Log.Warn().Err(err).Str("request", req.ID.String()).Msg("preparing the template disk failed")
 		return "the template was built but could not be prepared: " + err.Error()

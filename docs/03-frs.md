@@ -71,6 +71,16 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 | PROV-14 | M | A template's disk is prepared before it is sealed: qemu-guest-agent installed, and machine-id, SSH host keys and cloud-init state cleared so clones do not inherit one identity. Without the agent a guest reports no address, and an address is what the portal needs before it can offer SSH. |
 | PROV-15 | M | Preparation is never fatal. A node without `libguestfs-tools` still produces a working template; the request records that guests cloned from it will report no address, and says which node to install it on. |
 
+## 3.3b Node prerequisites (NODE) — [ADR 0011](adr/0011-the-portal-can-install-what-it-needs-on-a-node.md)
+
+| ID | Pri | Requirement |
+|---|---|---|
+| NODE-01 | M | Admin can ask a platform what its nodes are missing: per node, whether the portal can be let in at all, and whether each prerequisite the connector names is present. On demand only — never on page load. |
+| NODE-02 | M | A node that could not be reached reports why in an operator's words (no key installed, host key changed, port 22 shut) and reports **no** prerequisites. Unknown is not the same as missing. |
+| NODE-03 | M | Admin can have the portal install a prerequisite it knows how to install. The request names an identifier, never a package or a command; an identifier the binary does not recognise is refused before anything is dialled. |
+| NODE-04 | M | Installing is admin-only, confirmed in the UI, and written to the audit log as `node.install` with the node, the packages and the outcome. The command that would run is shown before it runs. |
+| NODE-05 | M | What the portal cannot fix is still reported: the portal's own SSH key, whose installation needs the access it grants, and the platform credential's privileges, which are widened on the cluster. Each is reported with the exact command or privilege rather than omitted. |
+
 ## 3.4 Synchronization (SYNC) — summary; full design in [10-sync-engine.md](10-sync-engine.md)
 
 | ID | Pri | Requirement |

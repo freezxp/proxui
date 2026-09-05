@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- **A platform can now say what its nodes are missing, and install it**
+  (NODE-01…NODE-05, [ADR 0011](docs/adr/0011-the-portal-can-install-what-it-needs-on-a-node.md)).
+  A template built on `cx1` came out with no guest agent because only `pve` had
+  `libguestfs-tools`. Nothing failed — the build finished, the template worked,
+  and the request recorded exactly which package to install on exactly which
+  node. It still cost a round trip, because that sentence was written where
+  nobody would read it.
+
+  That is the shape every one of these has: `lm-sensors` missing means an empty
+  temperature chart, `libguestfs-tools` missing means guests with no address, and
+  the portal's key missing means neither works at all. None of them is an error.
+  Each is found weeks later by somebody noticing an absence.
+
+  **Platforms → the platform → Readiness → Check** now asks every node what it
+  has, in one SSH handshake each, and offers *Install* beside the two the portal
+  can fix. On demand from a button, never on page load: it changes about once a
+  year. A node that would not let the portal in reports why — no key, changed
+  host key, port 22 shut — and reports **no** prerequisites, because unknown is
+  not the same as missing.
+
+  Installing is admin-only, confirmed, and audited as `node.install` naming the
+  node and the packages. **The request names an identifier, never a package**:
+  the server maps it to a command compiled into the binary and refuses one it
+  does not recognise, which is what keeps this inside ADR 0007's boundary while
+  crossing the part of it that was drawn around reading. The command is shown in
+  full before it runs, because the portal is asking to run it as root on a
+  hypervisor.
+
+  Two things it deliberately will not fix, and says so with the exact command or
+  privilege: **the portal's own SSH key**, whose installation needs the access it
+  grants, and **the credential's privileges**, which are widened on the cluster.
+
+  Two gaps closed on the way past. `POST /platforms/test` was building the
+  provisioning and template capability report and dropping it from the response,
+  so the separate reporting ADR 0010 added had never been visible — it is
+  returned now, and the readiness report carries it for a platform that is
+  already saved, which the test endpoint cannot do because the credential is
+  write-only. And checking pins an unmet node's host key, which fixes a case
+  nothing else could reach: the sensor collector pins only after a node answers
+  `sensors -j`, so a node without lm-sensors was never pinned at all — and
+  installing lm-sensors is what needs the pin.
+
 - **Create VM moved to the inventory.** It used to live inside a platform's
   drawer, which meant deciding which cluster you wanted before you could ask for
   a machine at all. The button is now on the inventory page, where somebody who

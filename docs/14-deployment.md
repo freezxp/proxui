@@ -105,3 +105,45 @@ Documented so the move is mechanical when/if the org standardizes on K8s:
 | `prod` | live | as above |
 
 Promotion is by image tag; configuration differs only via `.env` — never by build.
+
+## 14.6 Node prerequisites
+
+The stack above is the whole portal. The Proxmox nodes are not part of it, and
+the portal does not own them — but three of its features run *on* a node rather
+than against the API, because Proxmox has no API for what they do. Each of them
+needs something installed there.
+
+| On each node | Needed by | Portal can install it |
+|---|---|---|
+| the portal's public key in `root`'s `authorized_keys` | everything below | **no** — installing it needs the access it grants |
+| `lm-sensors` (`sensors`) | node temperatures — Proxmox publishes none (§30) | yes |
+| `libguestfs-tools` (`virt-customize`) | putting a guest agent into a template's disk (PROV-14) | yes |
+
+None of these is a hard requirement. A node without the key is the normal
+starting state and stays quiet about it; a node without `lm-sensors` reports no
+temperature; a node without `libguestfs-tools` still builds templates, whose
+guests simply arrive with no agent and therefore no IP address in the inventory.
+
+That is exactly why they need saying out loud. Nothing fails — you find out
+later, from a chart with no line on it or a guest the portal cannot offer a
+terminal to.
+
+**Checking and fixing from the portal.** A platform's detail drawer has a
+**Readiness** section: it asks every node what it has, and offers to install the
+two packages it can. Admin-only, confirmed, and audited as `node.install`
+naming the node and the packages
+([ADR 0011](adr/0011-the-portal-can-install-what-it-needs-on-a-node.md)). The
+package list is a constant in the binary — the request names a prerequisite,
+never a package.
+
+The SSH key is checked and deliberately not offered: see §30.2 for the two
+commands, which an operator runs once per node.
+
+**Token privileges** are reported in the same place, because they are the other
+half of the same question. The credential's own privileges decide whether the
+platform can provision and whether it can build templates, and widening them is
+done on the cluster, in **Datacenter → Permissions**, not from here.
+
+**A new site,** then, is: bring up the stack, add the platform, press
+**Check readiness**, and do what it says. That is what "standard on any
+deployment" can honestly mean for machines the portal is only a guest on.

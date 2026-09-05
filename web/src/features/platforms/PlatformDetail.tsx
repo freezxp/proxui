@@ -4,6 +4,7 @@ import { api } from '@/api/client'
 import type { Platform, SyncRun } from '@/api/types'
 import { Drawer } from '@/components/Drawer'
 import { MonitoringGuide } from './MonitoringGuide'
+import { ReadinessSection } from './Readiness'
 import { ProvisionStatus } from '@/features/provisioning/ProvisionForm'
 import { BuildTemplateForm } from '@/features/provisioning/BuildTemplateForm'
 import { absoluteTime, relativeTime } from '@/lib/format'
@@ -124,6 +125,12 @@ export function PlatformDetail({ platform, onClose }: { platform: Platform; onCl
             Build template
           </button>
         </div>
+
+        {/* What the nodes themselves need, beside the thing that needs them:
+            a template built on a node without libguestfs-tools comes out
+            without a guest agent, and nothing says so until somebody looks at
+            a guest with no address (ADR 0011). */}
+        <ReadinessSection platformID={platform.id} />
 
         {startedRequest && <ProvisionStatus requestID={startedRequest} />}
 

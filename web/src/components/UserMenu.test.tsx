@@ -81,7 +81,7 @@ describe('UserMenu', () => {
     expect(screen.getByText('Operator')).toBeDefined()
   })
 
-  it('marks the active theme so the choice is visible', async () => {
+  it('marks the active mode so the choice is visible', async () => {
     const person = userEvent.setup()
     renderMenu()
 
@@ -90,6 +90,38 @@ describe('UserMenu', () => {
 
     expect(screen.getByRole('button', { name: 'Dark', pressed: true })).toBeDefined()
     expect(document.documentElement.classList.contains('dark')).toBe(true)
+  })
+
+  // The palette and light-or-dark are independent: a theme defines every token
+  // in both modes, so choosing one must not quietly decide the other.
+  it('switches theme without touching the mode', async () => {
+    const person = userEvent.setup()
+    renderMenu()
+
+    await person.click(screen.getByRole('button', { expanded: false }))
+    await person.click(screen.getByRole('button', { name: 'Dark' }))
+    await person.click(screen.getByRole('button', { name: /Classic/ }))
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('classic')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(screen.getByRole('button', { name: /Classic/, pressed: true })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Dark', pressed: true })).toBeDefined()
+
+    await person.click(screen.getByRole('button', { name: /Slate/ }))
+    expect(document.documentElement.getAttribute('data-theme')).toBe('slate')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+  })
+
+  // Each option says what it is. Two palettes named only "Slate" and "Classic"
+  // would be a coin toss for anybody who has not seen both.
+  it('says what each theme looks like', async () => {
+    const person = userEvent.setup()
+    renderMenu()
+
+    await person.click(screen.getByRole('button', { expanded: false }))
+
+    expect(screen.getByText('the original blue and slate')).toBeDefined()
+    expect(screen.getByText(/IBM Plex/)).toBeDefined()
   })
 
   it('signs out from the menu', async () => {

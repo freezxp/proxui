@@ -1,12 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
-import { applyTheme, storedTheme, watchSystemTheme, type Theme } from '@/lib/theme'
+import {
+  applyMode,
+  applyTheme,
+  storedMode,
+  storedTheme,
+  watchSystemMode,
+  type Mode,
+  type Theme,
+} from '@/lib/theme'
 import { roleLabel } from '@/lib/permissions'
 import type { CurrentUser } from '@/api/types'
 
-const THEMES: { value: Theme; label: string }[] = [
+const MODES: { value: Mode; label: string }[] = [
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
   { value: 'system', label: 'System' },
+]
+
+// Two palettes, each defined in both modes: picking one does not pick light or
+// dark, and picking dark does not pick a palette.
+const THEMES: { value: Theme; label: string; hint: string }[] = [
+  { value: 'slate', label: 'Slate', hint: 'cool grey, teal accent, IBM Plex' },
+  { value: 'classic', label: 'Classic', hint: 'the original blue and slate' },
 ]
 
 /** Everything that belongs to the person rather than the estate: who they are,
@@ -32,14 +47,17 @@ export function UserMenu({
   openUp?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<Mode>(storedMode)
   const [theme, setTheme] = useState<Theme>(storedTheme)
   const container = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    applyTheme(theme)
-    return watchSystemTheme()
-  }, [theme])
+    applyMode(mode)
+    return watchSystemMode()
+  }, [mode])
+
+  useEffect(() => applyTheme(theme), [theme])
 
   useEffect(() => {
     if (!open) return
@@ -116,25 +134,50 @@ export function UserMenu({
             <div className="mt-1 text-xs text-muted">{roleLabel(user.role)}</div>
           </div>
 
-          <div className="border-b border-border px-3 py-2">
-            <div className="mb-1 text-xs uppercase tracking-wide text-muted">Appearance</div>
-            {/* A segmented control rather than a select: three options, and
-                seeing which one is active is the whole point. */}
-            <div className="flex gap-1">
-              {THEMES.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setTheme(option.value)}
-                  aria-pressed={theme === option.value}
-                  className={`flex-1 rounded-md px-2 py-1 text-xs ${
-                    theme === option.value
-                      ? 'bg-accent text-white'
-                      : 'border border-border hover:bg-surface-inset'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
+          <div className="space-y-2 border-b border-border px-3 py-2">
+            <div>
+              <div className="mb-1 text-xs uppercase tracking-wide text-muted">Appearance</div>
+              {/* A segmented control rather than a select: three options, and
+                  seeing which one is active is the whole point. */}
+              <div className="flex gap-1">
+                {MODES.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setMode(option.value)}
+                    aria-pressed={mode === option.value}
+                    className={`flex-1 rounded-md px-2 py-1 text-xs ${
+                      mode === option.value
+                        ? 'bg-accent text-white'
+                        : 'border border-border hover:bg-surface-inset'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1 text-xs uppercase tracking-wide text-muted">Theme</div>
+              {/* Stacked rather than segmented: each of these needs a line
+                  saying what it is, and two words on a chip cannot. */}
+              <div className="space-y-1">
+                {THEMES.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setTheme(option.value)}
+                    aria-pressed={theme === option.value}
+                    className={`block w-full rounded-md px-2 py-1 text-left text-xs ${
+                      theme === option.value
+                        ? 'bg-accent-wash text-accent-strong'
+                        : 'border border-border hover:bg-surface-inset'
+                    }`}
+                  >
+                    <span className="font-medium">{option.label}</span>
+                    <span className="block text-[10px] text-muted">{option.hint}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

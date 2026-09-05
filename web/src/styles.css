@@ -3,17 +3,26 @@
 @tailwind utilities;
 
 /* Semantic tokens rather than raw colours, so a component says what a value
-   means ("surface", "danger") and both themes stay consistent by definition.
+   means ("surface", "danger") and every theme stays consistent by definition.
+   No component knows which theme or which mode it is in.
 
-   The palette is dnsprox's, so the two halves of the same estate look like one
-   product: a cool slate ground, a single teal accent, and signal colours dark
-   enough to read as text rather than as decoration. Light is the base; dark
-   overrides only the values, and no component knows which it is in. */
+   Two axes, four blocks. Mode (light/dark) is the `.dark` class; theme is the
+   `data-theme` attribute. The order below is load-bearing, because
+   `[data-theme]` and `.dark` have the same specificity: a theme's light block
+   must come after the default's dark block to win, and its dark block is the
+   only one of the four that needs no help from ordering. Adding a `.dark` rule
+   below the themes would silently break the classic palette's dark mode. */
 @layer base {
+  /* ---- Slate: the default, shared with dnsprox ---------------------------
+     A cool slate ground, one teal accent, and signal colours dark enough to be
+     read as text rather than seen as decoration. */
   :root {
-    /* The page, a panel on it, and a subtle fill inside a panel. Three, not
-       two: a table header inside a card needs to separate from the card
-       without becoming another card. */
+    --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* The page, a panel on it, and a fill inside a panel. Three, not two: a
+       table header inside a card must separate from the card without becoming
+       another card, and that is also what every hover state is. */
     --surface: 243 245 246;
     --surface-raised: 255 255 255;
     --surface-inset: 234 238 240;
@@ -46,7 +55,7 @@
        nobody has confirmed lately. The palette carries no colour there, so
        this one is mixed from the two it sits between. */
     --state-stale: 168 72 26;
-    /* Caution, and the same value as the paused amber. The palette has one
+    /* Caution, and the same value as the paused amber. This palette has one
        warm signal and inventing a second would be a difference nobody could
        see; the names stay apart because a warm node and a paused VM are
        unrelated, and one may need to move without the other. */
@@ -80,6 +89,69 @@
     --state-stale: 224 143 95;
     --warning: 217 162 87;
     --danger: 232 117 106;
+  }
+
+  /* ---- Classic: what the portal looked like before ----------------------
+     Tailwind's slate and blue, and the system typeface. Kept because the newer
+     palette is deliberately quiet, and quiet is not what everybody wants on a
+     wall display or in a bright room. */
+  [data-theme='classic'] {
+    --font-sans:
+      ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+      'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono:
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+      monospace;
+
+    --surface: 250 250 250;
+    --surface-raised: 255 255 255;
+    /* New since this palette was the only one, so derived rather than
+       recovered: the next step down the same slate scale its borders come
+       from. */
+    --surface-inset: 241 245 249;
+
+    --border: 226 232 240;
+    --border-strong: 203 213 225;
+
+    --content: 15 23 42;
+    --content-soft: 51 65 85;
+    --muted: 100 116 139;
+
+    --accent: 37 99 235;
+    --accent-strong: 29 78 216;
+    --accent-wash: 239 246 255;
+
+    --state-running: 22 163 74;
+    --state-stopped: 100 116 139;
+    --state-paused: 217 119 6;
+    --state-stale: 234 88 12;
+    /* Here the two do differ, because this palette had room for both. */
+    --warning: 202 138 4;
+    --danger: 220 38 38;
+  }
+
+  [data-theme='classic'].dark {
+    --surface: 15 23 42;
+    --surface-raised: 30 41 59;
+    --surface-inset: 51 65 85;
+
+    --border: 51 65 85;
+    --border-strong: 71 85 105;
+
+    --content: 226 232 240;
+    --content-soft: 203 213 225;
+    --muted: 148 163 184;
+
+    --accent: 96 165 250;
+    --accent-strong: 147 197 253;
+    --accent-wash: 23 37 84;
+
+    --state-running: 74 222 128;
+    --state-stopped: 148 163 184;
+    --state-paused: 251 191 36;
+    --state-stale: 251 146 60;
+    --warning: 250 204 21;
+    --danger: 248 113 113;
   }
 
   body {

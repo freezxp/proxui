@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **The look is a choice now.** Appearance has two independent axes in the
+  account menu: **Mode** (light, dark, or whatever the machine says) and
+  **Theme** — **Slate**, the dnsprox palette with IBM Plex, or **Classic**, the
+  original blue and slate with the system typeface. Each theme defines every
+  token in both modes, so picking a palette never decides light-or-dark and
+  picking dark never decides a palette. The typeface is part of the theme, so
+  Classic gets its old system stack back rather than keeping Plex.
+
+  Two things about four token blocks are silently fragile, and both are tested
+  now rather than commented. A block that forgets a token does not fail — it
+  inherits the other theme's value, which is how one palette's teal ends up
+  inside the other's blue. And the block order is load-bearing, because
+  `[data-theme]` and `.dark` have equal specificity: a `.dark` rule appended
+  below the themes would quietly take dark mode away from Classic, and nothing
+  but the screen would say so.
+
 - **The portal looks like dnsprox now** — same palette, same typography, same
   shape of shell. Two tools run by the same team out of the same rack should
   not look like two products, and the one that was already right about this was

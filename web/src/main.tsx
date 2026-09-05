@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppRoutes } from '@/app/router'
 import { AuthProvider } from '@/features/auth/useAuth'
-import { applyTheme, storedTheme } from '@/lib/theme'
+import { applyMode, applyTheme, storedMode, storedTheme } from '@/lib/theme'
 // IBM Plex, bundled rather than fetched: a self-hosted portal should not need
 // a font CDN to render, and a stylesheet pulled from Google on every load would
 // both leak who is using it and leave an air-gapped install in a fallback face.
@@ -20,7 +20,9 @@ import '@fontsource/ibm-plex-mono/latin-400.css'
 import '@fontsource/ibm-plex-mono/latin-500.css'
 import './styles.css'
 
-// Applied before the first paint so a dark-theme user never sees a white flash.
+// Applied before the first paint so a dark-mode user never sees a white flash,
+// and nobody sees the wrong palette resolve into the right one.
+applyMode(storedMode())
 applyTheme(storedTheme())
 
 const queryClient = new QueryClient({

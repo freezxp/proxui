@@ -9,12 +9,12 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        // IBM Plex, self-hosted through @fontsource rather than linked from a
-        // font CDN: this is a portal somebody runs on their own network, and a
-        // stylesheet fetched from Google on every load would both leak who is
-        // using it and leave an air-gapped install rendering in a fallback.
-        sans: ['IBM Plex Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        // Through a variable, because the typeface is part of the theme: the
+        // slate palette is IBM Plex (self-hosted through @fontsource, never
+        // linked from a font CDN — this is a portal somebody runs on their own
+        // network) and the classic one is the system stack it always had.
+        sans: 'var(--font-sans)',
+        mono: 'var(--font-mono)',
       },
       colors: {
         surface: 'rgb(var(--surface) / <alpha-value>)',

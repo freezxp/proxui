@@ -180,3 +180,54 @@ describe('theme colours', () => {
     ).toEqual([])
   })
 })
+
+/**
+ * A theme is only a theme if it defines everything.
+ *
+ * The tokens live in four blocks — two themes times two modes — and a component
+ * asking for `bg-surface-inset` gets whatever the cascade last set. A block
+ * that forgets a token does not fail: it silently inherits the other theme's
+ * value, which is how you end up with one palette's teal accent sitting in the
+ * middle of the other's blue.
+ *
+ * Ordering matters for the same reason. `[data-theme='classic']` and `.dark`
+ * have equal specificity, so the classic light block only wins because it comes
+ * after the default dark block. A `.dark` rule added below the themes would
+ * take dark mode away from the classic palette, and nothing but the screen
+ * would say so.
+ */
+describe('theme tokens', () => {
+  const css = readFileSync('src/styles.css', 'utf8')
+
+  /** The custom properties one selector's block declares. */
+  function tokensOf(selector: string): string[] {
+    const start = css.indexOf(selector + ' {')
+    expect(start, `${selector} is not in styles.css`).toBeGreaterThan(-1)
+    const body = css.slice(start, css.indexOf('\n  }', start))
+    return [...body.matchAll(/^\s*(--[a-z0-9-]+):/gm)].map((m) => m[1]).sort()
+  }
+
+  const blocks = [':root', '.dark', "[data-theme='classic']", "[data-theme='classic'].dark"]
+
+  it('defines the same tokens in every theme and mode', () => {
+    const base = tokensOf(':root')
+    expect(base.length).toBeGreaterThan(10)
+
+    for (const selector of blocks.slice(1)) {
+      const missing = base.filter((token) => !tokensOf(selector).includes(token))
+      // Fonts belong to the theme, not the mode: a dark block inherits the
+      // family its theme's light block set.
+      const expected = selector.endsWith('.dark') ? ['--font-mono', '--font-sans'] : []
+      expect(missing, `${selector} is missing tokens`).toEqual(expected)
+    }
+  })
+
+  it('keeps the blocks in the order the cascade needs', () => {
+    const positions = blocks.map((selector) => css.indexOf(selector + ' {'))
+    expect(
+      positions,
+      'a theme block must come after every block it has to override, because ' +
+        '[data-theme] and .dark have the same specificity — see the note in styles.css:',
+    ).toEqual([...positions].sort((a, b) => a - b))
+  })
+})

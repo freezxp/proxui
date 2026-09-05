@@ -275,10 +275,33 @@ FROM host_ssh WHERE host_id = $1`, hostID).
 // replaced by an operator clearing it. An upsert here would turn every
 // reconnection into a re-pin and quietly defeat the mismatch check.
 func (r *SensorRepository) Pin(ctx context.Context, rec ports.NodeSSH) error {
+	// The conflict clause fills in a row that has no key rather than doing
+	// nothing, and the WHERE is what keeps trust-on-first-use intact.
+	//
+	// DO NOTHING was wrong, and wrong in the normal case rather than an
+	// unlikely one: a node begins with no portal key installed, so the first
+	// poll fails and RecordAttempt writes a placeholder row on purpose — that
+	// row is what the host page shows for "tried and refused". Once it existed
+	// every later pin conflicted with it and was discarded in silence, so no
+	// node key was ever recorded and the fingerprint column stayed empty
+	// forever. ADR 0007's guarantee that a node cannot be swapped underneath a
+	// portal that has already met it did not hold, because the portal never
+	// finished meeting it.
+	//
+	// A row that already carries a key is still left alone. That is the point
+	// of pinning: a node presenting a different key must be refused, never
+	// quietly re-pinned.
 	_, err := r.db.Exec(ctx, `
 INSERT INTO host_ssh (host_id, address, ssh_user, algorithm, fingerprint, public_key, first_seen_at)
 VALUES ($1,$2,$3,$4,$5,$6,$7)
-ON CONFLICT (host_id) DO NOTHING`,
+ON CONFLICT (host_id) DO UPDATE SET
+    address       = EXCLUDED.address,
+    ssh_user      = EXCLUDED.ssh_user,
+    algorithm     = EXCLUDED.algorithm,
+    fingerprint   = EXCLUDED.fingerprint,
+    public_key    = EXCLUDED.public_key,
+    first_seen_at = EXCLUDED.first_seen_at
+WHERE host_ssh.public_key = ''::bytea`,
 		rec.HostID, rec.Address, rec.SSHUser, rec.Algorithm, rec.Fingerprint,
 		rec.PublicKey, rec.FirstSeenAt)
 	if err != nil {

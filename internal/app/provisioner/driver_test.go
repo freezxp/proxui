@@ -7,12 +7,14 @@ package provisioner
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"github.com/freezxp/proxui/internal/app/imageprep"
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/connectors/mock"
@@ -217,6 +219,9 @@ func (s sharedFleet) ImportDisk(ctx context.Context, vm connector.VMRef, spec co
 }
 func (s sharedFleet) ConvertToTemplate(ctx context.Context, vm connector.VMRef) (connector.TaskRef, error) {
 	return s.c.ConvertToTemplate(ctx, vm)
+}
+func (s sharedFleet) NodeAddresses(ctx context.Context) (map[string]string, error) {
+	return s.c.NodeAddresses(ctx)
 }
 
 func newDriver(t *testing.T, requests *memRequests, acc *memAccess, q *nopQueue, audit *nopAudit) *Driver {
@@ -655,5 +660,93 @@ func TestAFailedBuildKeepsThePartialGuest(t *testing.T) {
 	}
 	if stored.Step != string(provision.StateImporting) || stored.VMID != "9999" {
 		t.Errorf("failed build lost its step or its guest: %+v", stored)
+	}
+}
+
+// recordingPreparer stands in for the node-side work.
+type recordingPreparer struct {
+	calls  []string
+	result error
+}
+
+func (r *recordingPreparer) Prepare(_ context.Context, _ uuid.UUID, node, address, volume string) error {
+	r.calls = append(r.calls, node+"|"+address+"|"+volume)
+	return r.result
+}
+
+// A published cloud image has no guest agent, so without this step every guest
+// cloned from the template reports no address — and an address is what the
+// portal needs before it can offer an SSH session at all.
+func TestTemplateBuildPreparesTheDiskBeforeSealingIt(t *testing.T) {
+	requests := newMemRequests()
+	prep := &recordingPreparer{}
+	d := newDriver(t, requests, &memAccess{members: map[uuid.UUID][]uuid.UUID{}}, &nopQueue{}, &nopAudit{})
+	d.Images = prep
+
+	platform, _ := d.Platforms.Get(context.Background(), uuid.Nil)
+	req := templateBuildRequest(platform.ID)
+	if err := requests.CreateRequest(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	done := run(t, d, req.ID)
+	if done.State != provision.StateReady {
+		t.Fatalf("state = %s (%s), want ready", done.State, done.Error)
+	}
+	if len(prep.calls) != 1 {
+		t.Fatalf("prepared %d times, want once: %v", len(prep.calls), prep.calls)
+	}
+	// The volume has to name the guest's own disk on the storage the disk went
+	// to, or the node prepares the wrong image — or nothing at all.
+	if want := "local-lvm:vm-" + done.VMID + "-disk-0"; !strings.HasSuffix(prep.calls[0], want) {
+		t.Errorf("prepared %q, want it to end in %q", prep.calls[0], want)
+	}
+	if done.Error != "" {
+		t.Errorf("a successful preparation left a note: %q", done.Error)
+	}
+}
+
+// A node without the tooling still produces a working template. Failing the
+// build over a machine that would boot perfectly well would be worse than the
+// missing agent.
+func TestATemplateStillBuildsWhenTheNodeCannotPrepare(t *testing.T) {
+	requests := newMemRequests()
+	prep := &recordingPreparer{result: imageprep.ErrToolMissing}
+	d := newDriver(t, requests, &memAccess{members: map[uuid.UUID][]uuid.UUID{}}, &nopQueue{}, &nopAudit{})
+	d.Images = prep
+
+	platform, _ := d.Platforms.Get(context.Background(), uuid.Nil)
+	req := templateBuildRequest(platform.ID)
+	if err := requests.CreateRequest(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	done := run(t, d, req.ID)
+	if done.State != provision.StateReady {
+		t.Fatalf("state = %s, want the template built anyway", done.State)
+	}
+	// But it must say so: a template silently missing its agent is a fleet of
+	// guests with no addresses and nothing explaining why.
+	if !strings.Contains(done.Error, "libguestfs-tools") {
+		t.Errorf("note = %q, want it to name what is missing and where", done.Error)
+	}
+}
+
+// With no preparer wired at all, templates build exactly as they did before the
+// step existed.
+func TestTemplateBuildWithoutAPreparerIsUnchanged(t *testing.T) {
+	requests := newMemRequests()
+	d := newDriver(t, requests, &memAccess{members: map[uuid.UUID][]uuid.UUID{}}, &nopQueue{}, &nopAudit{})
+	d.Images = nil
+
+	platform, _ := d.Platforms.Get(context.Background(), uuid.Nil)
+	req := templateBuildRequest(platform.ID)
+	if err := requests.CreateRequest(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	done := run(t, d, req.ID)
+	if done.State != provision.StateReady || done.Error != "" {
+		t.Errorf("state = %s, error = %q; want an ordinary build", done.State, done.Error)
 	}
 }

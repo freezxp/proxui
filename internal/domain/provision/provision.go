@@ -49,7 +49,11 @@ const (
 	StateDownloading State = "downloading"
 	StateCreating    State = "creating"
 	StateImporting   State = "importing"
-	StateConverting  State = "converting"
+	// StatePreparing installs the guest agent and clears the identity a clone
+	// must not inherit. Between importing and converting because a template
+	// cannot be modified once it is one (PROV-14).
+	StatePreparing  State = "preparing"
+	StateConverting State = "converting"
 
 	// Either, at any point.
 	StateFailed State = "failed"
@@ -170,6 +174,8 @@ func (r *Request) NextState() State {
 		case StateCreating:
 			return StateImporting
 		case StateImporting:
+			return StatePreparing
+		case StatePreparing:
 			return StateConverting
 		case StateConverting:
 			return StateReady

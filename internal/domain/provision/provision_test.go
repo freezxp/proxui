@@ -210,12 +210,15 @@ func templateRequest(spec Spec) *Request {
 	}
 }
 
-func TestBuildingATemplateWalksDownloadCreateImportConvert(t *testing.T) {
+func TestBuildingATemplateWalksEveryStepInOrder(t *testing.T) {
 	got := walk(t, templateRequest(Spec{}))
 
+	// Preparing sits between importing and converting because a template
+	// cannot be modified once it is one: the guest agent has to go in while
+	// the disk still belongs to an ordinary guest.
 	want := []State{
 		StatePending, StateDownloading, StateCreating,
-		StateImporting, StateConverting, StateReady,
+		StateImporting, StatePreparing, StateConverting, StateReady,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("path = %v, want %v", got, want)

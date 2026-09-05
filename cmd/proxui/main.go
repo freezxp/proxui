@@ -22,6 +22,7 @@ import (
 
 	appalert "github.com/freezxp/proxui/internal/app/alert"
 	"github.com/freezxp/proxui/internal/app/command"
+	"github.com/freezxp/proxui/internal/app/imageprep"
 	appnotify "github.com/freezxp/proxui/internal/app/notify"
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/app/provisioner"
@@ -248,6 +249,16 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	provisionDriver := &provisioner.Driver{
 		Requests: provisions, Platforms: platforms, Access: accessRepo,
 		Platform: syncService, Queue: queue, Audit: audit, Clock: clock, Log: log,
+		// Templates get a guest agent and a cleared identity before they are
+		// sealed. Without it every clone reports no address, which is what
+		// leaves the portal unable to offer it an SSH session (PROV-14).
+		Images: &imageprep.Preparer{
+			Hosts:  sensorRepo,
+			SSH:    sensorRepo,
+			Key:    postgres.NewPortalKeyRepository(pool, vault),
+			Runner: sshclient.NewDialer(),
+			Log:    log,
+		},
 	}
 	defer queue.Close()
 

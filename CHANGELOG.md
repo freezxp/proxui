@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **Templates are prepared before they are sealed** (PROV-14, PROV-15). A
+  published cloud image carries no `qemu-guest-agent`, so every guest built from
+  one reported no IP address — which is exactly what left the portal unable to
+  offer it an SSH session, since it had nowhere to connect. The build now
+  installs the agent into the disk before converting it, and clears the identity
+  a clone must not inherit: machine-id, SSH host keys, and cloud-init's record of
+  having run. Without that reset every clone of a template shares a machine-id,
+  which hands them all the same DHCP lease, and presents host keys its siblings
+  also have.
+
+  It is done on the node with `virt-customize`, over the SSH channel the portal
+  already opens for sensors — two fixed commands, no shell, the portal's own key
+  (ADR 0007). **A node needs `libguestfs-tools`.** Without it the template still
+  builds and works; the request records that its guests will report no address
+  and names the node to install it on.
+
+  The service is deliberately not enabled: on Debian and its derivatives the
+  package ships a udev rule that starts the agent when the virtio port appears,
+  which the template has. `systemctl enable` there reports success, creates no
+  symlink, and would only mislead the next person to read it.
+
+- **Fixed: node host keys were never actually pinned.** `Pin` used
+  `ON CONFLICT DO NOTHING`, and a node begins life with no portal key installed
+  — so the first poll fails, a placeholder row is written on purpose (it is what
+  the host page shows for "tried and refused"), and every later pin then
+  conflicted with that row and was discarded in silence. The `fingerprint`
+  column stayed empty forever, and ADR 0007's guarantee that a node cannot be
+  swapped underneath a portal that has already met it did not hold, because the
+  portal never finished meeting it. A pin now fills in a row that carries no key
+  and still refuses to overwrite one that does.
+
 - **Favourites and folders on the inventory page** (INV-06…INV-09). The VM list
   was a flat table, and the handful of machines you actually work with were
   scattered through it. Star a VM and it sorts to the top whatever column the

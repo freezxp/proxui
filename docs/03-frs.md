@@ -68,6 +68,8 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 | PROV-11 | M | A build requires a checksum and its algorithm. Building without verification is possible, must be stated explicitly, and writes a `template.build.unverified` audit entry naming the requester and the image. |
 | PROV-12 | M | An image already present on the storage is not downloaded again. Template-building privileges are reported apart from provisioning ones, because cloning from a template needs strictly less than building one. |
 | PROV-13 | M | A guest that becomes a template leaves the VM inventory as a conversion, recorded as such, rather than being reported `missing` until the mark-and-sweep deletes it. A platform whose inventory includes templates keeps the row. |
+| PROV-14 | M | A template's disk is prepared before it is sealed: qemu-guest-agent installed, and machine-id, SSH host keys and cloud-init state cleared so clones do not inherit one identity. Without the agent a guest reports no address, and an address is what the portal needs before it can offer SSH. |
+| PROV-15 | M | Preparation is never fatal. A node without `libguestfs-tools` still produces a working template; the request records that guests cloned from it will report no address, and says which node to install it on. |
 
 ## 3.4 Synchronization (SYNC) — summary; full design in [10-sync-engine.md](10-sync-engine.md)
 

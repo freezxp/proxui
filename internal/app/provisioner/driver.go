@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"github.com/freezxp/proxui/internal/app/imageprep"
 	"github.com/freezxp/proxui/internal/app/ports"
 	"github.com/freezxp/proxui/internal/connector"
 	"github.com/freezxp/proxui/internal/domain/inventory"
@@ -50,16 +51,28 @@ type PlatformConnector interface {
 	Connect(ctx context.Context, p *inventory.Platform) (connector.Connector, error)
 }
 
+// ImagePreparer changes the contents of a disk before it becomes a template.
+//
+// An interface because the driver has no business knowing that this happens
+// over SSH with virt-customize, and because a test needs it not to.
+type ImagePreparer interface {
+	Prepare(ctx context.Context, platformID uuid.UUID, nodeName, address, volumeID string) error
+}
+
 // Driver advances requests.
 type Driver struct {
 	Requests  ports.ProvisionRepository
 	Platforms ports.PlatformRepository
 	Access    ports.AccessRepository
 	Platform  PlatformConnector
-	Queue     ports.ProvisionEnqueuer
-	Audit     ports.AuditWriter
-	Clock     ports.Clock
-	Log       zerolog.Logger
+	// Images prepares a freshly imported disk before it becomes a template.
+	// Optional: without it templates are built exactly as they were before,
+	// which is to say without a guest agent (PROV-14).
+	Images ImagePreparer
+	Queue  ports.ProvisionEnqueuer
+	Audit  ports.AuditWriter
+	Clock  ports.Clock
+	Log    zerolog.Logger
 }
 
 // Step advances one request as far as it can without waiting.
@@ -233,6 +246,15 @@ func (d *Driver) begin(ctx context.Context, conn connector.Connector, req *provi
 		// request until somebody looked at it.
 		return task.ID != "", nil
 
+	case provision.StatePreparing:
+		// Synchronous, and never fatal: a node without the tooling still
+		// produces a working template, and saying so on the request beats
+		// failing a build over a machine that would boot perfectly well.
+		if note := d.prepareDisk(ctx, conn, req); note != "" {
+			req.Error = note
+		}
+		return false, nil
+
 	case provision.StateConverting:
 		b, ok := conn.(connector.TemplateBuilder)
 		if !ok {
@@ -347,6 +369,50 @@ func (d *Driver) createTemplateShell(ctx context.Context, conn connector.Connect
 	}
 	req.TaskID = task.ID
 	return nil
+}
+
+// prepareDisk installs the guest agent into the new disk and clears the
+// identity a clone must not inherit. It returns a note to record when the work
+// could not be done, and the empty string when it was.
+//
+// A published cloud image carries no qemu-guest-agent, so without this every
+// guest cloned from the template reports no address — and an address is what
+// the portal needs before it can offer an SSH session at all. It also carries a
+// machine-id and host keys that every clone would otherwise share.
+//
+// Nothing here is fatal. A node that has no virt-customize builds a template
+// that works; its guests simply arrive without an agent, which is exactly what
+// happened before this step existed.
+func (d *Driver) prepareDisk(ctx context.Context, conn connector.Connector, req *provision.Request) string {
+	if d.Images == nil {
+		return ""
+	}
+	addresser, ok := conn.(connector.NodeAddresser)
+	if !ok {
+		return ""
+	}
+	addresses, err := addresser.NodeAddresses(ctx)
+	if err != nil {
+		return "the guest agent could not be installed: the platform would not say where its nodes are"
+	}
+	address := addresses[req.TargetNode]
+	if address == "" {
+		return "the guest agent could not be installed: no address is known for node " + req.TargetNode
+	}
+
+	volume := req.Spec.Storage + ":vm-" + req.VMID + "-disk-0"
+	err = d.Images.Prepare(ctx, req.PlatformID, req.TargetNode, address, volume)
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, imageprep.ErrToolMissing):
+		d.Log.Warn().Str("node", req.TargetNode).Msg("template built without a guest agent")
+		return "the template was built without a guest agent: install libguestfs-tools on " +
+			req.TargetNode + " and rebuild to have one. Guests cloned from it will report no IP address."
+	default:
+		d.Log.Warn().Err(err).Str("request", req.ID.String()).Msg("preparing the template disk failed")
+		return "the template was built but could not be prepared: " + err.Error()
+	}
 }
 
 // finish files a finished guest into the VM group that was chosen for it.

@@ -266,3 +266,69 @@ func TestSensorHistoryGroupsBySensor(t *testing.T) {
 		}
 	}
 }
+
+// The bug this guards against was in the normal path, not an unlikely one.
+//
+// A node starts with no portal key installed, so the first poll fails and
+// RecordAttempt writes a placeholder row on purpose — that row is what the host
+// page shows for "tried and refused". Pin then conflicted with it and, under
+// ON CONFLICT DO NOTHING, was discarded in silence. No node key was ever
+// recorded, the fingerprint column stayed empty forever, and ADR 0007's
+// guarantee that a node cannot be swapped underneath a portal that has already
+// met it did not hold — because the portal never finished meeting it.
+func TestAPinFillsInTheRowLeftByAFailedAttempt(t *testing.T) {
+	f := newSyncFixture(t, map[string]any{"vm_count": 1})
+	f.reconcile(t)
+	ctx := context.Background()
+	repo := postgres.NewSensorRepository(f.pool)
+	host := hostID(t, f)
+
+	// The ordinary beginning: the key is not installed yet.
+	at := time.Now().UTC().Truncate(time.Second)
+	if err := repo.RecordAttempt(ctx, host, "10.0.30.111", at, "the node refused the portal's key"); err != nil {
+		t.Fatalf("RecordAttempt: %v", err)
+	}
+	before, err := repo.Get(ctx, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Fingerprint != "" {
+		t.Fatalf("a failed attempt recorded a key: %q", before.Fingerprint)
+	}
+
+	// Somebody installs the key and the next poll succeeds.
+	pin := ports.NodeSSH{
+		HostID: host, Address: "10.0.30.111", SSHUser: "root",
+		Algorithm: "ssh-ed25519", Fingerprint: "SHA256:real",
+		PublicKey: []byte("real"), FirstSeenAt: at.Add(time.Minute),
+	}
+	if err := repo.Pin(ctx, pin); err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+
+	got, err := repo.Get(ctx, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Fingerprint != "SHA256:real" || string(got.PublicKey) != "real" {
+		t.Fatalf("fingerprint = %q; the pin was discarded by the placeholder row", got.Fingerprint)
+	}
+	if got.Algorithm != "ssh-ed25519" {
+		t.Errorf("algorithm = %q", got.Algorithm)
+	}
+
+	// And the guarantee still holds: a node presenting a different key is
+	// refused, never quietly re-pinned.
+	swapped := pin
+	swapped.Fingerprint, swapped.PublicKey = "SHA256:impostor", []byte("impostor")
+	if err := repo.Pin(ctx, swapped); err != nil {
+		t.Fatalf("Pin again: %v", err)
+	}
+	after, err := repo.Get(ctx, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Fingerprint != "SHA256:real" {
+		t.Errorf("fingerprint = %q; an established pin was overwritten", after.Fingerprint)
+	}
+}

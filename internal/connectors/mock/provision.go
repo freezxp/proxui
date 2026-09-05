@@ -289,3 +289,22 @@ func (c *Connector) ConvertToTemplate(ctx context.Context, vm connector.VMRef) (
 	return connector.TaskRef{}, connector.Errorf(connector.ErrNotSupported, "convert_template",
 		"unknown guest %q", vm.ExternalID)
 }
+
+// NodeAddresses implements connector.NodeAddresser.
+//
+// The fake fleet's nodes get addresses in a documentation range, which is
+// enough for the paths that only need to know an address exists — template
+// preparation among them — without inviting anything to actually dial one.
+func (c *Connector) NodeAddresses(ctx context.Context) (map[string]string, error) {
+	if err := c.gate(ctx); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	out := map[string]string{}
+	for i, h := range c.hosts {
+		out[h.ExternalID] = fmt.Sprintf("198.51.100.%d", i+1)
+	}
+	return out, nil
+}

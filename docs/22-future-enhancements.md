@@ -36,4 +36,4 @@ Ordered by expected value for this deployment; every item names the seam that ma
 
 ## Explicit non-roadmap
 
-VM provisioning/lifecycle management, configuration drift management, billing/chargeback — these turn the product into a CMP and change its security posture fundamentally (would require write-capable platform tokens). Any such move needs an ADR revisiting the least-privilege token ceiling first.
+Configuration drift management, billing/chargeback — these turn the product into a CMP. VM provisioning and destruction were on this list and left it via [ADR 0010](adr/0010-the-portal-can-create-and-destroy-guests.md), which is the ADR this paragraph asked for; the security posture did change, and that ADR says how. Migration and snapshots remain here, and the next write-capable feature should reopen the single-token decision before it ships.

@@ -51,6 +51,23 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 | PLAT-05 | M | Admin can trigger an immediate full sync and see per-platform sync status, last success, recent errors, and the other addresses the platform is reachable at. |
 | PLAT-06 | S | Per-platform sync interval configurable (default inventory 60 s, metrics 60 s, health 30 s). |
 
+## 3.3a Provisioning (PROV) — see [ADR 0010](adr/0010-the-portal-can-create-and-destroy-guests.md)
+
+| ID | Pri | Requirement |
+|---|---|---|
+| PROV-01 | M | Provisioning privileges are optional per platform. A token without them syncs unchanged and cannot provision; "Test connection" reports provisioning as available or names the privileges missing, rather than failing. |
+| PROV-02 | M | Admin can list a platform's cloud-init templates, separately from the VM inventory, which continues to exclude templates unless `include_templates` is set. |
+| PROV-03 | M | Admin can provision a guest from a template: name, target node, storage, cores, memory, disk size, network bridge, and IP configuration (static or DHCP). |
+| PROV-04 | M | cloud-init receives a user name and SSH public keys only. No guest password is accepted, transmitted, or stored by any part of the portal ([ADR 0005](adr/0005-ssh-credentials-are-never-stored.md)). |
+| PROV-05 | M | A provisioning request is a durable record advancing through clone → configure → resize → start. It survives a portal restart, and a request submitted twice clones once. |
+| PROV-06 | M | A step that fails leaves the partially created guest in place, records which step failed, and does not attempt cleanup. |
+| PROV-07 | M | Admin can destroy a guest. The request must carry the guest's name and the server must match it; templates are refused. |
+| PROV-08 | M | Provisioning and destruction are admin-only, and both the intent and the outcome of each are written to the audit log under the `security` category. |
+| PROV-09 | M | Admin can build a cloud-init template from a published cloud image without touching a node: the platform downloads the image, imports it as a disk, attaches a cloud-init drive, and converts the result. |
+| PROV-10 | M | The portal ships a small catalogue of images with the URL, the distribution's checksum-file link and the default login user; any other URL can be entered by hand. No digests are bundled — a stale one is worse than none. |
+| PROV-11 | M | A build requires a checksum and its algorithm. Building without verification is possible, must be stated explicitly, and writes a `template.build.unverified` audit entry naming the requester and the image. |
+| PROV-12 | M | An image already present on the storage is not downloaded again. Template-building privileges are reported apart from provisioning ones, because cloning from a template needs strictly less than building one. |
+
 ## 3.4 Synchronization (SYNC) — summary; full design in [10-sync-engine.md](10-sync-engine.md)
 
 | ID | Pri | Requirement |

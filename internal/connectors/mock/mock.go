@@ -107,13 +107,16 @@ func defaults() Options {
 
 // Connector is the simulated platform.
 type Connector struct {
-	opts   Options
-	cfg    connector.Config
-	rnd    *rand.Rand
-	mu     sync.Mutex
-	vms    []connector.VMRecord
-	hosts  []connector.HostRecord
-	closed bool
+	opts  Options
+	cfg   connector.Config
+	rnd   *rand.Rand
+	mu    sync.Mutex
+	vms   []connector.VMRecord
+	hosts []connector.HostRecord
+	// templates and images are what template building produces and consumes.
+	templates []connector.TemplateRecord
+	images    map[string]bool
+	closed    bool
 	// tick advances only when the fleet actually mutates, so repeated listings
 	// are stable — the conformance suite requires that.
 	tick int64
@@ -266,6 +269,9 @@ func (c *Connector) Capabilities() []connector.Capability {
 		connector.CapabilityConsole,
 		connector.CapabilityPower,
 		connector.CapabilityEndpointDiscovery,
+		connector.CapabilityProvision,
+		connector.CapabilityDestroy,
+		connector.CapabilityTemplateBuild,
 	}
 }
 

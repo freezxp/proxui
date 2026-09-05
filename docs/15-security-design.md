@@ -37,7 +37,8 @@ master key (32B)         — Docker secret / file mount; never in env dumps, nev
 
 ## 15.4 Securing the platform link (secure connector authentication)
 
-- One dedicated API token per cluster (`proxui@pve!portal`), least privilege: `PVEAuditor` + `VM.Console` (+ `VM.PowerMgmt` if power actions enabled). **The portal physically cannot create/delete VMs on Proxmox** — capability ceiling enforced at the platform, not just in portal code.
+- One dedicated API token per cluster (`proxui@pve!portal`). Baseline least privilege: `PVEAuditor` + `VM.Console` (+ `VM.PowerMgmt` if power actions enabled).
+- ~~**The portal physically cannot create/delete VMs on Proxmox**~~ — **retired by [ADR 0010](adr/0010-the-portal-can-create-and-destroy-guests.md).** A token granted the provisioning privileges (`VM.Allocate`, `VM.Clone`, `VM.Config.*`, `Datastore.AllocateSpace`) can create and destroy guests, and the portal uses the same token for every path. The ceiling was a structural guarantee that survived bugs in the portal; what replaces it is admin-only routes, server-side name confirmation on destroy, templates refused, and an audit trail. Platforms whose token was never widened keep the old ceiling and simply cannot provision.
 - TLS to Proxmox: verify against system CAs, a custom CA bundle, or SHA-256 certificate pinning (self-signed clusters); `insecure` mode exists but shows a persistent UI warning and is audit-logged on every enable.
 - Egress from the portal host is firewall-allow-listed to cluster IPs:8006.
 

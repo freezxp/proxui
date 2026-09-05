@@ -27,7 +27,7 @@ Likelihood/Impact: L/M/H. Owner is the solo dev unless noted; "trigger" = the ea
 
 | # | Risk | L | I | Mitigation |
 |---|---|---|---|---|
-| P1 | Scope creep toward VM management (create/clone/etc.) | H | M | Non-goals stated in PRD; capability ceiling of the platform token makes it structurally impossible without an explicit decision (new token + ADR) |
+| P1 | Scope creep toward VM management (create/clone/etc.) | H | M | **Mitigation partly spent.** The explicit decision was taken in [ADR 0010](adr/0010-the-portal-can-create-and-destroy-guests.md): provisioning and destruction ship, and the token ceiling that made them structurally impossible is gone. What remains is judgement about product scope, plus admin-only routes and audit. Migration, snapshots and config editing stay out |
 | P2 | Solo-dev bus factor | H | H | This design package + AI-native docs ([23](23-ai-native-development.md)) make the project resumable by anyone; monorepo, boring stack, no exotic infra |
 | P3 | Timeline drift ("flexible" becomes "never ships") | M | M | Sprint exit-demos are binary done/not-done; v0.5 (S10) and v0.8 (S15) are real usable checkpoints delivering value early |
 | P4 | Future SaaS pivot despite "truly internal" decision | L | H | **Accepted consciously by stakeholder** (2026-08-13): no tenancy columns. Pivot cost = tenant-scoping migration across ~15 tables + auth rework, est. 4–6 weeks. Revisit trigger: first external-user conversation |

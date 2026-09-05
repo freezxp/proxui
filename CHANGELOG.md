@@ -2,6 +2,68 @@
 
 ## Unreleased
 
+- **Build cloud-init templates from the portal** (PROV-09…PROV-12,
+  [ADR 0010](docs/adr/0010-the-portal-can-create-and-destroy-guests.md)).
+  Provisioning shipped and the first thing it told you was to go away and do
+  something else: *"build one on the cluster first — import a cloud image,
+  attach a cloud-init drive, then convert it with `qm template`."* That empty
+  state is now a **Build one** button.
+
+  Pick an image from a short shipped list — Debian 12 and 13, Ubuntu 24.04,
+  Rocky 10, AlmaLinux 10 — or paste any URL. The node downloads it, imports it
+  as a disk, attaches the cloud-init drive and converts the result; the portal
+  never streams the image through itself. The guest is created with what a
+  cloud image actually needs, including a serial console, which is the usual
+  reason a hand-built template boots to a blank screen.
+
+  A checksum is required. The catalogue does not bundle digests — a point
+  release moves and a stale digest that gets skipped teaches people to skip —
+  so it links the distribution's own checksum file instead. Building without
+  verification is possible, has to be asked for deliberately, and writes an
+  audit entry naming who asked and which image, because this file becomes the
+  ancestor of every guest cloned from it.
+
+  An image already on the storage is not fetched again, and template-building
+  privileges are reported separately from provisioning ones: cloning from a
+  template someone else built needs strictly less than building one. The four
+  extra privileges are `Datastore.AllocateTemplate`, `Sys.AccessNetwork`,
+  `VM.Config.CDROM` and `VM.Config.HWType` — deliberately **not** `Sys.Modify`,
+  which Proxmox also accepts but which permits reconfiguring the node.
+
+- **Create guests from cloud-init templates, and destroy them**
+  (PROV-01…PROV-08, [ADR 0010](docs/adr/0010-the-portal-can-create-and-destroy-guests.md)).
+  Everything about a guest's life already lived in the portal — who may see it,
+  its console, its history, the portal's own SSH key on it — except the moment
+  it came into existence. An administrator can now pick a template, name the
+  machine, size it, put it on a bridge, and have it built and booted.
+
+  Access is by SSH key only. There is no password field in the form, the API,
+  or the type the connector takes: cloud-init receives a user name and public
+  keys, and no guest credential is ever carried by the portal. The portal's own
+  key is offered first, so the browser terminal and file browser reach the new
+  machine immediately.
+
+  A request is a durable record, not a request handler: cloning runs for
+  minutes, and a portal restarted halfway through picks the work back up rather
+  than leaving a half-made guest that nothing is watching. A step that fails
+  leaves the partial guest alone and says which step failed — the portal will
+  not destroy a machine on the strength of an error it may have misread.
+
+  Destroying is admin-only, requires typing the guest's name (checked on the
+  server, not just in the browser), and refuses templates outright.
+
+  **This changes the portal's security posture, and the ADR says how.**
+  `docs/15` §15.4 used to state that "the portal physically cannot create or
+  delete VMs" — a guarantee enforced by the platform token rather than by
+  portal code, which meant it held whatever the code did. Widening that token
+  removes it for every path, not just this one. The privileges are optional per
+  platform: a token that was never widened syncs exactly as before and simply
+  cannot provision, and "Test connection" now says which privileges
+  provisioning would need.
+
+  Also fixed on the way past: the `include_templates` option had been in the
+  Proxmox connector's config form since it was written and was read nowhere.
+
 - **Fixed: one node going down blanked the whole portal**
   (PLAT-01, PLAT-05, [ADR 0009](docs/adr/0009-a-platform-is-reached-through-any-cluster-member.md)).
   A platform was configured with one API address and reached through only that

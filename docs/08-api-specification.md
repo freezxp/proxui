@@ -159,6 +159,24 @@ account's permissions rather than any privilege of the portal's.
 | GET `/sync-runs/{id}` | admin | Run detail + errors |
 | GET `/connectors` | admin | Registered connector types + capabilities → `[{type: "proxmox", version, capabilities: ["vm","host","storage","network","console","power","metrics_backfill"]}]` |
 
+## 8.5a Provisioning ([ADR 0010](adr/0010-the-portal-can-create-and-destroy-guests.md))
+
+Admin-only, every one of them. The platform token can now create and destroy guests, so the role gate is doing work the credential's own limits used to do for free.
+
+| Method & URI | Roles | Description |
+|---|---|---|
+| GET `/platforms/{id}/templates` | admin | Cloud-init templates on the platform → `[{external_id, name, type, node, disk_bytes, has_cloud_init}]`. Read live: templates are excluded from the synced inventory, so there is nothing stored to read. Empty for a platform whose connector cannot provision |
+| POST `/platforms/{id}/provision` | admin | `{template_id, name, node, storage?, full_clone?, vm_group_id?, ci_user?, ssh_keys[]?, ip_config?, nameserver?, search_domain?, cores?, memory_mb?, bridge?, vlan?, disk_name?, disk_grow_gb?, start_after_create?, start_on_boot?}` → 202 `{request_id, state}`. **No password field exists**: cloud-init takes a user and SSH keys, and a guest credential is never carried by the portal (PROV-04) |
+| DELETE `/vms/{id}` | admin | `{confirm_name}` must equal the guest's name, matched server-side → 202 `{request_id, state}`. Templates are refused with 409 `template_protected` |
+| GET `/provision-requests` | admin | Recent requests, newest first; `?platform_id=&limit=` |
+| GET `/provision-requests/{id}` | admin | One request: `{state, step, vmid, error, …}`. Poll this — provisioning is four platform operations and the guest does not exist when the 202 returns |
+| GET `/image-catalogue` | admin | The shipped cloud images → `[{id, name, url, checksum_url, checksum_algo, login_user}]`. No digests: a bundled one goes stale with the next point release, so the checksum *file* is linked instead |
+| POST `/platforms/{id}/templates` | admin | `{name, node, image_url, image_storage, disk_storage, checksum?, checksum_algo?, skip_checksum?, cores?, memory_mb?, bridge?}` → 202 `{request_id, state}`. A checksum and algorithm are required unless `skip_checksum` is true, which is audited (PROV-11) |
+
+States run `pending → cloning → configuring → resizing → starting → ready` for a creation, `pending → deleting → deleted` for a destruction, and `pending → downloading → creating → importing → converting → ready` for a template build; `failed` from any of them. A build whose image is already on the storage skips `downloading`. Resizing and starting are skipped when nothing was asked for. A failed request keeps its `vmid`: the partially created guest is left in place rather than cleaned up automatically (PROV-06).
+
+A platform whose token lacks the provisioning privileges answers 409 `platform.not_capable`, which is a configuration an administrator chose rather than a fault. `POST /platforms/test` reports the same thing in advance as `provisioning_available` plus the names of anything missing.
+
 ## 8.6 Groups, grants, users
 
 | Method & URI | Roles | Description |

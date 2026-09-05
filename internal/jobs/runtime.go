@@ -71,6 +71,22 @@ func (c *Client) EnqueueInventorySync(ctx context.Context, platformID uuid.UUID,
 	return nil
 }
 
+// EnqueueProvisionStep queues one turn of the provisioning driver.
+//
+// A duplicate is not an error: the step already queued will do the work, and
+// uniqueness is what stops an overlapping resume sweep from starting a second
+// clone of the same guest.
+func (c *Client) EnqueueProvisionStep(ctx context.Context, requestID uuid.UUID, delay time.Duration) error {
+	task, err := NewProvisionTask(requestID, delay)
+	if err != nil {
+		return err
+	}
+	if _, err := c.inner.EnqueueContext(ctx, task); err != nil && !isDuplicate(err) {
+		return fmt.Errorf("enqueue provision step: %w", err)
+	}
+	return nil
+}
+
 // Worker consumes tasks.
 type Worker struct {
 	server *asynq.Server
@@ -79,7 +95,7 @@ type Worker struct {
 }
 
 // NewWorker builds the task consumer.
-func NewWorker(rdb *redis.Client, handler *SyncHandler, relay *Relay, log zerolog.Logger) *Worker {
+func NewWorker(rdb *redis.Client, handler *SyncHandler, relay *Relay, provision *ProvisionHandler, log zerolog.Logger) *Worker {
 	server := asynq.NewServer(redisOpt(rdb), asynq.Config{
 		Concurrency: 8,
 		// Health probes must not queue behind a slow inventory sync: they are
@@ -100,6 +116,9 @@ func NewWorker(rdb *redis.Client, handler *SyncHandler, relay *Relay, log zerolo
 	mux.HandleFunc(TaskSyncBackfill, handler.HandleBackfill)
 	mux.HandleFunc(TaskSyncSensors, handler.HandleSensors)
 	mux.HandleFunc(TaskOutboxRelay, relay.Handle)
+	if provision != nil {
+		mux.HandleFunc(TaskProvisionStep, provision.HandleStep)
+	}
 
 	return &Worker{server: server, mux: mux, log: log}
 }

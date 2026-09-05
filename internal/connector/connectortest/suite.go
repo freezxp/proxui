@@ -73,6 +73,9 @@ func testCapabilities(t *testing.T, cfg Config) {
 		{connector.CapabilityMetrics, isMetricsCollector(c)},
 		{connector.CapabilityMetricsBackfill, isBackfiller(c)},
 		{connector.CapabilityPower, isPowerManager(c)},
+		{connector.CapabilityProvision, isProvisioner(c)},
+		{connector.CapabilityDestroy, isDestroyer(c)},
+		{connector.CapabilityTemplateBuild, isTemplateBuilder(c)},
 	}
 	for _, check := range checks {
 		declared := connector.Supports(c, check.capability)
@@ -327,6 +330,21 @@ func isConsoleProvider(c connector.Connector) bool {
 	_, ok := c.(connector.ConsoleProvider)
 	return ok
 }
+func isProvisioner(c connector.Connector) bool {
+	_, ok := c.(connector.Provisioner)
+	return ok
+}
+
+func isTemplateBuilder(c connector.Connector) bool {
+	_, ok := c.(connector.TemplateBuilder)
+	return ok
+}
+
+func isDestroyer(c connector.Connector) bool {
+	_, ok := c.(connector.Destroyer)
+	return ok
+}
+
 func isPowerManager(c connector.Connector) bool {
 	_, ok := c.(connector.PowerManager)
 	return ok

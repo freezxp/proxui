@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, ApiError } from '@/api/client'
 import { PowerControls, type PowerAction } from './PowerControls'
+import { DestroyButton } from '@/features/provisioning/DestroyButton'
 import type { HistoryEntry, VMDetail, VMState } from '@/api/types'
 import { StateBadge } from '@/components/StateBadge'
 import { absoluteTime, bytes, percent, relativeTime, uptime } from '@/lib/format'
@@ -154,6 +155,12 @@ export function VMDetailPage() {
                 state={detail.state}
                 onRequested={(action) => setPending({ action, from: detail.state })}
               />
+            )}
+
+            {/* Destroying is admin-only and irreversible; it sits last so it is
+                never the button next to the one someone meant to press. */}
+            {user?.role === 'admin' && detail.sync_state !== 'missing' && (
+              <DestroyButton vmID={detail.id} name={detail.name} state={detail.state} />
             )}
           </div>
 

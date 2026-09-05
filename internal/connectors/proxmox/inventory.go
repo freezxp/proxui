@@ -109,8 +109,11 @@ func (c *Connector) ListVMs(ctx context.Context) ([]connector.VMRecord, error) {
 			continue
 		}
 		// Templates are not runnable machines; showing them as stopped VMs
-		// would mislead operators counting their fleet.
-		if r.Template == 1 {
+		// would mislead operators counting their fleet. The config schema has
+		// offered "include_templates" since this connector was written and
+		// nothing read it until provisioning needed templates to exist
+		// (ADR 0010); it defaults to the behaviour above.
+		if r.Template == 1 && !c.includeTemplates() {
 			continue
 		}
 		records = append(records, connector.VMRecord{

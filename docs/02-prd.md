@@ -53,7 +53,7 @@ One portal, all VMs: a permission-scoped window onto the organization's virtuali
 
 ## 5. Explicit non-goals (v1)
 
-- No VM provisioning, cloning, snapshots, migration, or configuration editing.
+- ~~No VM provisioning or cloning~~ — admin-only provisioning from cloud-init templates, and destruction, added per [ADR 0010](adr/0010-the-portal-can-create-and-destroy-guests.md). Still no snapshots, migration, or general configuration editing.
 - No multi-tenancy, billing, or public SaaS features (per stakeholder decision).
 - No agent installed inside guest VMs; all data comes from platform APIs.
 - No LDAP/SSO in v1 (built-in auth chosen); architecture keeps an OIDC seam for later.

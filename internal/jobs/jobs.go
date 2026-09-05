@@ -17,6 +17,7 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
+	"github.com/freezxp/proxui/internal/app/provisioner"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 )
 
@@ -28,6 +29,7 @@ const (
 	TaskSyncBackfill  = "sync:backfill"
 	TaskOutboxRelay   = "outbox:relay"
 	TaskSyncSensors   = "sync:sensors"
+	TaskProvisionStep = "provision:step"
 )
 
 // Queues. Separating them means a slow inventory sync cannot delay the health
@@ -121,6 +123,59 @@ func NewBackfillTask(platformID uuid.UUID) (*asynq.Task, error) {
 		asynq.MaxRetry(1),
 		asynq.Timeout(15*time.Minute),
 	), nil
+}
+
+// ProvisionPayload names the request a step acts on.
+type ProvisionPayload struct {
+	RequestID uuid.UUID `json:"request_id"`
+}
+
+// provisionPollInterval is how often a step that is waiting on the platform
+// asks again. Cloning a disk takes minutes and polling is one cheap call, so
+// this is chosen to keep the portal's picture fresh rather than to spare the
+// platform.
+const provisionPollInterval = 5 * time.Second
+
+// uniqueAtEntry reports whether a task should carry an idempotency lock.
+//
+// Only the entry points do: a submit, and the resume sweep at boot, which can
+// race each other over the same request. The poll continuation must not,
+// because asynq holds a unique lock until the task *completes* and the
+// continuation is enqueued from inside the handler that still holds it — so it
+// would be refused as a duplicate of the very task enqueuing it. The refusal is
+// not an error either, which is how a request stalls in whatever state it had
+// reached with nothing left watching it. Found against a live cluster; no unit
+// test that drives the driver directly can see it, because the job layer is the
+// part that breaks.
+//
+// The continuation needs no lock of its own: exactly one handler issues it, the
+// one that just finished the step before.
+func uniqueAtEntry(delay time.Duration) bool { return delay == 0 }
+
+// NewProvisionTask builds one turn of the provisioning driver.
+//
+// The request id is the idempotency key at the entry points, so a retried
+// submit or an overlapping resume sweep cannot start a second clone of the
+// same guest (PROV-05).
+func NewProvisionTask(requestID uuid.UUID, delay time.Duration) (*asynq.Task, error) {
+	payload, err := json.Marshal(ProvisionPayload{RequestID: requestID})
+	if err != nil {
+		return nil, fmt.Errorf("encode provision payload: %w", err)
+	}
+	opts := []asynq.Option{
+		asynq.Queue(QueueDefault),
+		// Retries here are for a portal-side stumble — a database blip, a
+		// momentarily unreachable platform. A failure the platform reported is
+		// recorded on the request and does not come back as an error.
+		asynq.MaxRetry(5),
+		asynq.Timeout(2 * time.Minute),
+	}
+	if delay > 0 {
+		opts = append(opts, asynq.ProcessIn(delay))
+	} else if uniqueAtEntry(delay) {
+		opts = append(opts, asynq.Unique(provisionPollInterval))
+	}
+	return asynq.NewTask(TaskProvisionStep, payload, opts...), nil
 }
 
 // SyncHandler runs synchronization tasks.
@@ -249,6 +304,76 @@ func (h *SyncHandler) HandleHealth(ctx context.Context, t *asynq.Task) error {
 	// error would retry a platform we have just decided to back off from.
 	if err := h.Service.CheckHealth(ctx, payload.PlatformID); err != nil {
 		h.Log.Debug().Err(err).Str("platform_id", payload.PlatformID.String()).Msg("health probe failed")
+	}
+	return nil
+}
+
+// ProvisionHandler turns provisioning requests one step at a time (ADR 0010).
+type ProvisionHandler struct {
+	Driver *provisioner.Driver
+	Client *Client
+	Log    zerolog.Logger
+}
+
+// HandleStep advances one request.
+//
+// A step that is waiting on the platform is not a failure, so it does not come
+// back as an error: retrying through asynq's backoff would exhaust MaxRetry
+// while a large disk was still copying, and the request would be abandoned
+// mid-clone. Instead the handler schedules the next look itself, which also
+// keeps the interval a property of provisioning rather than of the retry curve.
+func (h *ProvisionHandler) HandleStep(ctx context.Context, t *asynq.Task) error {
+	var payload ProvisionPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return fmt.Errorf("%w: %v", asynq.SkipRetry, err)
+	}
+
+	err := h.Driver.Step(ctx, payload.RequestID)
+	switch {
+	case err == nil:
+		// Either finished or moved on; a request that is still open asks for
+		// its next turn immediately rather than waiting out a poll interval.
+		return h.rescheduleIfOpen(ctx, payload.RequestID)
+	case errors.Is(err, provisioner.ErrStillRunning):
+		return h.Client.EnqueueProvisionStep(ctx, payload.RequestID, provisionPollInterval)
+	default:
+		return err
+	}
+}
+
+// rescheduleIfOpen queues the next step for a request that has not finished.
+func (h *ProvisionHandler) rescheduleIfOpen(ctx context.Context, id uuid.UUID) error {
+	req, err := h.Driver.Requests.GetRequest(ctx, id)
+	if err != nil {
+		return err
+	}
+	if req.State.Terminal() {
+		h.Log.Info().Str("request", id.String()).Str("state", string(req.State)).
+			Msg("provisioning request finished")
+		return nil
+	}
+	return h.Client.EnqueueProvisionStep(ctx, id, provisionPollInterval)
+}
+
+// ResumeOpenRequests re-enqueues work that was in flight when the portal
+// stopped.
+//
+// This is the other half of storing requests in a table: without it a clone
+// interrupted by a restart would sit at `cloning` forever, with a guest on the
+// platform that nothing was waiting for.
+func (h *ProvisionHandler) ResumeOpenRequests(ctx context.Context) error {
+	open, err := h.Driver.Requests.ListOpenRequests(ctx)
+	if err != nil {
+		return err
+	}
+	for _, req := range open {
+		if err := h.Client.EnqueueProvisionStep(ctx, req.ID, 0); err != nil {
+			h.Log.Warn().Err(err).Str("request", req.ID.String()).
+				Msg("could not resume a provisioning request")
+			continue
+		}
+		h.Log.Info().Str("request", req.ID.String()).Str("state", string(req.State)).
+			Msg("resumed a provisioning request")
 	}
 	return nil
 }

@@ -54,6 +54,7 @@ type ServerConfig struct {
 	Auth       AuthDeps
 	Admin      AdminDeps
 	Platforms  PlatformDeps
+	Provision  ProvisionDeps
 	Metrics    MetricsDeps
 	Inventory  InventoryDeps
 	Console    ConsoleDeps
@@ -107,6 +108,7 @@ type Server struct {
 	registration  RegistrationDeps
 	admin         AdminDeps
 	platforms     PlatformDeps
+	provision     ProvisionDeps
 	metrics       MetricsDeps
 	inventory     InventoryDeps
 	console       ConsoleDeps
@@ -143,6 +145,7 @@ func NewServer(cfg ServerConfig) *Server {
 		registration:  cfg.Registration,
 		admin:         cfg.Admin,
 		platforms:     cfg.Platforms,
+		provision:     cfg.Provision,
 		metrics:       cfg.Metrics,
 		inventory:     cfg.Inventory,
 		console:       cfg.Console,
@@ -298,6 +301,15 @@ func (s *Server) Routes() http.Handler {
 					r.Delete("/{platformID}", s.handleDeletePlatform)
 					r.Post("/{platformID}/sync", s.handleSyncPlatform)
 					r.Get("/{platformID}/sync-runs", s.handleListSyncRuns)
+					// Provisioning (ADR 0010). Admin-only, like the rest of
+					// this group: creating and destroying guests is the one
+					// thing the platform token could not do before.
+					r.Get("/{platformID}/templates", s.handleListTemplates)
+					r.Post("/{platformID}/provision", s.handleProvision)
+					// Building the image everything else is cloned from, so an
+					// empty template list is a button rather than an
+					// instruction to go and run four commands elsewhere.
+					r.Post("/{platformID}/templates", s.handleBuildTemplate)
 				})
 			})
 
@@ -345,6 +357,18 @@ func (s *Server) Routes() http.Handler {
 				Post("/vms/{vmID}/power", s.handlePower)
 			r.With(RequireRole(identity.RoleAdmin)).
 				Get("/console-sessions", s.handleListConsoleSessions)
+
+			// Destroying a guest is irreversible and admin-only. The name
+			// confirmation that guards it is checked in the command, not here.
+			r.With(RequireRole(identity.RoleAdmin)).
+				Delete("/vms/{vmID}", s.handleDestroyVM)
+			r.With(RequireRole(identity.RoleAdmin)).
+				Get("/image-catalogue", s.handleImageCatalogue)
+			r.Route("/provision-requests", func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/", s.handleListProvisionRequests)
+				r.Get("/{requestID}", s.handleGetProvisionRequest)
+			})
 
 			// SSH terminals: the same gate as the console, and scoped per VM
 			// inside the command. Opening one costs a live connection to a

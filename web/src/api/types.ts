@@ -675,3 +675,98 @@ export interface SshSessionRecord {
   bytes_rx: number
   active: boolean
 }
+
+/** A cloud-init image a guest can be cloned from (ADR 0010). Templates are
+ *  deliberately absent from the VM inventory, so this is the only listing. */
+export interface Template {
+  external_id: string
+  name: string
+  type: string
+  node: string
+  disk_bytes: number
+  /** A template without a cloud-init drive cannot take a user or an SSH key,
+   *  which would produce a machine nobody can log into. */
+  has_cloud_init: boolean
+}
+
+/** A create-or-destroy request, polled while it runs. */
+export interface ProvisionRequest {
+  id: string
+  platform_id: string
+  kind: 'provision' | 'destroy'
+  state:
+    | 'pending'
+    | 'cloning'
+    | 'configuring'
+    | 'resizing'
+    | 'starting'
+    | 'ready'
+    | 'deleting'
+    | 'deleted'
+    | 'failed'
+  step?: string
+  guest_name: string
+  vmid?: string
+  template_id?: string
+  node?: string
+  requested_by?: string
+  error?: string
+  created_at: string
+  updated_at: string
+}
+
+/** What the provisioning form submits. There is no password field, and there
+ *  is not meant to be one: cloud-init takes a user and SSH keys. */
+export interface ProvisionBody {
+  template_id: string
+  name: string
+  node: string
+  storage?: string
+  full_clone?: boolean
+  vm_group_id?: string
+  ci_user?: string
+  ssh_keys?: string[]
+  ip_config?: string
+  nameserver?: string
+  search_domain?: string
+  cores?: number
+  memory_mb?: number
+  bridge?: string
+  vlan?: number
+  disk_name?: string
+  disk_grow_gb?: number
+  start_after_create?: boolean
+  start_on_boot?: boolean
+}
+
+/** A cloud image the portal knows where to find (ADR 0010).
+ *
+ *  Deliberately carries no digest: point releases move, and a stale digest that
+ *  gets skipped teaches people to skip. It carries the checksum *file* instead,
+ *  so the digest that gets pasted is one somebody actually read. */
+export interface CatalogueImage {
+  id: string
+  name: string
+  url: string
+  checksum_url: string
+  checksum_algo: string
+  /** The account cloud-init configures by default; differs per distribution. */
+  login_user: string
+  notes?: string
+}
+
+/** What the template-build form submits. */
+export interface BuildTemplateBody {
+  name: string
+  node: string
+  image_url: string
+  image_storage: string
+  disk_storage: string
+  checksum?: string
+  checksum_algo?: string
+  /** Must be stated: a blank digest alone is not a decision. */
+  skip_checksum?: boolean
+  cores?: number
+  memory_mb?: number
+  bridge?: string
+}

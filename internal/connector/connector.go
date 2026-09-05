@@ -33,6 +33,9 @@ const (
 	CapabilityPower             Capability = "power"
 	CapabilityNodeAddress       Capability = "node_address"
 	CapabilityEndpointDiscovery Capability = "endpoint_discovery"
+	CapabilityProvision         Capability = "provision"
+	CapabilityDestroy           Capability = "destroy"
+	CapabilityTemplateBuild     Capability = "template_build"
 )
 
 // Info identifies a connector implementation.
@@ -185,6 +188,72 @@ type NodeAddresser interface {
 	NodeAddresses(ctx context.Context) (map[string]string, error)
 }
 
+// Provisioner creates guests from a platform's own templates.
+//
+// The steps are separate because the platform performs them separately and at
+// different speeds: cloning is a long asynchronous task returning a TaskRef,
+// while configuring and resizing answer immediately. A caller that ran them as
+// one call would have nothing to resume from when the slow half timed out
+// (ADR 0010).
+type Provisioner interface {
+	// ListTemplates reports the images a guest can be cloned from. Templates
+	// are deliberately absent from the VM inventory, so this is the only way
+	// the core learns they exist.
+	ListTemplates(ctx context.Context) ([]TemplateRecord, error)
+	// NextID reserves nothing; it reports an identifier that was free when
+	// asked. Two callers can be handed the same one, so Clone must be prepared
+	// to be refused and to ask again.
+	NextID(ctx context.Context) (string, error)
+	Clone(ctx context.Context, spec CloneSpec) (TaskRef, error)
+	Configure(ctx context.Context, vm VMRef, spec CloudInitSpec) error
+	// ResizeDisk grows a disk by growBytes. Shrinking is not offered because
+	// platforms do not implement it safely; a negative or zero value is an
+	// error rather than a no-op.
+	ResizeDisk(ctx context.Context, vm VMRef, disk string, growBytes int64) error
+}
+
+// TemplateBuilder builds the image everything else is cloned from.
+//
+// It exists because the alternative is a sentence in the UI telling an operator
+// to go and run four commands on a node — which is the situation provisioning
+// was built to remove, one step earlier (ADR 0010).
+//
+// The image is fetched by the platform, not by the portal: the node has the
+// bandwidth, the storage and the internet access, and a portal that streamed
+// hundreds of megabytes through itself would be the slowest possible way to do
+// it.
+type TemplateBuilder interface {
+	// ImageExists reports whether the image is already on the storage, so a
+	// second template built from the same image does not fetch it again.
+	ImageExists(ctx context.Context, node, storage, filename string) (bool, error)
+	DownloadImage(ctx context.Context, spec ImageDownloadSpec) (TaskRef, error)
+	CreateGuest(ctx context.Context, spec GuestCreateSpec) (TaskRef, error)
+	ImportDisk(ctx context.Context, vm VMRef, spec DiskImportSpec) (TaskRef, error)
+	ConvertToTemplate(ctx context.Context, vm VMRef) (TaskRef, error)
+}
+
+// TaskWatcher reports how an asynchronous platform task ended.
+//
+// The Proxmox connector has answered this question since power actions were
+// written and nothing declared the interface, so nothing could ask it. Anything
+// that hands work to a platform and needs to know how it went — a power action
+// whose audit entry should record the real outcome, a clone the provisioner is
+// waiting on — goes through here.
+type TaskWatcher interface {
+	// TaskState reports whether the task finished, whether it succeeded, and
+	// the platform's own description of the outcome.
+	TaskState(ctx context.Context, task TaskRef) (done bool, ok bool, detail string, err error)
+}
+
+// Destroyer removes a guest and its disks.
+//
+// Separate from Provisioner so a connector can offer creation without
+// destruction, and so the capability an operator is granting is legible one
+// interface at a time.
+type Destroyer interface {
+	Destroy(ctx context.Context, vm VMRef, opts DestroyOptions) (TaskRef, error)
+}
+
 // ConsoleKind selects a console protocol.
 type ConsoleKind string
 
@@ -267,6 +336,17 @@ type TestReport struct {
 	NodeCount          int
 	MissingPermissions []string
 	Warnings           []string
+	// ProvisioningAvailable reports whether the credential may create and
+	// destroy guests. It is a capability, not a requirement: a token without
+	// those privileges syncs exactly as before and simply cannot provision, so
+	// an absent capability is reported rather than treated as a failure
+	// (PROV-01, ADR 0010).
+	ProvisioningAvailable         bool
+	MissingProvisioningPrivileges []string
+	// TemplateBuildAvailable is reported apart from provisioning: cloning from
+	// a template somebody else built needs strictly less than building one.
+	TemplateBuildAvailable    bool
+	MissingTemplatePrivileges []string
 }
 
 // HealthState summarises platform reachability.

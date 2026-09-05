@@ -20,6 +20,7 @@ import (
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/domain/inventory"
 	"github.com/freezxp/proxui/internal/domain/notify"
+	"github.com/freezxp/proxui/internal/domain/provision"
 	"github.com/freezxp/proxui/internal/domain/publish"
 	"github.com/freezxp/proxui/internal/domain/shell"
 	"github.com/freezxp/proxui/internal/domain/telemetry"
@@ -232,6 +233,38 @@ type PlatformRepository interface {
 	ReplaceCredential(ctx context.Context, platformID uuid.UUID, cred SealedCredential) error
 	Endpoints(ctx context.Context, platformID uuid.UUID) ([]PlatformEndpoint, error)
 	ReplaceEndpoints(ctx context.Context, platformID uuid.UUID, eps []PlatformEndpoint, at time.Time) error
+}
+
+// ProvisionRepository stores create-and-destroy requests (ADR 0010).
+//
+// A request is durable because the work it names outlives the HTTP call that
+// asked for it: cloning runs for minutes, and a portal restarted halfway
+// through must be able to pick the run back up rather than leaving a guest
+// half-made and nothing pointing at it.
+type ProvisionRepository interface {
+	CreateRequest(ctx context.Context, r *provision.Request) error
+	GetRequest(ctx context.Context, id uuid.UUID) (*provision.Request, error)
+	SaveRequest(ctx context.Context, r *provision.Request) error
+	ListRequests(ctx context.Context, platformID uuid.UUID, limit int) ([]*provision.Request, error)
+	// ListOpenRequests returns the requests still in motion, for the sweep that
+	// re-enqueues work after a restart.
+	ListOpenRequests(ctx context.Context) ([]*provision.Request, error)
+	// FindVMByExternalID resolves a platform-side identifier to the portal's
+	// own, which is only possible once a sync has brought the guest in. It
+	// returns the nil UUID rather than an error when the guest is not there
+	// yet, because "not yet" is the expected answer for a machine created
+	// seconds ago.
+	FindVMByExternalID(ctx context.Context, platformID uuid.UUID, externalID string) (uuid.UUID, error)
+}
+
+// ProvisionEnqueuer schedules the work a provisioning request needs.
+//
+// Two different things: another turn of the driver, which is how a long clone
+// is waited on without holding a goroutine, and an inventory sync, which is how
+// a guest that now exists on the platform becomes visible in the portal.
+type ProvisionEnqueuer interface {
+	EnqueueProvisionStep(ctx context.Context, requestID uuid.UUID, delay time.Duration) error
+	EnqueueInventorySync(ctx context.Context, platformID uuid.UUID, trigger string) error
 }
 
 // PlatformEndpoint is one address a platform answers on, beyond the one an

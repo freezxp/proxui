@@ -24,6 +24,7 @@ import (
 	"github.com/freezxp/proxui/internal/app/command"
 	appnotify "github.com/freezxp/proxui/internal/app/notify"
 	"github.com/freezxp/proxui/internal/app/ports"
+	"github.com/freezxp/proxui/internal/app/provisioner"
 	"github.com/freezxp/proxui/internal/app/query"
 	"github.com/freezxp/proxui/internal/app/sensor"
 	appsetting "github.com/freezxp/proxui/internal/app/setting"
@@ -150,15 +151,16 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 	}
 
 	var (
-		platforms = postgres.NewPlatformRepository(pool)
-		assets    = postgres.NewAssetRepository(pool)
-		syncRepo  = postgres.NewSyncRepository(pool)
-		metrics   = postgres.NewMetricsRepository(pool)
-		inventory = postgres.NewInventoryQuery(pool)
-		auditLog  = postgres.NewAuditQuery(pool)
-		consoles  = postgres.NewConsoleRepository(pool)
-		shells    = postgres.NewShellRepository(pool)
-		hostKeys  = postgres.NewHostKeyStore(pool)
+		platforms  = postgres.NewPlatformRepository(pool)
+		assets     = postgres.NewAssetRepository(pool)
+		syncRepo   = postgres.NewSyncRepository(pool)
+		metrics    = postgres.NewMetricsRepository(pool)
+		inventory  = postgres.NewInventoryQuery(pool)
+		auditLog   = postgres.NewAuditQuery(pool)
+		consoles   = postgres.NewConsoleRepository(pool)
+		shells     = postgres.NewShellRepository(pool)
+		hostKeys   = postgres.NewHostKeyStore(pool)
+		provisions = postgres.NewProvisionRepository(pool)
 
 		edgeProviders = postgres.NewEdgeProviderRepository(pool)
 		totpStore     = postgres.NewTOTPRepository(pool)
@@ -238,6 +240,14 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Vault:   vault, Clock: clock, Log: log,
 	}
 	queue := jobs.NewClient(rdb.Client, log)
+
+	// The provisioning driver is built for both roles: the API creates requests
+	// and the worker advances them, and both reach the platform through the
+	// same connector the sync engine uses (ADR 0010).
+	provisionDriver := &provisioner.Driver{
+		Requests: provisions, Platforms: platforms, Access: accessRepo,
+		Platform: syncService, Queue: queue, Audit: audit, Clock: clock, Log: log,
+	}
 	defer queue.Close()
 
 	signingKey, err := crypto.LoadOrCreateRSAKey(cfg.JWTKeyFile)
@@ -376,6 +386,24 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Enabled: registrationPolicy.LiveReadsEnabled,
 	}
 
+	provisionDeps := httpapi.ProvisionDeps{
+		Provision: &command.Provision{
+			Requests: provisions, Platforms: platforms, Sync: syncService,
+			Queue: queue, Audit: audit, Clock: clock,
+		},
+		Destroy: &command.Destroy{
+			Requests: provisions, Inventory: liveInventory, Platforms: platforms,
+			Sync: syncService, Queue: queue, Audit: audit, Clock: clock,
+		},
+		Build: &command.BuildTemplate{
+			Requests: provisions, Platforms: platforms, Sync: syncService,
+			Queue: queue, Audit: audit, Clock: clock,
+		},
+		Requests:  provisions,
+		Platforms: platforms,
+		Sync:      syncService,
+	}
+
 	var wg sync.WaitGroup
 	errCh := make(chan error, 3)
 	shutdown := make([]func(context.Context) error, 0, 2)
@@ -415,6 +443,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Auth:      authDeps,
 			Admin:     adminDeps,
 			Platforms: platformDeps,
+			Provision: provisionDeps,
 			Metrics:   httpapi.MetricsDeps{Metrics: metrics},
 			Inventory: httpapi.InventoryDeps{
 				Inventory: liveInventory, Audit: auditLog, Metrics: metrics, Infra: inventory,
@@ -564,12 +593,21 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Store: syncRepo, Redis: rdb.Client, Log: log, Clock: clock,
 			Notifier: dispatcher,
 		}
-		worker := jobs.NewWorker(rdb.Client, &jobs.SyncHandler{Service: syncService, Log: log}, relay, log)
+		provisionHandler := &jobs.ProvisionHandler{Driver: provisionDriver, Client: queue, Log: log}
+		worker := jobs.NewWorker(rdb.Client, &jobs.SyncHandler{Service: syncService, Log: log}, relay,
+			provisionHandler, log)
 		if err := worker.Start(); err != nil {
 			return err
 		}
 		relay.Start(ctx)
 		defer worker.Shutdown()
+
+		// Requests that were mid-flight when this process last stopped are
+		// still in the table; nothing else would ever look at them again
+		// (ADR 0010).
+		if err := provisionHandler.ResumeOpenRequests(ctx); err != nil {
+			log.Warn().Err(err).Msg("could not resume open provisioning requests")
+		}
 	}
 
 	if cfg.Role.RunsScheduler() {

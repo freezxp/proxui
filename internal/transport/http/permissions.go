@@ -131,6 +131,17 @@ var permissionMap = map[string]Permission{
 	"DELETE /api/v1/platforms/{platformID}":        roles(identity.RoleAdmin),
 	"POST /api/v1/platforms/{platformID}/sync":     roles(identity.RoleAdmin),
 	"GET /api/v1/platforms/{platformID}/sync-runs": roles(identity.RoleAdmin),
+
+	// Provisioning (ADR 0010). Every one of these is admin-only: the platform
+	// token can now create and destroy guests, so the role gate is doing work
+	// that the credential's own limits used to do for free.
+	"GET /api/v1/platforms/{platformID}/templates":  roles(identity.RoleAdmin),
+	"POST /api/v1/platforms/{platformID}/provision": roles(identity.RoleAdmin),
+	"POST /api/v1/platforms/{platformID}/templates": roles(identity.RoleAdmin),
+	"GET /api/v1/image-catalogue":                   roles(identity.RoleAdmin),
+	"DELETE /api/v1/vms/{vmID}":                     roles(identity.RoleAdmin),
+	"GET /api/v1/provision-requests":                roles(identity.RoleAdmin),
+	"GET /api/v1/provision-requests/{requestID}":    roles(identity.RoleAdmin),
 	// Edge providers (ADR 0004). Admin only without exception: publishing an
 	// app puts something on the public internet, which is a statement about
 	// the network's boundary rather than about one machine. An operator's

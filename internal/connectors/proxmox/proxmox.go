@@ -69,6 +69,26 @@ func (c *Connector) Capabilities() []connector.Capability {
 		connector.CapabilityPower,
 		connector.CapabilityNodeAddress,
 		connector.CapabilityEndpointDiscovery,
+		connector.CapabilityProvision,
+		connector.CapabilityDestroy,
+		connector.CapabilityTemplateBuild,
+	}
+}
+
+// includeTemplates reports whether the operator asked for templates to appear
+// in the inventory alongside real guests.
+//
+// Extra arrives from a jsonb column, so a value an administrator set through
+// the form is a bool and one written by hand may be a string. Both are read;
+// anything else is the default.
+func (c *Connector) includeTemplates() bool {
+	switch v := c.cfg.Extra["include_templates"].(type) {
+	case bool:
+		return v
+	case string:
+		return v == "true" || v == "1" || v == "yes"
+	default:
+		return false
 	}
 }
 
@@ -130,6 +150,15 @@ func (c *Connector) TestConnection(ctx context.Context) (connector.TestReport, e
 		report.Warnings = append(report.Warnings,
 			"the portal will run with reduced functionality until these privileges are granted")
 	}
+
+	// Provisioning is reported as a capability rather than a shortfall: a
+	// token without these privileges is a correctly configured read-and-console
+	// platform, not a broken one (PROV-01, ADR 0010).
+	report.MissingProvisioningPrivileges = missingProvisioningPrivileges(perms)
+	report.ProvisioningAvailable = len(report.MissingProvisioningPrivileges) == 0
+
+	report.MissingTemplatePrivileges = missingTemplatePrivileges(perms)
+	report.TemplateBuildAvailable = len(report.MissingTemplatePrivileges) == 0
 	if c.cfg.TLS.Mode == connector.TLSInsecure {
 		report.Warnings = append(report.Warnings,
 			"TLS verification is disabled for this platform; prefer pinning the certificate fingerprint")
@@ -154,9 +183,87 @@ var requiredPrivileges = []struct {
 	{"VM.GuestAgent.Audit", "reading VM IP addresses from the guest agent"},
 }
 
+// provisioningPrivileges are what creating and destroying a guest costs
+// (ADR 0010).
+//
+// Kept apart from requiredPrivileges on purpose: these are a capability, not a
+// requirement. A token that has never been widened syncs, opens consoles and
+// powers guests exactly as before, and TestConnection reports provisioning as
+// unavailable rather than reporting the platform as broken. That also means
+// this list can only take effect when a human edits the token on the cluster —
+// nothing here widens anything.
+var provisioningPrivileges = []struct {
+	Priv   string
+	Needed string
+}{
+	{"VM.Allocate", "creating and destroying guests"},
+	{"VM.Clone", "cloning a template"},
+	{"VM.Config.Disk", "sizing the disk"},
+	{"VM.Config.CPU", "setting the core count"},
+	{"VM.Config.Memory", "setting the memory size"},
+	{"VM.Config.Network", "attaching the guest to a bridge"},
+	{"VM.Config.Options", "setting boot and agent options"},
+	{"VM.Config.Cloudinit", "writing the cloud-init user and SSH keys"},
+	{"Datastore.AllocateSpace", "placing the new disk on a storage pool"},
+	// Attaching a guest to a bridge. Proxmox states it plainly in create_vm's
+	// own description — "if you use a bridge/vlan, you need SDN.Use on any used
+	// bridge/vlan" — and enforces it on the config write too, so it is needed
+	// by cloud-init configuration as much as by creation. A token without it
+	// gets a 403 that names the node path and no privilege at all.
+	{"SDN.Use", "attaching a guest to a network bridge"},
+}
+
+// templatePrivileges are what building a template costs on top of provisioning.
+//
+// Kept apart from provisioningPrivileges so the two capabilities are reported
+// separately: a platform can perfectly well clone from templates somebody else
+// built, and telling an administrator that provisioning is unavailable when
+// only template building is would send them to grant more than they need.
+//
+// Sys.AccessNetwork rather than Sys.Modify: the API source says download-url
+// accepts either, and Sys.Modify permits reconfiguring the node, where
+// Sys.AccessNetwork is exactly the capability being used — asking the node to
+// fetch a URL — and nothing else.
+var templatePrivileges = []struct {
+	Priv   string
+	Needed string
+}{
+	{"Datastore.AllocateTemplate", "downloading a cloud image onto a storage"},
+	{"Sys.AccessNetwork", "asking the node to fetch the image"},
+	{"VM.Config.CDROM", "attaching the cloud-init drive"},
+	// Required for scsihw, vga and — the one that actually bites — serial0.
+	// PVE::API2::Qemu checks it per hardware type when a guest is created, so
+	// a token without it gets a bare 403 on POST /nodes/{n}/qemu that names no
+	// privilege. Found by building a template against a live cluster; nothing
+	// short of that would have shown it.
+	{"VM.Config.HWType", "giving the template a serial console and a SCSI controller"},
+}
+
 // missingPrivileges reports which required privileges are absent at the root
 // path. Proxmox returns an effective privilege map per path.
 func missingPrivileges(perms permissionMap) []string {
+	return absent(grantedPrivileges(perms), requiredPrivileges)
+}
+
+// missingProvisioningPrivileges reports which of the provisioning privileges
+// the token lacks. An empty result means the platform can provision.
+func missingProvisioningPrivileges(perms permissionMap) []string {
+	return absent(grantedPrivileges(perms), provisioningPrivileges)
+}
+
+// missingTemplatePrivileges reports which template-building privileges the
+// token lacks. Empty means the platform can build templates.
+//
+// Building is a superset of provisioning rather than a separate set: it creates
+// a guest, allocates a disk and attaches a bridge, exactly as provisioning
+// does, and then needs four more things on top. Reporting only the four would
+// tell an administrator they were one grant away when they were five.
+func missingTemplatePrivileges(perms permissionMap) []string {
+	granted := grantedPrivileges(perms)
+	return append(absent(granted, provisioningPrivileges), absent(granted, templatePrivileges)...)
+}
+
+func grantedPrivileges(perms permissionMap) map[string]bool {
 	granted := map[string]bool{}
 	for path, privs := range perms {
 		// Privileges at "/" apply everywhere; deeper paths still let the
@@ -170,9 +277,15 @@ func missingPrivileges(perms permissionMap) []string {
 			}
 		}
 	}
+	return granted
+}
 
+func absent(granted map[string]bool, want []struct {
+	Priv   string
+	Needed string
+}) []string {
 	var missing []string
-	for _, req := range requiredPrivileges {
+	for _, req := range want {
 		if !granted[req.Priv] {
 			missing = append(missing, fmt.Sprintf("%s (needed for %s)", req.Priv, req.Needed))
 		}

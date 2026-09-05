@@ -4,12 +4,17 @@ import { api } from '@/api/client'
 import type { Platform, SyncRun } from '@/api/types'
 import { Drawer } from '@/components/Drawer'
 import { MonitoringGuide } from './MonitoringGuide'
+import { ProvisionForm, ProvisionStatus } from '@/features/provisioning/ProvisionForm'
+import { BuildTemplateForm } from '@/features/provisioning/BuildTemplateForm'
 import { absoluteTime, relativeTime } from '@/lib/format'
 
 export function PlatformDetail({ platform, onClose }: { platform: Platform; onClose: () => void }) {
   const queryClient = useQueryClient()
   const [confirmName, setConfirmName] = useState('')
   const [danger, setDanger] = useState(false)
+  const [provisioning, setProvisioning] = useState(false)
+  const [building, setBuilding] = useState(false)
+  const [startedRequest, setStartedRequest] = useState('')
   const [error, setError] = useState('')
 
   // The list response carries no failover addresses — they are a per-platform
@@ -100,6 +105,54 @@ export function PlatformDetail({ platform, onClose }: { platform: Platform; onCl
             Synchronization is suspended after repeated failures. It resumes automatically; a manual
             sync bypasses the wait.
           </p>
+        )}
+
+        {/* Creating a guest lives on the platform rather than in the inventory
+            because a template belongs to a cluster, and choosing one is the
+            first thing the form asks (ADR 0010). */}
+        <div className="flex items-center justify-between rounded-md border border-border p-3">
+          <div>
+            <p className="text-sm font-medium">Guests</p>
+            <p className="text-xs text-muted">
+              Build a cloud-init template, or create a guest from one.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setBuilding(true)}
+              className="rounded-md border border-border px-2 py-1 text-xs"
+            >
+              Build template
+            </button>
+            <button
+              onClick={() => setProvisioning(true)}
+              className="rounded-md border border-border px-2 py-1 text-xs"
+            >
+              New guest
+            </button>
+          </div>
+        </div>
+
+        {startedRequest && <ProvisionStatus requestID={startedRequest} />}
+
+        {provisioning && (
+          <ProvisionForm
+            platform={platform}
+            onClose={() => setProvisioning(false)}
+            onStarted={setStartedRequest}
+            onBuildTemplate={() => {
+              setProvisioning(false)
+              setBuilding(true)
+            }}
+          />
+        )}
+
+        {building && (
+          <BuildTemplateForm
+            platform={platform}
+            onClose={() => setBuilding(false)}
+            onStarted={setStartedRequest}
+          />
         )}
 
         <div>

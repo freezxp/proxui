@@ -347,6 +347,19 @@ func (c *client) post(ctx context.Context, path string, form url.Values, out any
 	return c.do(ctx, http.MethodPost, path, nil, form, out)
 }
 
+// put performs a form PUT. Proxmox uses PUT for edits that change an existing
+// object in place — resizing a disk, rewriting a guest config — and rejects the
+// same body sent as a POST.
+func (c *client) put(ctx context.Context, path string, form url.Values, out any) error {
+	return c.do(ctx, http.MethodPut, path, nil, form, out)
+}
+
+// del performs a DELETE with query parameters, which is how Proxmox takes
+// options on a removal.
+func (c *client) del(ctx context.Context, path string, query url.Values, out any) error {
+	return c.do(ctx, http.MethodDelete, path, query, nil, out)
+}
+
 // do performs one API call, failing over to another cluster member when — and
 // only when — the address it used could not be reached.
 //

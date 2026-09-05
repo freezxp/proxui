@@ -170,3 +170,121 @@ func btoa(b bool) string {
 	}
 	return "0"
 }
+
+// TemplateRecord is an image a guest can be cloned from.
+//
+// It is not a VMRecord: templates are excluded from the inventory on purpose,
+// because counting them as stopped machines misleads anyone reading a fleet
+// total (see the filter in the Proxmox connector's ListVMs). They are listed
+// only where they are being chosen from.
+type TemplateRecord struct {
+	ExternalID string
+	Name       string
+	Type       string // qemu | lxc
+	HostID     string
+	DiskBytes  int64
+	// HasCloudInit reports whether the template carries a cloud-init drive.
+	// One that does not cannot take a user or an SSH key, and the UI says so
+	// rather than letting an operator provision an unreachable machine.
+	HasCloudInit bool
+	Notes        string
+	Attrs        map[string]any
+}
+
+// CloneSpec describes the copy to make.
+type CloneSpec struct {
+	Template VMRef
+	NewID    string
+	Name     string
+	// FullClone copies the disks instead of referencing the template's. A
+	// linked clone is fast and cheap but keeps the template undeletable and
+	// ties the guest's fate to it.
+	FullClone   bool
+	Storage     string
+	TargetNode  string
+	Description string
+}
+
+// CloudInitSpec is the guest configuration handed to cloud-init.
+//
+// There is no password field, and that is a decision rather than an omission:
+// guest credentials are never stored (ADR 0005), and a password would pass
+// through a form, a request body, a job payload and a state row on its way to
+// the platform — four places it could come to rest. A type with nowhere to put
+// one cannot grow the habit later (PROV-04, ADR 0010).
+type CloudInitSpec struct {
+	User    string
+	SSHKeys []string
+	// IPConfig is the platform's own notation, e.g. "ip=dhcp" or
+	// "ip=10.0.30.50/24,gw=10.0.30.1". Empty leaves the template's setting.
+	IPConfig     string
+	Nameserver   string
+	SearchDomain string
+	Cores        int
+	MemoryMB     int
+	Bridge       string
+	VLAN         int
+	// UpgradePackages runs the distribution's upgrade on first boot. Default
+	// on at the platform, so this is a pointer: nil keeps the platform's
+	// default rather than silently choosing for the operator.
+	UpgradePackages *bool
+	StartOnBoot     bool
+}
+
+// DestroyOptions controls how thoroughly a guest is removed.
+type DestroyOptions struct {
+	// PurgeReferences removes the guest from backup jobs and HA resources as
+	// well. Without it the guest goes but the jobs naming it remain and fail.
+	PurgeReferences bool
+	// DestroyUnreferencedDisks removes disks belonging to the guest that its
+	// configuration no longer mentions, which is where the disks of a
+	// half-finished provisioning run end up.
+	DestroyUnreferencedDisks bool
+}
+
+// ImageDownloadSpec asks the platform to fetch a published cloud image.
+//
+// Checksum and ChecksumAlgorithm have no defaults and no "skip" flag. An
+// unverified download is therefore something a caller states by leaving both
+// empty, rather than something that happens because a field was forgotten —
+// and the layer that states it is the layer that audits it (ADR 0010).
+type ImageDownloadSpec struct {
+	Node     string
+	Storage  string
+	URL      string
+	Filename string
+	// Checksum is the digest as the distribution publishes it; algorithm is one
+	// of the platform's accepted names, e.g. "sha512".
+	Checksum          string
+	ChecksumAlgorithm string
+	// VerifyTLS defaults on at the platform. It is here so that turning it off
+	// has to be written down.
+	SkipTLSVerify bool
+}
+
+// GuestCreateSpec is the shell of a guest, before it has a disk.
+type GuestCreateSpec struct {
+	Node        string
+	VMID        string
+	Name        string
+	Cores       int
+	MemoryMB    int
+	Bridge      string
+	Description string
+}
+
+// DiskImportSpec attaches a downloaded image to a guest as its boot disk, and
+// adds the cloud-init drive beside it.
+type DiskImportSpec struct {
+	// Disk is the bus and index the image becomes, e.g. "scsi0".
+	Disk string
+	// Storage is where the imported disk lands — a storage that holds images,
+	// which is rarely the same one the downloaded file sits on.
+	Storage string
+	// SourceVolume is the platform-side reference to the downloaded file.
+	SourceVolume string
+	// CloudInitDrive is the bus the generated drive takes, e.g. "ide2". Empty
+	// leaves the guest without one, which makes it unusable as a cloud-init
+	// template and is therefore never what a caller wants.
+	CloudInitDrive string
+}

@@ -30,7 +30,7 @@ Administrators and operations staff currently need direct access to each Proxmox
 
 ## Deliberately out of scope (v1)
 
-Multi-tenancy/SaaS provisions (explicitly dropped per stakeholder), VM lifecycle management (create/clone/migrate), billing, non-Proxmox connectors (framework is built; VMware/cloud connectors are future work).
+Multi-tenancy/SaaS provisions (explicitly dropped per stakeholder), billing, non-Proxmox connectors (framework is built; VMware/cloud connectors are future work). VM migration and snapshots remain out of scope; creation from cloud-init templates and destruction came back in under [ADR 0010](adr/0010-the-portal-can-create-and-destroy-guests.md).
 
 ## Delivery approach
 

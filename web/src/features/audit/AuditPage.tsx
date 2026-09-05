@@ -220,10 +220,10 @@ export function AuditPage() {
 function OutcomeBadge({ outcome }: { outcome: string }) {
   const tone =
     outcome === 'success'
-      ? 'bg-state-running/15 text-state-running'
+      ? 'bg-running/15 text-running'
       : outcome === 'denied'
-        ? 'bg-state-paused/15 text-state-paused'
-        : 'bg-state-stopped/15 text-state-stopped'
+        ? 'bg-paused/15 text-paused'
+        : 'bg-stopped/15 text-stopped'
   return <span className={`rounded-full px-2 py-0.5 text-xs ${tone}`}>{outcome}</span>
 }
 

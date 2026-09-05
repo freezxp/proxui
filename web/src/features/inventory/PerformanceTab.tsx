@@ -46,7 +46,7 @@ export function PerformanceTab({
     { label: 'Receive', color: themeColor('--accent'), values: columns.netRx, format: perSecond },
     {
       label: 'Transmit',
-      color: themeColor('--state-paused'),
+      color: themeColor('--paused'),
       values: columns.netTx,
       format: perSecond,
     },
@@ -55,7 +55,7 @@ export function PerformanceTab({
     { label: 'Read', color: themeColor('--accent'), values: columns.diskRead, format: perSecond },
     {
       label: 'Write',
-      color: themeColor('--state-paused'),
+      color: themeColor('--paused'),
       values: columns.diskWrite,
       format: perSecond,
     },

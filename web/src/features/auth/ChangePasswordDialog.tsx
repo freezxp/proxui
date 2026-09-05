@@ -45,7 +45,7 @@ export function ChangePasswordDialog({
   const form = (
     <div className="space-y-4">
       {forced ? (
-        <p className="rounded-md bg-state-paused/10 p-3 text-sm text-state-paused">
+        <p className="rounded-md bg-paused/10 p-3 text-sm text-paused">
           This account was given a temporary password. Choose your own before continuing.
         </p>
       ) : (

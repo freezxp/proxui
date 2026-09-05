@@ -46,7 +46,7 @@ export function FavouriteStar({
       aria-label={shown ? 'Remove from favourites' : 'Add to favourites'}
       aria-pressed={shown}
       className={`rounded p-1 text-base leading-none transition-colors ${
-        shown ? 'text-state-paused' : 'text-muted/40 hover:text-muted'
+        shown ? 'text-paused' : 'text-muted/40 hover:text-muted'
       }`}
     >
       {shown ? '★' : '☆'}

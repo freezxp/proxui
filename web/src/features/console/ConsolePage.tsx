@@ -574,11 +574,7 @@ function KeyButton({
 
 function ConnectionDot({ phase }: { phase: Phase }) {
   const colour =
-    phase === 'connected'
-      ? 'bg-state-running'
-      : phase === 'connecting'
-        ? 'bg-state-paused'
-        : 'bg-state-stopped'
+    phase === 'connected' ? 'bg-running' : phase === 'connecting' ? 'bg-paused' : 'bg-stopped'
   return (
     <span className="flex items-center gap-1.5 text-xs text-muted">
       <span className={`h-2 w-2 rounded-full ${colour}`} />

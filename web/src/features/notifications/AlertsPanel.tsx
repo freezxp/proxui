@@ -272,8 +272,8 @@ export function AlertsPanel() {
                       onClick={() => toggle.mutate(rule)}
                       className={`rounded-full px-2 py-0.5 text-xs ${
                         rule.is_enabled
-                          ? 'bg-state-running/15 text-state-running'
-                          : 'bg-state-stopped/15 text-state-stopped'
+                          ? 'bg-running/15 text-running'
+                          : 'bg-stopped/15 text-stopped'
                       }`}
                     >
                       {rule.is_enabled ? 'enabled' : 'disabled'}

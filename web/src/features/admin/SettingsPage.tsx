@@ -198,7 +198,7 @@ function SecretSetting({
         <label htmlFor={item.key} className="min-w-56 text-sm">
           {item.label}
           {item.has_value && (
-            <span className="ml-2 rounded-full bg-state-running/15 px-2 py-0.5 text-xs text-state-running">
+            <span className="ml-2 rounded-full bg-running/15 px-2 py-0.5 text-xs text-running">
               set
             </span>
           )}

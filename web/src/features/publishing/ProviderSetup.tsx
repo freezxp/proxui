@@ -238,7 +238,7 @@ function Field({
 
 function Check({ ok, label }: { ok: boolean; label: string }) {
   return (
-    <span className={ok ? 'text-state-running' : 'text-danger'}>
+    <span className={ok ? 'text-running' : 'text-danger'}>
       {ok ? '✓' : '✕'} {label}
     </span>
   )

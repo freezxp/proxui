@@ -101,7 +101,7 @@ export function FolderPicker({
           file.mutate(e.target.value || null)
         }}
         className={`w-full max-w-[10rem] rounded border border-border bg-surface px-1.5 py-0.5 text-xs ${
-          error ? 'border-state-error' : ''
+          error ? 'border-danger' : ''
         }`}
       >
         <option value="">Unfiled</option>

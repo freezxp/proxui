@@ -108,8 +108,8 @@ export function PlatformsPage() {
                       disabled={toggle.isPending}
                       className={`rounded-full px-2 py-0.5 text-xs ${
                         platform.is_enabled
-                          ? 'bg-state-running/15 text-state-running'
-                          : 'bg-state-stopped/15 text-state-stopped'
+                          ? 'bg-running/15 text-running'
+                          : 'bg-stopped/15 text-stopped'
                       }`}
                     >
                       {platform.is_enabled ? 'enabled' : 'disabled'}
@@ -153,7 +153,7 @@ function HealthBadge({ platform }: { platform: Platform }) {
   if (platform.breaker_open) {
     return (
       <span
-        className="rounded-full bg-state-stopped/15 px-2 py-0.5 text-xs text-state-stopped"
+        className="rounded-full bg-stopped/15 px-2 py-0.5 text-xs text-stopped"
         title="Repeated failures suspended synchronization; it retries automatically."
       >
         breaker open
@@ -162,10 +162,10 @@ function HealthBadge({ platform }: { platform: Platform }) {
   }
   const tone =
     platform.health === 'healthy'
-      ? 'bg-state-running/15 text-state-running'
+      ? 'bg-running/15 text-running'
       : platform.health === 'degraded'
-        ? 'bg-state-paused/15 text-state-paused'
-        : 'bg-state-stopped/15 text-state-stopped'
+        ? 'bg-paused/15 text-paused'
+        : 'bg-stopped/15 text-stopped'
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs ${tone}`} title={platform.health_detail}>
       {platform.health}

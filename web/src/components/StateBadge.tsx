@@ -35,7 +35,7 @@ export function StateBadge({
         <span
           aria-label="Confirmed by the platform just now"
           title={confirmed}
-          className="h-1.5 w-1.5 rounded-full bg-state-running"
+          className="h-1.5 w-1.5 rounded-full bg-running"
         />
       )}
       {/* Stale data is always labelled rather than quietly shown as current:

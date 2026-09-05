@@ -103,7 +103,7 @@ export function ProvisionForm({
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
-          {error && <span className="text-xs text-state-error">{error}</span>}
+          {error && <span className="text-xs text-danger">{error}</span>}
           <button
             onClick={() => create.mutate()}
             disabled={!ready || create.isPending}
@@ -149,7 +149,7 @@ export function ProvisionForm({
         )}
 
         {chosen && !chosen.has_cloud_init && (
-          <p className="rounded-md bg-state-paused/10 p-3 text-xs text-state-paused">
+          <p className="rounded-md bg-paused/10 p-3 text-xs text-paused">
             This template has no cloud-init drive. The user name and SSH keys below cannot be
             applied to it, and the guest will start with whatever credentials the image was built
             with.
@@ -311,16 +311,14 @@ export function ProvisionStatus({ requestID }: { requestID: string }) {
       <div className="flex items-center justify-between">
         <span className="font-medium">{data.guest_name}</span>
         <span
-          className={
-            data.state === 'failed' ? 'text-state-error' : done ? 'text-state-ok' : 'text-muted'
-          }
+          className={data.state === 'failed' ? 'text-danger' : done ? 'text-running' : 'text-muted'}
         >
           {data.state}
         </span>
       </div>
       {data.vmid && <p className="mt-1 font-mono text-xs text-muted">VMID {data.vmid}</p>}
       {data.error && (
-        <p className="mt-2 text-xs text-state-error">
+        <p className="mt-2 text-xs text-danger">
           {data.step && <span className="font-medium">{data.step}: </span>}
           {data.error}
         </p>

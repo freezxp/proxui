@@ -131,7 +131,7 @@ export function PublishingPage() {
 function ProviderHealth({ provider }: { provider: EdgeProvider }) {
   const tone =
     provider.health === 'healthy'
-      ? 'border-state-running/40 bg-state-running/5'
+      ? 'border-running/40 bg-running/5'
       : provider.health === 'degraded'
         ? 'border-warning/40 bg-warning/5'
         : provider.health === 'unreachable'

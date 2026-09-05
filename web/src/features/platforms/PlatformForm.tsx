@@ -330,7 +330,7 @@ function TestResult({ report }: { report: TestReport }) {
   return (
     <div
       className={`space-y-2 rounded-lg border p-3 text-sm ${
-        ok ? 'border-state-running/40 bg-state-running/5' : 'border-danger/40 bg-danger/5'
+        ok ? 'border-running/40 bg-running/5' : 'border-danger/40 bg-danger/5'
       }`}
     >
       <Check ok={report.reachable} label="Reachable" />
@@ -342,7 +342,7 @@ function TestResult({ report }: { report: TestReport }) {
       {report.error && <p className="text-xs text-danger">{report.error}</p>}
       {report.missing_permissions && report.missing_permissions.length > 0 && (
         <div className="text-xs">
-          <p className="font-medium text-state-paused">Missing privileges</p>
+          <p className="font-medium text-paused">Missing privileges</p>
           <ul className="list-inside list-disc text-muted">
             {report.missing_permissions.map((p) => (
               <li key={p}>
@@ -356,7 +356,7 @@ function TestResult({ report }: { report: TestReport }) {
         </div>
       )}
       {report.warnings?.map((warning) => (
-        <p key={warning} className="text-xs text-state-paused">
+        <p key={warning} className="text-xs text-paused">
           {warning}
         </p>
       ))}
@@ -367,7 +367,7 @@ function TestResult({ report }: { report: TestReport }) {
 function Check({ ok, label }: { ok: boolean; label: string }) {
   return (
     <p className="flex items-center gap-2">
-      <span className={ok ? 'text-state-running' : 'text-danger'}>{ok ? '✓' : '✗'}</span>
+      <span className={ok ? 'text-running' : 'text-danger'}>{ok ? '✓' : '✗'}</span>
       <span>{label}</span>
     </p>
   )

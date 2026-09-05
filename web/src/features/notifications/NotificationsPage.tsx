@@ -123,9 +123,7 @@ function ChannelsTab() {
                 </div>
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs ${
-                    channel.is_enabled
-                      ? 'bg-state-running/15 text-state-running'
-                      : 'bg-state-stopped/15 text-state-stopped'
+                    channel.is_enabled ? 'bg-running/15 text-running' : 'bg-stopped/15 text-stopped'
                   }`}
                 >
                   {channel.is_enabled ? 'enabled' : 'disabled'}
@@ -133,7 +131,7 @@ function ChannelsTab() {
               </div>
 
               {!channel.has_secret && channel.kind !== 'webhook' && (
-                <p className="text-xs text-state-paused">
+                <p className="text-xs text-paused">
                   No secret stored. This channel will fail until one is set.
                 </p>
               )}
@@ -550,9 +548,9 @@ function DeliveriesTab() {
                 <span
                   className={
                     delivery.status === 'sent'
-                      ? 'text-state-running'
+                      ? 'text-running'
                       : delivery.status === 'pending'
-                        ? 'text-state-paused'
+                        ? 'text-paused'
                         : 'text-danger'
                   }
                 >

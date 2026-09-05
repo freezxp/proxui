@@ -105,11 +105,7 @@ export function StoragePage() {
                   <div className="h-1.5 w-40 overflow-hidden rounded-full bg-border">
                     <div
                       className={`h-full ${
-                        pct >= 90
-                          ? 'bg-state-stopped'
-                          : pct >= 80
-                            ? 'bg-state-paused'
-                            : 'bg-state-running'
+                        pct >= 90 ? 'bg-stopped' : pct >= 80 ? 'bg-paused' : 'bg-running'
                       }`}
                       style={{ width: `${Math.min(pct, 100)}%` }}
                     />
@@ -206,16 +202,16 @@ function Page({
 function StatusBadge({ status, stale }: { status: string; stale: boolean }) {
   const tone =
     status === 'online'
-      ? 'bg-state-running/15 text-state-running'
+      ? 'bg-running/15 text-running'
       : status === 'unknown'
         ? 'bg-surface-raised text-muted'
-        : 'bg-state-stopped/15 text-state-stopped'
+        : 'bg-stopped/15 text-stopped'
   return (
     <span className="flex items-center gap-1.5">
       <span className={`rounded-full px-2 py-0.5 text-xs ${tone}`}>{status}</span>
       {stale && (
         <span
-          className="text-xs text-state-paused"
+          className="text-xs text-paused"
           title="The platform stopped reporting this host; it is kept until confirmed gone."
         >
           stale

@@ -105,7 +105,7 @@ export function BuildTemplateForm({
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
-          {error && <span className="text-xs text-state-error">{error}</span>}
+          {error && <span className="text-xs text-danger">{error}</span>}
           <button
             onClick={() => build.mutate()}
             disabled={!ready || build.isPending}
@@ -155,8 +155,8 @@ export function BuildTemplateForm({
 
         {chosen && (
           <p className="-mt-2 text-xs text-muted">
-            Logs in as <span className="font-mono text-fg">{chosen.login_user}</span>. Use that as
-            the login user when provisioning from this template.
+            Logs in as <span className="font-mono text-content">{chosen.login_user}</span>. Use that
+            as the login user when provisioning from this template.
           </p>
         )}
 
@@ -177,7 +177,7 @@ export function BuildTemplateForm({
               </span>
             )
           ) : (
-            <span className="mt-1 block text-xs text-state-error">
+            <span className="mt-1 block text-xs text-danger">
               Must end in .qcow2, .raw, .vmdk or .ova. A cloud image published as .img is usually
               qcow2 — rename it here.
             </span>

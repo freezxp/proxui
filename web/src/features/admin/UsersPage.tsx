@@ -150,16 +150,14 @@ function UsersTab() {
                   <div className="flex flex-wrap gap-1">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs ${
-                        user.is_active
-                          ? 'bg-state-running/15 text-state-running'
-                          : 'bg-state-stopped/15 text-state-stopped'
+                        user.is_active ? 'bg-running/15 text-running' : 'bg-stopped/15 text-stopped'
                       }`}
                     >
                       {user.is_active ? 'active' : 'disabled'}
                     </span>
                     {user.must_change_password && (
                       <span
-                        className="rounded-full bg-state-paused/15 px-2 py-0.5 text-xs text-state-paused"
+                        className="rounded-full bg-paused/15 px-2 py-0.5 text-xs text-paused"
                         title="This account must set a new password at next sign-in."
                       >
                         password pending

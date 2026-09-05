@@ -101,7 +101,7 @@ export function PlatformDetail({ platform, onClose }: { platform: Platform; onCl
         </dl>
 
         {platform.breaker_open && (
-          <p className="rounded-md bg-state-paused/10 p-3 text-sm text-state-paused">
+          <p className="rounded-md bg-paused/10 p-3 text-sm text-paused">
             Synchronization is suspended after repeated failures. It resumes automatically; a manual
             sync bypasses the wait.
           </p>
@@ -194,9 +194,9 @@ export function PlatformDetail({ platform, onClose }: { platform: Platform; onCl
                         <span
                           className={
                             run.status === 'success'
-                              ? 'text-state-running'
+                              ? 'text-running'
                               : run.status === 'partial'
-                                ? 'text-state-paused'
+                                ? 'text-paused'
                                 : 'text-danger'
                           }
                         >

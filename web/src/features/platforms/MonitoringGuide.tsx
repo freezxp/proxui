@@ -66,7 +66,7 @@ function NodeStatus({ nodes, loading }: { nodes: HostRow[]; loading: boolean }) 
           <li key={node.id} className="flex items-baseline justify-between gap-3 px-3 py-2">
             <span className="font-medium">{node.name}</span>
             {count > 0 ? (
-              <span className="text-state-running">
+              <span className="text-running">
                 {count} sensors
                 {node.sensors?.hottest && (
                   <span className="ml-2 text-muted">

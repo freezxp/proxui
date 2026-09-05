@@ -151,7 +151,7 @@ export function FolderSidebar({
         </button>
       )}
 
-      {error && <p className="px-2 text-xs text-state-error">{error}</p>}
+      {error && <p className="px-2 text-xs text-danger">{error}</p>}
     </nav>
   )
 }
@@ -192,7 +192,7 @@ function Node({
             onClick={onRename}
             title={`Rename ${folderName}`}
             aria-label={`Rename ${folderName}`}
-            className="rounded px-1 text-xs text-muted hover:text-fg"
+            className="rounded px-1 text-xs text-muted hover:text-content"
           >
             ✎
           </button>
@@ -200,7 +200,7 @@ function Node({
             onClick={() => setConfirming(true)}
             title={`Delete ${folderName}`}
             aria-label={`Delete ${folderName}`}
-            className="rounded px-1 text-xs text-muted hover:text-state-error"
+            className="rounded px-1 text-xs text-muted hover:text-danger"
           >
             ×
           </button>
@@ -217,7 +217,7 @@ function Node({
               setConfirming(false)
               onDelete?.()
             }}
-            className="rounded px-1 text-state-error"
+            className="rounded px-1 text-danger"
           >
             Yes
           </button>

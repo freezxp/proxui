@@ -49,7 +49,7 @@ export function DestroyButton({
           setError('')
           setOpen(true)
         }}
-        className="rounded-md border border-state-error/40 px-3 py-2 text-sm font-medium text-state-error hover:bg-state-error/10"
+        className="rounded-md border border-danger/40 px-3 py-2 text-sm font-medium text-danger hover:bg-danger/10"
       >
         Destroy
       </button>
@@ -60,11 +60,11 @@ export function DestroyButton({
           onClose={() => setOpen(false)}
           footer={
             <div className="flex items-center justify-between gap-3">
-              {error && <span className="text-xs text-state-error">{error}</span>}
+              {error && <span className="text-xs text-danger">{error}</span>}
               <button
                 onClick={() => destroy.mutate()}
                 disabled={confirm.trim() !== name || destroy.isPending}
-                className="ml-auto rounded-md bg-state-error px-3 py-1.5 text-sm text-white disabled:opacity-40"
+                className="ml-auto rounded-md bg-danger px-3 py-1.5 text-sm text-white disabled:opacity-40"
               >
                 {destroy.isPending ? 'Destroying…' : 'Destroy permanently'}
               </button>
@@ -77,13 +77,13 @@ export function DestroyButton({
               the portal keeps no copy.
             </p>
             {running && (
-              <p className="rounded-md bg-state-paused/10 p-3 text-xs text-state-paused">
+              <p className="rounded-md bg-paused/10 p-3 text-xs text-paused">
                 The guest is running. The platform will refuse to destroy it until it is stopped.
               </p>
             )}
             <label className="block">
               <span className="mb-1 block text-muted">
-                Type <span className="font-mono text-fg">{name}</span> to confirm
+                Type <span className="font-mono text-content">{name}</span> to confirm
               </span>
               <input
                 value={confirm}

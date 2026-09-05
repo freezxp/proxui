@@ -72,7 +72,7 @@ export function PerformanceTab({
               className={`rounded-md px-3 py-1.5 text-sm ${
                 range === option
                   ? 'bg-accent text-white'
-                  : 'border border-border hover:bg-surface-raised'
+                  : 'border border-border hover:bg-surface-inset'
               }`}
             >
               {RANGE_LABELS[option]}

@@ -145,7 +145,7 @@ export function FolderSidebar({
       ) : (
         <button
           onClick={() => setCreating(true)}
-          className="mt-2 w-full rounded px-2 py-1 text-left text-xs text-muted hover:bg-surface-raised"
+          className="mt-2 w-full rounded px-2 py-1 text-left text-xs text-muted hover:bg-surface-inset"
         >
           + New folder
         </button>
@@ -178,7 +178,7 @@ function Node({
   return (
     <div
       className={`group flex items-center gap-1 rounded px-2 py-1 ${
-        active ? 'bg-accent/10 text-accent' : 'hover:bg-surface-raised'
+        active ? 'bg-accent/10 text-accent' : 'hover:bg-surface-inset'
       }`}
     >
       <button onClick={onClick} aria-current={active} className="flex-1 text-left">

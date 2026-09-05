@@ -65,8 +65,8 @@ export function PlatformsPage() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border bg-surface-raised">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+          <table className="tabular-nums w-full text-sm">
+            <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-2 font-medium">Name</th>
                 <th className="px-4 py-2 font-medium">Type</th>

@@ -18,11 +18,18 @@ export function UserMenu({
   onChangePassword,
   onTwoFactor,
   onSignOut,
+  compact = false,
+  openUp = false,
 }: {
   user: CurrentUser
   onChangePassword: () => void
   onTwoFactor: () => void
   onSignOut: () => void
+  /** Show the initials alone, for the sidebar's icon rail. */
+  compact?: boolean
+  /** Open above the trigger, for a control that sits at the foot of the
+   *  sidebar rather than in a header. */
+  openUp?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(storedTheme)
@@ -72,28 +79,36 @@ export function UserMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-sm hover:bg-surface"
+        className={`flex w-full items-center rounded-sm text-sm hover:bg-surface-inset ${
+          compact ? 'justify-center px-0 py-1.5' : 'gap-2 px-2 py-1.5'
+        }`}
       >
         <span
           aria-hidden="true"
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/15 text-xs font-medium text-accent"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-wash text-[10px] font-medium text-accent-strong"
         >
           {initials(name)}
         </span>
-        <span className="hidden max-w-40 truncate sm:inline">{name}</span>
-        <span
-          aria-hidden="true"
-          className={`text-muted transition-transform ${open ? 'rotate-180' : ''}`}
-        >
-          ▾
-        </span>
+        {!compact && (
+          <>
+            <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+            <span
+              aria-hidden="true"
+              className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
+            >
+              ▾
+            </span>
+          </>
+        )}
       </button>
 
       {open && (
         <div
           role="menu"
           aria-label="Account"
-          className="absolute right-0 z-40 mt-1 w-60 overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
+          className={`absolute left-0 z-40 w-60 overflow-hidden rounded-md border border-border bg-surface-raised shadow-lg ${
+            openUp ? 'bottom-full mb-1' : 'right-0 mt-1'
+          }`}
         >
           <div className="border-b border-border px-3 py-2">
             <div className="truncate text-sm font-medium">{name}</div>
@@ -114,7 +129,7 @@ export function UserMenu({
                   className={`flex-1 rounded-md px-2 py-1 text-xs ${
                     theme === option.value
                       ? 'bg-accent text-white'
-                      : 'border border-border hover:bg-surface-raised'
+                      : 'border border-border hover:bg-surface-inset'
                   }`}
                 >
                   {option.label}
@@ -154,7 +169,7 @@ function MenuItem({
     <button
       role="menuitem"
       onClick={onClick}
-      className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface-raised ${
+      className={`block w-full px-3 py-2 text-left text-sm hover:bg-surface-inset ${
         tone === 'danger' ? 'text-danger' : ''
       }`}
     >

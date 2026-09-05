@@ -110,7 +110,7 @@ export function NodeSensorPanel({ hostId, hostName }: { hostId: string; hostName
             <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
               {shortChip(chip)}
             </div>
-            <table className="text-sm">
+            <table className="tabular-nums text-sm">
               <tbody>
                 {group.map((reading) => (
                   <tr key={`${reading.chip}-${reading.label}`}>

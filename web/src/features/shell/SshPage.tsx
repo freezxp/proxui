@@ -823,7 +823,7 @@ function ToolbarButton({
           ? 'border-danger/50 text-danger'
           : pressed
             ? 'border-accent bg-accent/10'
-            : 'border-border hover:bg-surface-raised'
+            : 'border-border hover:bg-surface-inset'
       }`}
       {...rest}
     >

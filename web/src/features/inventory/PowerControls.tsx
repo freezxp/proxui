@@ -125,7 +125,7 @@ export function PowerControls({
                 ? 'bg-accent text-white'
                 : choice.danger
                   ? 'border border-danger text-danger hover:bg-danger/10'
-                  : 'border border-border hover:bg-surface-raised'
+                  : 'border border-border hover:bg-surface-inset'
             }`}
           >
             {choice.label}
@@ -176,7 +176,7 @@ function ConfirmDialog({
         <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface"
+            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-inset"
           >
             Cancel
           </button>

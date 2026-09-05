@@ -160,8 +160,8 @@ export function PlatformDetail({ platform, onClose }: { platform: Platform; onCl
             <p className="text-sm text-muted">Nothing has run yet.</p>
           ) : (
             <div className="max-h-80 overflow-y-auto rounded-md border border-border">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-surface-raised text-left text-muted">
+              <table className="tabular-nums w-full text-xs">
+                <thead className="sticky top-0 bg-surface-inset text-left text-muted">
                   <tr>
                     <th className="px-3 py-1.5 font-medium">When</th>
                     <th className="px-3 py-1.5 font-medium">Kind</th>

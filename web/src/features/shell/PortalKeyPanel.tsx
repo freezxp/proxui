@@ -113,7 +113,7 @@ export function PortalKeyPanel() {
                 onClick={() => {
                   void copyText(current.public_key ?? '').then((ok) => setCopied(ok))
                 }}
-                className="rounded-md border border-border px-2 py-0.5 text-xs hover:bg-surface-raised"
+                className="rounded-md border border-border px-2 py-0.5 text-xs hover:bg-surface-inset"
               >
                 {copied ? 'Copied' : 'Copy'}
               </button>
@@ -128,7 +128,7 @@ export function PortalKeyPanel() {
               type="button"
               onClick={() => setConfirming('rotate')}
               disabled={busy}
-              className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-raised disabled:opacity-50"
+              className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-inset disabled:opacity-50"
             >
               Rotate
             </button>
@@ -166,7 +166,7 @@ export function PortalKeyPanel() {
                 <button
                   type="button"
                   onClick={() => setConfirming(null)}
-                  className="rounded-md border border-border px-3 py-1 hover:bg-surface-raised"
+                  className="rounded-md border border-border px-3 py-1 hover:bg-surface-inset"
                 >
                   Cancel
                 </button>

@@ -229,7 +229,7 @@ export function FileBrowser({ sessionId, home, onClose, onNotice }: Props) {
             {index > 0 && <span className="text-muted">/</span>}
             <button
               onClick={() => void load(crumb.path)}
-              className="rounded px-1 py-0.5 font-mono hover:bg-surface-raised"
+              className="rounded px-1 py-0.5 font-mono hover:bg-surface-inset"
             >
               {crumb.label}
             </button>
@@ -259,8 +259,8 @@ export function FileBrowser({ sessionId, home, onClose, onNotice }: Props) {
         {loading && <p className="p-3 text-sm text-muted">Reading {path}…</p>}
         {!loading && error !== '' && <p className="p-3 text-sm text-danger">{error}</p>}
         {!loading && error === '' && listing && (
-          <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 bg-surface text-muted">
+          <table className="tabular-nums w-full text-left text-xs">
+            <thead className="sticky top-0 bg-surface-inset text-muted">
               <tr>
                 <th className="px-3 py-1 font-medium">Name</th>
                 <th className="px-2 py-1 text-right font-medium">Size</th>
@@ -271,7 +271,7 @@ export function FileBrowser({ sessionId, home, onClose, onNotice }: Props) {
             </thead>
             <tbody>
               {listing.parent !== '' && (
-                <tr className="hover:bg-surface-raised">
+                <tr className="hover:bg-surface-inset">
                   <td colSpan={5} className="px-3 py-1">
                     <button onClick={() => void load(listing.parent)} className="font-mono">
                       ../
@@ -287,7 +287,7 @@ export function FileBrowser({ sessionId, home, onClose, onNotice }: Props) {
                 </tr>
               )}
               {listing.data.map((entry) => (
-                <tr key={entry.path} className="group hover:bg-surface-raised">
+                <tr key={entry.path} className="group hover:bg-surface-inset">
                   <td className="max-w-[14rem] truncate px-3 py-1">
                     <button
                       onClick={() => (entry.is_dir ? void load(entry.path) : void download(entry))}
@@ -335,7 +335,7 @@ function PanelButton({
   return (
     <button
       onClick={onClick}
-      className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-raised"
+      className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-inset"
       {...rest}
     >
       {children}

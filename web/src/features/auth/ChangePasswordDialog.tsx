@@ -121,7 +121,7 @@ export function ChangePasswordDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Change password"
-        className="relative w-full max-w-md space-y-4 rounded-lg border border-border bg-surface p-6 shadow-xl"
+        className="relative w-full max-w-md space-y-4 rounded-lg border border-border bg-surface-raised p-6 shadow-xl"
       >
         <h2 className="font-medium">Change password</h2>
         {form}

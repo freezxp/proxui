@@ -221,7 +221,7 @@ export function LoginPage({ onRegister }: { onRegister: () => void }) {
                 to Google, and the callback comes back as a navigation too. */}
             <a
               href="/api/v1/auth/google/start"
-              className="flex w-full items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-surface"
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-inset"
             >
               <GoogleMark />
               Sign in with Google

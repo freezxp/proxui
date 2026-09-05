@@ -165,8 +165,8 @@ function RuleTable({
 }) {
   return (
     <div className="overflow-x-auto rounded-md border border-border">
-      <table className="w-full min-w-[48rem] text-sm">
-        <thead className="bg-surface text-left text-xs uppercase text-muted">
+      <table className="tabular-nums w-full min-w-[48rem] text-sm">
+        <thead className="bg-surface-inset text-left text-xs uppercase text-muted">
           <tr>
             <th className="px-3 py-2 font-medium">Hostname</th>
             <th className="px-3 py-2 font-medium">Target</th>
@@ -222,7 +222,7 @@ function RuleTable({
                     <button
                       onClick={() => onUnpublish(app)}
                       disabled={busy}
-                      className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface disabled:opacity-40"
+                      className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-inset disabled:opacity-40"
                       title={
                         app.manages_dns
                           ? 'Removes the routing rule and the DNS record the portal created'

@@ -240,7 +240,7 @@ export function PublishDialog({
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface"
+            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-inset"
           >
             Cancel
           </button>
@@ -273,7 +273,7 @@ function ModeButton({
       className={`rounded-md px-3 py-1.5 text-sm ${
         active
           ? 'border border-accent bg-accent/10 text-accent'
-          : 'border border-border hover:bg-surface'
+          : 'border border-border hover:bg-surface-inset'
       }`}
     >
       {children}

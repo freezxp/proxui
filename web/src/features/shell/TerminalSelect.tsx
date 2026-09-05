@@ -160,7 +160,7 @@ function PanelButton({
       onClick={onClick}
       aria-pressed={pressed}
       className={`shrink-0 rounded-md border px-2 py-1 text-xs ${
-        pressed ? 'border-accent bg-accent/10' : 'border-border hover:bg-surface-raised'
+        pressed ? 'border-accent bg-accent/10' : 'border-border hover:bg-surface-inset'
       }`}
     >
       {children}

@@ -147,7 +147,7 @@ export function VMDetailPage() {
                 // session must survive navigating the portal (SSH-01).
                 className={`rounded-md border px-3 py-2 text-sm font-medium ${
                   detail.state === 'running' && detail.ip_addresses.length > 0
-                    ? 'border-border hover:bg-surface-raised'
+                    ? 'border-border hover:bg-surface-inset'
                     : 'pointer-events-none border-border text-muted opacity-60'
                 }`}
                 title={
@@ -341,8 +341,8 @@ function History({ vmId }: { vmId: string }) {
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <table className="w-full text-sm">
-        <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+      <table className="tabular-nums w-full text-sm">
+        <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-muted">
           <tr>
             <th className="px-4 py-2 font-medium">When</th>
             <th className="px-4 py-2 font-medium">Field</th>

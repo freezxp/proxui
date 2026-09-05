@@ -462,8 +462,8 @@ function RoutingTab() {
       {error && <p className="text-sm text-danger">{error}</p>}
 
       <div className="overflow-hidden rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+        <table className="tabular-nums w-full text-sm">
+          <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-4 py-2 font-medium">When</th>
               <th className="px-4 py-2 font-medium">At least</th>
@@ -520,8 +520,8 @@ function DeliveriesTab() {
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <table className="w-full text-sm">
-        <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+      <table className="tabular-nums w-full text-sm">
+        <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-muted">
           <tr>
             <th className="px-4 py-2 font-medium">When</th>
             <th className="px-4 py-2 font-medium">Channel</th>

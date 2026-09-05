@@ -112,7 +112,7 @@ function Key({
       className={`min-w-9 shrink-0 rounded-md border px-2 py-1.5 font-mono text-xs ${
         pressed
           ? 'border-accent bg-accent text-white'
-          : 'border-border hover:bg-surface-raised active:bg-surface-raised'
+          : 'border-border hover:bg-surface-inset active:bg-surface-raised'
       }`}
     >
       {label}

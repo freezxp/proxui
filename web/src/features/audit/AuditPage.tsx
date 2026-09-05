@@ -83,7 +83,7 @@ export function AuditPage() {
         <button
           onClick={() => void downloadExport(query)}
           disabled={exporting}
-          className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-raised disabled:opacity-40"
+          className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-inset disabled:opacity-40"
         >
           {exporting ? 'Preparing…' : 'Export CSV'}
         </button>
@@ -138,8 +138,8 @@ export function AuditPage() {
 
       {entries.data && (
         <div className="overflow-hidden rounded-lg border border-border bg-surface-raised">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+          <table className="tabular-nums w-full text-sm">
+            <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-2 font-medium">When</th>
                 <th className="px-4 py-2 font-medium">Actor</th>
@@ -160,7 +160,7 @@ export function AuditPage() {
                 <Fragment key={entry.id}>
                   <tr
                     onClick={() => setExpanded(expanded === entry.id ? null : entry.id)}
-                    className="cursor-pointer border-t border-border hover:bg-surface-raised"
+                    className="cursor-pointer border-t border-border hover:bg-surface-inset"
                   >
                     <td className="px-4 py-2 text-muted" title={absoluteTime(entry.ts)}>
                       {relativeTime(entry.ts)}

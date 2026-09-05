@@ -118,7 +118,7 @@ export function HostPerformance({ hostId }: { hostId: string }) {
               className={`rounded px-2 py-1 text-xs ${
                 range === option
                   ? 'bg-accent text-white'
-                  : 'border border-border hover:bg-surface-raised'
+                  : 'border border-border hover:bg-surface-inset'
               }`}
             >
               {RANGE_LABELS[option]}

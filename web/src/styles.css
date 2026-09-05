@@ -3,46 +3,99 @@
 @tailwind utilities;
 
 /* Semantic tokens rather than raw colours, so a component says what a value
-   means ("surface", "danger") and both themes stay consistent by definition. */
+   means ("surface", "danger") and both themes stay consistent by definition.
+
+   The palette is dnsprox's, so the two halves of the same estate look like one
+   product: a cool slate ground, a single teal accent, and signal colours dark
+   enough to read as text rather than as decoration. Light is the base; dark
+   overrides only the values, and no component knows which it is in. */
 @layer base {
   :root {
-    --surface: 250 250 250;
+    /* The page, a panel on it, and a subtle fill inside a panel. Three, not
+       two: a table header inside a card needs to separate from the card
+       without becoming another card. */
+    --surface: 243 245 246;
     --surface-raised: 255 255 255;
-    --border: 226 232 240;
-    --content: 15 23 42;
-    --muted: 100 116 139;
-    --accent: 37 99 235;
+    --surface-inset: 234 238 240;
 
-    --state-running: 22 163 74;
-    --state-stopped: 100 116 139;
-    --state-paused: 217 119 6;
-    --state-stale: 234 88 12;
-    /* Caution, distinct from the VM-state amber: a warm node and a paused VM
-       are unrelated, and reusing the state colour here would make one mean
-       the other. */
-    --warning: 202 138 4;
-    --danger: 220 38 38;
+    --border: 214 221 225;
+    /* A rule that has to be seen rather than felt — a divider between two
+       things of equal weight, where the hairline disappears. */
+    --border-strong: 194 203 209;
+
+    --content: 17 22 27;
+    /* Body text that is not the heading: still text, not metadata. The gap
+       between this and --muted is what stops a dense page reading as two
+       levels when it has three. */
+    --content-soft: 57 67 77;
+    --muted: 102 114 126;
+
+    --accent: 11 110 153;
+    /* Accent text on --accent-wash. The accent itself is tuned for a white
+       ground and goes muddy on the wash. */
+    --accent-strong: 7 91 127;
+    /* A flat tint rather than the accent at low alpha: an alpha wash picks up
+       whatever is behind it, and the sidebar's selection sits on a different
+       ground from a badge in a table. */
+    --accent-wash: 228 240 246;
+
+    --state-running: 31 122 77;
+    --state-stopped: 102 114 126;
+    --state-paused: 154 91 8;
+    /* Between paused and failed, because that is what stale means: a reading
+       nobody has confirmed lately. The palette carries no colour there, so
+       this one is mixed from the two it sits between. */
+    --state-stale: 168 72 26;
+    /* Caution, and the same value as the paused amber. The palette has one
+       warm signal and inventing a second would be a difference nobody could
+       see; the names stay apart because a warm node and a paused VM are
+       unrelated, and one may need to move without the other. */
+    --warning: 154 91 8;
+    --danger: 175 42 34;
   }
 
   .dark {
-    --surface: 15 23 42;
-    --surface-raised: 30 41 59;
-    --border: 51 65 85;
-    --content: 226 232 240;
-    --muted: 148 163 184;
-    --accent: 96 165 250;
+    --surface: 14 19 23;
+    --surface-raised: 21 27 33;
+    --surface-inset: 27 34 42;
+
+    --border: 36 45 54;
+    --border-strong: 51 64 75;
+
+    --content: 231 236 239;
+    --content-soft: 186 196 204;
+    --muted: 133 147 160;
+
+    --accent: 95 179 214;
+    --accent-strong: 138 203 230;
+    /* Darker than the surface here, not lighter: a tint made by lightening
+       would read as a raised panel rather than as a selection. */
+    --accent-wash: 18 43 54;
 
     /* Lightened for contrast against a dark surface: the same colours at
        their light-theme values fail legibility here. */
-    --state-running: 74 222 128;
-    --state-stopped: 148 163 184;
-    --state-paused: 251 191 36;
-    --state-stale: 251 146 60;
-    --warning: 250 204 21;
-    --danger: 248 113 113;
+    --state-running: 92 192 140;
+    --state-stopped: 133 147 160;
+    --state-paused: 217 162 87;
+    --state-stale: 224 143 95;
+    --warning: 217 162 87;
+    --danger: 232 117 106;
   }
 
   body {
     @apply bg-surface text-content antialiased;
+  }
+
+  /* One visible focus ring for the whole product, in the accent, rather than
+     the browser's — which is invisible on a dark surface in some engines and
+     differs between them in all of them. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: rgb(var(--accent-wash));
   }
 }

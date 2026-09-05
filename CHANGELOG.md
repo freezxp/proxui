@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+- **The portal looks like dnsprox now** — same palette, same typography, same
+  shape of shell. Two tools run by the same team out of the same rack should
+  not look like two products, and the one that was already right about this was
+  the other one.
+
+  IBM Plex Sans and Mono, bundled through `@fontsource` rather than linked from
+  a font CDN: a portal somebody runs on their own network should not need Google
+  to render, and an air-gapped install would otherwise sit in a fallback face.
+  Latin subsets only — six files and 140 kB, against 68 and a megabyte for the
+  whole family.
+
+  The palette is a cool slate ground with a single teal accent. Two things it
+  brings that the old one did not: the page, a panel on it and a fill inside a
+  panel are now three distinguishable grounds rather than two that were a shade
+  apart, so a hover is always exactly one step of separation from whatever it
+  sits on — and there is a flat `accent-wash` for a selection, which an accent
+  at ten percent could never be, because an alpha tint picks up whatever is
+  behind it.
+
+  Making that scale mean something exposed three floating panels painted in the
+  page colour. It never showed while the two shades were a shade apart; on the
+  new palette a dialog in the page colour reads as a hole rather than as
+  something on top of the page. The drawer, the password dialog and the
+  two-step dialog are on the raised surface now.
+
+  **The shell is one sidebar** instead of a top bar and a nav. It carries the
+  portal's name, the navigation, and the account menu at its foot, and it
+  collapses to an icon rail as before. The eleven destinations are grouped
+  under foldable headings — Infrastructure, Platform, Administration — because
+  the list had grown past the point where anybody scans it and nothing but
+  position said "Storage" and "Settings" were unrelated. A folded heading is
+  remembered; the icon rail ignores the fold, since a rail has no heading to
+  unfold and hiding links there would leave no way back to them.
+
+  **And there is a phone layout at last.** The sidebar was previously always on
+  screen, taking a third of a narrow one; it is a drawer behind a ☰ now, and it
+  closes itself on navigation rather than sitting over the page the tap just
+  loaded.
+
 - **A platform can now say what its nodes are missing, and install it**
   (NODE-01…NODE-05, [ADR 0011](docs/adr/0011-the-portal-can-install-what-it-needs-on-a-node.md)).
   A template built on `cx1` came out with no guest agent because only `pve` had

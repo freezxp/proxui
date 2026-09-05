@@ -144,7 +144,7 @@ export function TwoFactorPanel() {
                     setRemoving(false)
                     setPassword('')
                   }}
-                  className="rounded-md border border-border px-3 py-1 text-sm hover:bg-surface-raised"
+                  className="rounded-md border border-border px-3 py-1 text-sm hover:bg-surface-inset"
                 >
                   Cancel
                 </button>
@@ -184,7 +184,7 @@ export function TwoFactorPanel() {
               <button
                 type="button"
                 onClick={() => void copyText(enrollment.secret).then((ok) => setCopied(ok))}
-                className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-raised"
+                className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-inset"
               >
                 {copied ? 'Copied' : 'Copy'}
               </button>
@@ -218,7 +218,7 @@ export function TwoFactorPanel() {
                 setQR('')
                 setCode('')
               }}
-              className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-raised"
+              className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-inset"
             >
               Cancel
             </button>
@@ -248,13 +248,13 @@ export function TwoFactorDialog({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Two-step verification"
-        className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-surface p-4 shadow-xl"
+        className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-surface-raised p-4 shadow-xl"
       >
         <TwoFactorPanel />
         <button
           type="button"
           onClick={onClose}
-          className="mt-3 w-full rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-raised"
+          className="mt-3 w-full rounded-md border border-border px-3 py-1.5 text-sm hover:bg-surface-inset"
         >
           Close
         </button>

@@ -221,7 +221,7 @@ function GrantsMatrix({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="text-sm">
+        <table className="tabular-nums text-sm">
           <thead>
             <tr>
               <th className="px-3 py-2 text-left text-xs uppercase tracking-wide text-muted">
@@ -349,7 +349,7 @@ function MemberPicker({
           <ul className="space-y-0.5">
             {filtered.map((vm) => (
               <li key={vm.id}>
-                <label className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-surface-raised">
+                <label className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-surface-inset">
                   <input
                     type="checkbox"
                     checked={chosen.has(vm.id)}

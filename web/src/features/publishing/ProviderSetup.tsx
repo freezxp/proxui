@@ -104,7 +104,7 @@ export function ProviderSetup({ onDone }: { onDone: () => void }) {
         <button
           onClick={() => test.mutate()}
           disabled={!accountID.trim() || !token || test.isPending}
-          className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface disabled:opacity-40"
+          className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-inset disabled:opacity-40"
         >
           {test.isPending ? 'Checking…' : 'Test connection'}
         </button>

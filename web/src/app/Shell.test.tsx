@@ -106,6 +106,51 @@ describe('Shell navigation', () => {
     }
   })
 
+  // The list had grown to eleven and nothing but position said which items
+  // were related, so it is grouped now — and a group somebody folds shut stays
+  // shut on their next visit.
+  it('folds a section away and remembers it', async () => {
+    const person = userEvent.setup()
+    const { unmount } = renderShell()
+
+    expect(screen.getByRole('link', { name: 'Storage' })).toBeDefined()
+    await person.click(screen.getByRole('button', { name: 'Infrastructure', expanded: true }))
+    expect(screen.queryByRole('link', { name: 'Storage' })).toBeNull()
+
+    unmount()
+    renderShell()
+    expect(screen.queryByRole('link', { name: 'Storage' })).toBeNull()
+    // The Dashboard sits above every heading, so nothing can fold it away.
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeDefined()
+  })
+
+  // Folding hides links behind a heading you can click again. The icon rail has
+  // no headings, so obeying the fold there would hide links with no way back.
+  it('keeps every link reachable in the icon rail, folded or not', async () => {
+    const person = userEvent.setup()
+    renderShell()
+
+    await person.click(screen.getByRole('button', { name: 'Infrastructure' }))
+    await person.click(screen.getByRole('button', { name: 'Collapse menu' }))
+
+    expect(screen.getByRole('link', { name: 'Storage' })).toBeDefined()
+  })
+
+  // On a phone the sidebar is a drawer, and it has to get out of the way once
+  // it has been used — otherwise it covers the page the tap just loaded.
+  it('opens the menu on a phone and closes it on navigation', async () => {
+    const person = userEvent.setup()
+    renderShell()
+
+    await person.click(screen.getByRole('button', { name: 'Open menu' }))
+    // Both the drawer and the desktop sidebar are in the document; only the
+    // viewport decides which is seen.
+    expect(screen.getAllByRole('link', { name: 'Inventory' })).toHaveLength(2)
+
+    await person.click(screen.getAllByRole('link', { name: 'Inventory' })[0])
+    expect(screen.getAllByRole('link', { name: 'Inventory' })).toHaveLength(1)
+  })
+
   it('shows an operator only what an operator may reach', () => {
     renderShell('operator')
 

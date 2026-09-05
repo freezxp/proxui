@@ -43,7 +43,7 @@ export function WelcomePage() {
         <div className="flex items-center gap-3 border-t border-border pt-4">
           <button
             onClick={() => void logout()}
-            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface"
+            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-inset"
           >
             Sign out
           </button>

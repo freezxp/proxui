@@ -157,7 +157,7 @@ export function VMListPage() {
               onClick={() => update({ view: mode === 'list' ? '' : mode })}
               aria-pressed={view === mode}
               className={`px-3 py-2 first:rounded-l-md last:rounded-r-md ${
-                view === mode ? 'bg-accent/10 text-accent' : 'hover:bg-surface-raised'
+                view === mode ? 'bg-accent/10 text-accent' : 'hover:bg-surface-inset'
               }`}
             >
               {mode === 'list' ? 'List' : 'Folders'}
@@ -180,7 +180,7 @@ export function VMListPage() {
         {(query || state || platform || folder || favourite) && (
           <button
             onClick={() => setParams(new URLSearchParams(), { replace: true })}
-            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-raised"
+            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-inset"
           >
             Clear
           </button>
@@ -208,8 +208,8 @@ export function VMListPage() {
         )}
 
         <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-border bg-surface-raised">
-          <table className="w-full min-w-[52rem] text-sm">
-            <thead className="bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+          <table className="tabular-nums w-full min-w-[52rem] text-sm">
+            <thead className="bg-surface-inset text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="w-8 px-2 py-2" aria-label="Favourite" />
                 <SortableHeader
@@ -284,7 +284,7 @@ export function VMListPage() {
               {vms.data?.data.map((vm, i) => (
                 <Fragment key={vm.id}>
                   {headingFor(vms.data.data, i, sort)}
-                  <tr className="border-t border-border hover:bg-surface-raised/60">
+                  <tr className="border-t border-border hover:bg-surface-inset/60">
                     <td className="px-2 py-2">
                       <FavouriteStar vmID={vm.id} isFavourite={vm.is_favourite} />
                     </td>

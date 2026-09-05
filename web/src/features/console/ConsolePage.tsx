@@ -565,7 +565,7 @@ function KeyButton({
         event.preventDefault()
         onPress()
       }}
-      className="min-w-[2.75rem] rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-raised"
+      className="min-w-[2.75rem] rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-inset"
     >
       {children}
     </button>
@@ -606,7 +606,7 @@ function ToolbarButton({
           ? 'bg-accent text-white'
           : pressed
             ? 'border border-accent bg-accent/10 text-accent'
-            : 'border border-border hover:bg-surface-raised'
+            : 'border border-border hover:bg-surface-inset'
       }`}
     >
       {children}

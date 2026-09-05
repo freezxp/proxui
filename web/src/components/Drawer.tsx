@@ -27,7 +27,7 @@ export function Drawer({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative flex h-full w-full max-w-lg flex-col border-l border-border bg-surface shadow-xl"
+        className="relative flex h-full w-full max-w-lg flex-col border-l border-border bg-surface-raised shadow-xl"
       >
         <header className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="font-medium">{title}</h2>

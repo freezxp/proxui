@@ -52,6 +52,10 @@ web-test: ## Run the frontend tests
 web: ## Build the frontend into web/dist
 	cd web && npm ci --silent && npm run build
 
+.PHONY: gen-apps
+gen-apps: ## Vendor the pinned helper scripts and regenerate the app catalogue
+	$(GO) run ./internal/app/deploy/gen
+
 .PHONY: build
 build: ## Build the binary into bin/ (embeds web/dist if present)
 	@mkdir -p bin

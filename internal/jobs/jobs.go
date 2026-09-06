@@ -17,6 +17,7 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog"
 
+	"github.com/freezxp/proxui/internal/app/deploy"
 	"github.com/freezxp/proxui/internal/app/provisioner"
 	appsync "github.com/freezxp/proxui/internal/app/sync"
 )
@@ -30,6 +31,7 @@ const (
 	TaskOutboxRelay   = "outbox:relay"
 	TaskSyncSensors   = "sync:sensors"
 	TaskProvisionStep = "provision:step"
+	TaskDeployStep    = "deploy:step"
 )
 
 // Queues. Separating them means a slow inventory sync cannot delay the health
@@ -176,6 +178,67 @@ func NewProvisionTask(requestID uuid.UUID, delay time.Duration) (*asynq.Task, er
 		opts = append(opts, asynq.Unique(provisionPollInterval))
 	}
 	return asynq.NewTask(TaskProvisionStep, payload, opts...), nil
+}
+
+// DeployPayload identifies which container deployment a turn acts on.
+type DeployPayload struct {
+	DeploymentID uuid.UUID `json:"deployment_id"`
+}
+
+// NewDeployTask builds one turn of the container deployer (ADR 0012).
+//
+// A longer asynq timeout than provisioning's, because a turn here opens an SSH
+// connection to a node and waits on a handshake; and a longer uniqueness window,
+// because the poll interval is longer for work measured in minutes.
+func NewDeployTask(deploymentID uuid.UUID, delay time.Duration) (*asynq.Task, error) {
+	payload, err := json.Marshal(DeployPayload{DeploymentID: deploymentID})
+	if err != nil {
+		return nil, fmt.Errorf("encode deploy payload: %w", err)
+	}
+	opts := []asynq.Option{
+		asynq.Queue(QueueDefault),
+		asynq.MaxRetry(5),
+		asynq.Timeout(3 * time.Minute),
+	}
+	if delay > 0 {
+		opts = append(opts, asynq.ProcessIn(delay))
+	} else if uniqueAtEntry(delay) {
+		// Only the entry points carry uniqueness. A continuation that asked for
+		// itself would be refused as a duplicate of the turn that issued it,
+		// and the install would be left running with nothing watching it.
+		opts = append(opts, asynq.Unique(deploy.PollInterval))
+	}
+	return asynq.NewTask(TaskDeployStep, payload, opts...), nil
+}
+
+// DeployHandler advances container deployments.
+type DeployHandler struct {
+	Deployer *deploy.Deployer
+	Client   *Client
+	Log      zerolog.Logger
+}
+
+// HandleStep advances one deployment.
+//
+// Waiting on a script that is still installing is not a failure, so it does not
+// come back as an error: asynq's backoff would exhaust MaxRetry while a
+// container was still being built, and the deployment would be abandoned with
+// the install still running on the node.
+func (h *DeployHandler) HandleStep(ctx context.Context, t *asynq.Task) error {
+	var payload DeployPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return fmt.Errorf("%w: %v", asynq.SkipRetry, err)
+	}
+
+	err := h.Deployer.Step(ctx, payload.DeploymentID)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, deploy.ErrStillRunning):
+		return h.Client.EnqueueDeployStep(ctx, payload.DeploymentID, deploy.PollInterval)
+	default:
+		return err
+	}
 }
 
 // SyncHandler runs synchronization tasks.

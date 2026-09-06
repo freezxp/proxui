@@ -22,6 +22,7 @@ import (
 
 	appalert "github.com/freezxp/proxui/internal/app/alert"
 	"github.com/freezxp/proxui/internal/app/command"
+	"github.com/freezxp/proxui/internal/app/deploy"
 	"github.com/freezxp/proxui/internal/app/imageprep"
 	"github.com/freezxp/proxui/internal/app/nodecheck"
 	appnotify "github.com/freezxp/proxui/internal/app/notify"
@@ -265,6 +266,26 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		// is there and working (SSH-15).
 		Keys: postgres.NewPortalKeyRepository(pool, vault),
 	}
+
+	// Installing an application into a container, from the catalogue vendored
+	// at a reviewed commit. The largest thing the portal does to a node, over
+	// the same pinned-key SSH seam as sensors and template preparation
+	// (ADR 0012).
+	deployments := postgres.NewDeploymentRepository(pool)
+	deployer := &deploy.Deployer{
+		Deployments: deployments,
+		Platforms:   platforms,
+		Platform:    syncService,
+		Hosts:       sensorRepo,
+		SSH:         sensorRepo,
+		Key:         postgres.NewPortalKeyRepository(pool, vault),
+		Runner:      sshclient.NewDialer(),
+		Queue:       queue,
+		Sync:        queue,
+		Audit:       audit,
+		Clock:       clock,
+		Log:         log,
+	}
 	defer queue.Close()
 
 	signingKey, err := crypto.LoadOrCreateRSAKey(cfg.JWTKeyFile)
@@ -415,6 +436,8 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		Enabled: registrationPolicy.LiveReadsEnabled,
 	}
 
+	deployDeps := httpapi.DeployDeps{Deployer: deployer, Deployments: deployments}
+
 	provisionDeps := httpapi.ProvisionDeps{
 		Provision: &command.Provision{
 			Requests: provisions, Platforms: platforms, Sync: syncService,
@@ -473,6 +496,7 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Admin:     adminDeps,
 			Platforms: platformDeps,
 			Provision: provisionDeps,
+			Deploy:    deployDeps,
 			Personal: httpapi.PersonalDeps{
 				Personal: &command.Personal{
 					Store: personal, Inventory: liveInventory, Clock: clock,
@@ -628,8 +652,9 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 			Notifier: dispatcher,
 		}
 		provisionHandler := &jobs.ProvisionHandler{Driver: provisionDriver, Client: queue, Log: log}
+		deployHandler := &jobs.DeployHandler{Deployer: deployer, Client: queue, Log: log}
 		worker := jobs.NewWorker(rdb.Client, &jobs.SyncHandler{Service: syncService, Log: log}, relay,
-			provisionHandler, log)
+			provisionHandler, deployHandler, log)
 		if err := worker.Start(); err != nil {
 			return err
 		}
@@ -641,6 +666,11 @@ func run(ctx context.Context, cfg config.Config, log zerolog.Logger) error {
 		// (ADR 0010).
 		if err := provisionHandler.ResumeOpenRequests(ctx); err != nil {
 			log.Warn().Err(err).Msg("could not resume open provisioning requests")
+		}
+		// A deployment's script is detached on the node and kept going through
+		// the restart; this is only the portal picking its log back up.
+		if err := deployer.Resume(ctx); err != nil {
+			log.Warn().Err(err).Msg("could not resume open container deployments")
 		}
 	}
 

@@ -142,7 +142,13 @@ var permissionMap = map[string]Permission{
 	// hypervisor, which is the largest thing the portal does to a node.
 	"GET /api/v1/platforms/{platformID}/readiness":             roles(identity.RoleAdmin),
 	"POST /api/v1/platforms/{platformID}/nodes/{node}/install": roles(identity.RoleAdmin),
-	"GET /api/v1/image-catalogue":                              roles(identity.RoleAdmin),
+	// Container apps (ADR 0012). Deploying runs a large third-party program as
+	// root on a hypervisor, which is the largest thing the portal does to one.
+	"GET /api/v1/container-apps":                                roles(identity.RoleAdmin),
+	"GET /api/v1/container-deployments":                         roles(identity.RoleAdmin),
+	"GET /api/v1/container-deployments/{deploymentID}":          roles(identity.RoleAdmin),
+	"POST /api/v1/platforms/{platformID}/container-deployments": roles(identity.RoleAdmin),
+	"GET /api/v1/image-catalogue":                               roles(identity.RoleAdmin),
 
 	// A user's own view of the inventory (INV-16…INV-19). Authenticated rather
 	// than role-gated: starring a machine you can already see changes nothing

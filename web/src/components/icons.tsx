@@ -115,6 +115,18 @@ export const IconSettings: Icon = (props) => (
   </Glyph>
 )
 
+export const IconContainerApps: Icon = (props) => (
+  <Glyph {...props}>
+    {/* A box with something being put into it: a container, and an application
+        going in. Deliberately not the globe that marks publishing — the two
+        are next to each other in the product's vocabulary and must not be in
+        its iconography. */}
+    <path d="M3.5 8.5 12 4l8.5 4.5v7L12 20l-8.5-4.5z" />
+    <path d="M3.5 8.5 12 13l8.5-4.5" />
+    <path d="M12 13v7" />
+  </Glyph>
+)
+
 export const IconPublishing: Icon = (props) => (
   <Glyph {...props}>
     {/* A globe with a link through it: something private, reachable from

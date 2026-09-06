@@ -17,6 +17,7 @@ import (
 
 	"github.com/freezxp/proxui/internal/domain/access"
 	"github.com/freezxp/proxui/internal/domain/console"
+	"github.com/freezxp/proxui/internal/domain/deployment"
 	"github.com/freezxp/proxui/internal/domain/identity"
 	"github.com/freezxp/proxui/internal/domain/inventory"
 	"github.com/freezxp/proxui/internal/domain/notify"
@@ -265,6 +266,28 @@ type ProvisionRepository interface {
 type ProvisionEnqueuer interface {
 	EnqueueProvisionStep(ctx context.Context, requestID uuid.UUID, delay time.Duration) error
 	EnqueueInventorySync(ctx context.Context, platformID uuid.UUID, trigger string) error
+}
+
+// DeploymentRepository persists container deployments (ADR 0012).
+//
+// Durable for the same reason a provisioning request is: the work is minutes
+// long and outlives the call that asked for it. Separate from
+// ProvisionRepository because the two records are different shapes — one has a
+// template and a cloud-init spec, the other a catalogue entry and a transcript.
+type DeploymentRepository interface {
+	Create(ctx context.Context, d *deployment.Deployment) error
+	Save(ctx context.Context, d *deployment.Deployment) error
+	Get(ctx context.Context, id uuid.UUID) (*deployment.Deployment, error)
+	List(ctx context.Context, platformID uuid.UUID, limit int) ([]*deployment.Deployment, error)
+	// ListOpen returns what has not finished, which is what a restarted portal
+	// picks back up.
+	ListOpen(ctx context.Context) ([]*deployment.Deployment, error)
+}
+
+// DeployEnqueuer schedules another turn of the deployer, which is how a script
+// that runs for fifteen minutes is waited on without holding a goroutine.
+type DeployEnqueuer interface {
+	EnqueueDeployStep(ctx context.Context, id uuid.UUID, delay time.Duration) error
 }
 
 // PlatformEndpoint is one address a platform answers on, beyond the one an

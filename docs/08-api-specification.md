@@ -237,6 +237,30 @@ write-only — so a configured platform had nowhere to show it. `POST
 `missing_provisioning_privileges`, `template_build_available` and
 `missing_template_privileges`.
 
+## 8.5c Container apps ([ADR 0012](adr/0012-the-portal-runs-a-vetted-catalogue-on-a-node.md))
+
+Admin-only, every one of them: deploying runs a large third-party program as
+root on a hypervisor, which is the largest thing the portal does to a node.
+Distinct from published apps (§8.9), which are Cloudflare hostnames and run
+nothing — these endpoints say "container" throughout for that reason.
+
+| Method & URI | Roles | Description |
+|---|---|---|
+| GET `/container-apps` | admin | The shipped catalogue → `{data: [{id, name, tags[], source?, cores?, memory_mb?, disk_gb?, os?, version?, privileged?}], tags[], upstream: {scripts_repo, scripts_ref, engine_repo, engine_ref}}`. `?q=` and `?tag=` narrow it. Shipped, never fetched: the portal's egress is allow-listed to the cluster. A missing resource default means the script decides — usually branching on container OS — and the portal sends nothing rather than a guess |
+| POST `/platforms/{id}/container-deployments` | admin | `{app_id, node, hostname?, cores?, memory_mb?, disk_gb?, storage?, bridge?, unprivileged?}` → 202. **`app_id` is a catalogue identifier**, never a command, a URL or a package; one the binary does not know answers 422. Everything else is validated as a number or an identifier and reaches the node as an environment assignment. 409 `node.not_pinned` when the portal has not met the node — check the platform's readiness first |
+| GET `/container-deployments` | admin | Recent deployments, newest first; `?platform_id=&limit=`. Without the transcript |
+| GET `/container-deployments/{id}` | admin | One deployment **with its `log`**. Poll this while `state` is `pending` or `deploying` |
+
+States run `pending → deploying → ready \| failed`. The script is detached on
+the node and outlives both the connection that started it and a portal restart;
+its transcript is a file there, and the portal fetches the last 200 kB each poll
+and stores the last 256 kB. A deploy that has not finished after forty minutes
+is closed out with what it printed. Nothing is cleaned up on failure, for the
+same reason a failed provisioning run leaves its guest in place (PROV-06).
+
+There is no update and no remove. The portal records what it deployed; it does
+not own the container afterwards.
+
 ## 8.6 Groups, grants, users
 
 | Method & URI | Roles | Description |

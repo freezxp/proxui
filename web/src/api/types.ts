@@ -695,6 +695,63 @@ export interface Template {
 }
 
 /** A create-or-destroy request, polled while it runs. */
+/** One application the portal can install into an LXC container (ADR 0012).
+ *  Not a PublishedApp, which is a Cloudflare hostname and has nothing to do
+ *  with running software. */
+export interface ContainerApp {
+  id: string
+  name: string
+  tags?: string[]
+  /** The application's own project page, not the script's. */
+  source?: string
+  /** The script's own defaults, for showing and for prefilling. A missing one
+   *  means the script decides — usually because it branches on container OS —
+   *  and the portal then sends nothing rather than overriding with a guess. */
+  cores?: number
+  memory_mb?: number
+  disk_gb?: number
+  os?: string
+  version?: string
+  /** The exception, and why the field is named for it: nearly all of these run
+   *  unprivileged. */
+  privileged?: boolean
+}
+
+/** Which upstream commits the catalogue and the vendored scripts came from. */
+export interface ContainerAppUpstream {
+  scripts_repo: string
+  scripts_ref: string
+  engine_repo: string
+  engine_ref: string
+}
+
+export interface ContainerDeployment {
+  id: string
+  platform_id: string
+  node: string
+  app_id: string
+  app_name: string
+  /** The container the script made, once it has made one. */
+  ctid?: string
+  state: 'pending' | 'deploying' | 'ready' | 'failed'
+  requested_by?: string
+  spec: {
+    hostname?: string
+    cores?: number
+    memory_mb?: number
+    disk_gb?: number
+    storage?: string
+    bridge?: string
+    unprivileged?: boolean
+  }
+  exit_code?: number
+  error?: string
+  /** The script's transcript, on the detail response only. */
+  log?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ProvisionRequest {
   id: string
   platform_id: string

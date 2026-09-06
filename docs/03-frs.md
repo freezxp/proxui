@@ -82,6 +82,17 @@ Requirement IDs are stable and referenced from tests and sprint tasks. Priority:
 | NODE-04 | M | Installing is admin-only, confirmed in the UI, and written to the audit log as `node.install` with the node, the packages and the outcome. The command that would run is shown before it runs. |
 | NODE-05 | M | What the portal cannot fix is still reported: the portal's own SSH key, whose installation needs the access it grants, and the platform credential's privileges, which are widened on the cluster. Each is reported with the exact command or privilege rather than omitted. |
 
+## 3.3c Container apps (APP) — [ADR 0012](adr/0012-the-portal-runs-a-vetted-catalogue-on-a-node.md)
+
+| ID | Pri | Requirement |
+|---|---|---|
+| APP-01 | S | Admin can browse a catalogue of applications that can be deployed into an LXC container, searchable and filterable by tag. The catalogue is generated from a pinned upstream commit and ships in the binary; it is never fetched at run time, because the portal's egress is allow-listed to the cluster. |
+| APP-02 | S | Admin can deploy one catalogue entry to a chosen node, setting hostname, cores, memory, disk, storage, bridge and privilege. Each value is validated as a number or against a pattern and passed as an environment assignment; nothing from the request is placed in a command. |
+| APP-03 | M | A request names a catalogue identifier, never a command, a URL or a package. An identifier the binary does not recognise is refused before anything is dialled. The entry script's bytes ship in the binary and both upstream roots are pinned to reviewed commits. |
+| APP-04 | M | Deploying is admin-only, requires the node's host key to be already pinned, shows the exact command before it runs, and writes a `container.deploy` audit entry naming the node, the application and the outcome. |
+| APP-05 | S | A deployment is a durable record advancing `pending → deploying → ready \| failed`. It survives a portal restart, and the script's output is kept and shown — a deploy that fails halfway cannot be explained by a state name alone. |
+| APP-06 | S | A deployed container is not owned afterwards: it appears in the inventory like any other guest, with console, terminal and power already working. Updating and removing it are out of scope, and the portal says so rather than implying a lifecycle it does not have. |
+
 ## 3.4 Synchronization (SYNC) — summary; full design in [10-sync-engine.md](10-sync-engine.md)
 
 | ID | Pri | Requirement |

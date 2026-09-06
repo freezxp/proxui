@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- **Container apps** (APP-01…APP-06,
+  [ADR 0012](docs/adr/0012-the-portal-runs-a-vetted-catalogue-on-a-node.md)).
+  590 applications you can install into an LXC container from the portal —
+  the community Proxmox VE Helper-Scripts, which are how most people put an
+  application on a Proxmox host and which otherwise mean copy-pasting a command
+  from a website into a root shell.
+
+  The portal already owned everything around that act: it knows the nodes and
+  their addresses, holds a pinned key to each, and shows the resulting container
+  in the inventory with its console, terminal and power controls already
+  working. None of that needed anything new, because a guest's type has always
+  been data threaded through the connector rather than a branch.
+
+  **This is the largest thing the portal does to a node, and it needed an ADR
+  before any code.** Every ADR before it held node access to one fixed command;
+  ADR 0011 explicitly refused to let a request name a package because that would
+  become "remote package execution as a service". This is that and more. What
+  bounds it: a request names a **catalogue identifier**, never a command, a URL
+  or a package; all 590 scripts are **vendored in the binary** at a reviewed
+  commit, so the portal does not fetch the thing it is about to run; **both
+  upstream repositories are pinned to commits**, so what the script pulls in is
+  fixed rather than whatever was on a branch that morning; and the dialog shows
+  the exact command before it runs. Admin-only, audited as `container.deploy`,
+  and the node's host key must already be pinned.
+
+  What it does not claim, and the ADR says so plainly: pinned is not verified.
+  The engine and the in-container installer are fetched from those pinned
+  commits while the script runs, so ProxUI has fixed *which* bytes will run
+  without having seen them. Vendoring the engine too is the named next step.
+
+  Two things fell out of it. The scripts are vendored as **plain files rather
+  than an archive**, because the whole compensating control is that a pin bump
+  is a diff somebody reads, and a tarball's diff says only that some bytes
+  changed. And the deployment view is the **first place in the portal to show
+  the output of a non-interactive command run on a node** — everything else
+  reports a state and a sentence, which cannot explain a fifteen-minute script
+  that stopped two thirds of the way through. The transcript lives on the node,
+  so it survives a portal restart and the install keeps going through one.
+
+  Deploy only. No update, no remove: the portal records what it deployed and
+  does not pretend to own the container afterwards.
+
 - **A guest built with the portal's key was told to install the portal's key**
   (SSH-15). Provisioning offers to put the public half into cloud-init, and it
   works — the key is on the guest and authenticates — but nothing recorded it,

@@ -71,6 +71,18 @@ func (c *Client) EnqueueInventorySync(ctx context.Context, platformID uuid.UUID,
 	return nil
 }
 
+// EnqueueDeployStep queues one turn of the container deployer.
+func (c *Client) EnqueueDeployStep(ctx context.Context, deploymentID uuid.UUID, delay time.Duration) error {
+	task, err := NewDeployTask(deploymentID, delay)
+	if err != nil {
+		return err
+	}
+	if _, err := c.inner.EnqueueContext(ctx, task); err != nil && !isDuplicate(err) {
+		return fmt.Errorf("enqueue deploy step: %w", err)
+	}
+	return nil
+}
+
 // EnqueueProvisionStep queues one turn of the provisioning driver.
 //
 // A duplicate is not an error: the step already queued will do the work, and
@@ -95,7 +107,8 @@ type Worker struct {
 }
 
 // NewWorker builds the task consumer.
-func NewWorker(rdb *redis.Client, handler *SyncHandler, relay *Relay, provision *ProvisionHandler, log zerolog.Logger) *Worker {
+func NewWorker(rdb *redis.Client, handler *SyncHandler, relay *Relay, provision *ProvisionHandler,
+	deployments *DeployHandler, log zerolog.Logger) *Worker {
 	server := asynq.NewServer(redisOpt(rdb), asynq.Config{
 		Concurrency: 8,
 		// Health probes must not queue behind a slow inventory sync: they are
@@ -118,6 +131,9 @@ func NewWorker(rdb *redis.Client, handler *SyncHandler, relay *Relay, provision 
 	mux.HandleFunc(TaskOutboxRelay, relay.Handle)
 	if provision != nil {
 		mux.HandleFunc(TaskProvisionStep, provision.HandleStep)
+	}
+	if deployments != nil {
+		mux.HandleFunc(TaskDeployStep, deployments.HandleStep)
 	}
 
 	return &Worker{server: server, mux: mux, log: log}

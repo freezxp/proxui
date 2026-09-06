@@ -8,6 +8,7 @@ import { ChangePasswordDialog } from '@/features/auth/ChangePasswordDialog'
 import { TwoFactorDialog } from '@/features/auth/TwoFactorPanel'
 import {
   IconAudit,
+  IconContainerApps,
   IconChevronLeft,
   IconDashboard,
   IconHosts,
@@ -54,6 +55,15 @@ const NAV: NavGroup[] = [
       { to: '/hosts', label: 'Hosts', icon: IconHosts, visible: can.viewInfrastructure },
       { to: '/storage', label: 'Storage', icon: IconStorage, visible: can.viewInfrastructure },
       { to: '/networks', label: 'Networks', icon: IconNetworks, visible: can.viewInfrastructure },
+      // Installing software into a container, which is infrastructure work —
+      // and deliberately not beside Published apps, which exposes a hostname
+      // and runs nothing (ADR 0012).
+      {
+        to: '/container-apps',
+        label: 'Container apps',
+        icon: IconContainerApps,
+        visible: can.managePlatforms,
+      },
     ],
   },
   {

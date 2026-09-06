@@ -55,6 +55,7 @@ type ServerConfig struct {
 	Admin      AdminDeps
 	Platforms  PlatformDeps
 	Provision  ProvisionDeps
+	Deploy     DeployDeps
 	Personal   PersonalDeps
 	Metrics    MetricsDeps
 	Inventory  InventoryDeps
@@ -110,6 +111,7 @@ type Server struct {
 	admin         AdminDeps
 	platforms     PlatformDeps
 	provision     ProvisionDeps
+	deploy        DeployDeps
 	personal      PersonalDeps
 	metrics       MetricsDeps
 	inventory     InventoryDeps
@@ -147,6 +149,7 @@ func NewServer(cfg ServerConfig) *Server {
 		registration:  cfg.Registration,
 		admin:         cfg.Admin,
 		platforms:     cfg.Platforms,
+		deploy:        cfg.Deploy,
 		provision:     cfg.Provision,
 		personal:      cfg.Personal,
 		metrics:       cfg.Metrics,
@@ -319,6 +322,10 @@ func (s *Server) Routes() http.Handler {
 					// package changes software on a hypervisor.
 					r.Get("/{platformID}/readiness", s.handleReadiness)
 					r.Post("/{platformID}/nodes/{node}/install", s.handleInstallPrerequisite)
+					// Installing an application into a container. The largest
+					// thing the portal does to a node, so it sits with the
+					// rest of the admin-only platform group (ADR 0012).
+					r.Post("/{platformID}/container-deployments", s.handleDeployContainerApp)
 				})
 			})
 
@@ -342,6 +349,16 @@ func (s *Server) Routes() http.Handler {
 
 			r.With(RequireRole(identity.RoleAdmin)).
 				Delete("/published-apps/{appID}", s.handleUnpublishApp)
+
+			// Container apps: the shipped catalogue and what has been deployed
+			// from it. Not published apps, which are Cloudflare hostnames
+			// (ADR 0012).
+			r.Group(func(r chi.Router) {
+				r.Use(RequireRole(identity.RoleAdmin))
+				r.Get("/container-apps", s.handleListContainerApps)
+				r.Get("/container-deployments", s.handleListDeployments)
+				r.Get("/container-deployments/{deploymentID}", s.handleGetDeployment)
+			})
 
 			r.With(RequireRole(identity.RoleAdmin)).Get("/connectors", s.handleListConnectors)
 

@@ -1,9 +1,13 @@
 # 28. Published apps — Cloudflare Tunnel management
 
-**Status: proposal, unblocked.** Nothing here is built. This is the
-requirement set and plan for a panel that publishes internal services through
-a Cloudflare Tunnel. The three questions that would have changed the shape of
-it are answered in §28.10.
+**Status: built.** This was written as the requirement set and plan for a panel
+that publishes internal services through a Cloudflare Tunnel; the panel exists
+now — domain, storage, API and UI — and this document describes it. The three
+questions that would have changed its shape are answered in §28.10.
+
+Not to be confused with **[Container apps](31-container-apps.md)**, which
+installs an application into an LXC. A published app is a hostname; a container
+app is software. They share a word and nothing else.
 
 ## 28.1 What this is, and why it is not obvious
 

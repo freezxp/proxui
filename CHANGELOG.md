@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **The README has pictures, and they are of nobody's cluster.** Seven
+  screenshots of the running portal, captured against the built-in mock
+  connector rather than the live estate — `mock-vm-001`, `lab-cluster`,
+  `10.10.0.x`.
+
+  That is not a stylistic choice. The repository is public, and the real ones
+  showed VM names, node addresses, storage capacities and the SSH host-key
+  fingerprints of four nodes; git history keeps those even if the images are
+  deleted later. The mock implements the same connector interface, so the UI in
+  the pictures is the real UI.
+
+  Also brought up to date: the design package index gained document 31 and an
+  ADR index, the decision table gained the three rows that four ADRs' worth of
+  node access had made it wrong about, and `docs/28` stopped saying "nothing
+  here is built" about a feature that shipped.
+
 - **Container apps** (APP-01…APP-06,
   [ADR 0012](docs/adr/0012-the-portal-runs-a-vetted-catalogue-on-a-node.md)).
   590 applications you can install into an LXC container from the portal —

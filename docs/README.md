@@ -18,6 +18,8 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | Console access | Backend WebSocket proxy (noVNC/xterm.js) |
 | Guest shell access | Backend SSH bridge (xterm.js + SFTP); guest credential typed per session, never stored ([ADR 0005](adr/0005-ssh-credentials-are-never-stored.md)). The portal holds one key of its own, installed per account by an operator ([ADR 0006](adr/0006-portal-owned-ssh-key.md)) |
 | Node hardware | Temperatures come from the node over SSH with the portal's own key, because Proxmox publishes none ([ADR 0007](adr/0007-the-portal-reads-node-sensors-over-ssh.md)). One fixed command, never a shell |
+| Node software | The portal checks what a node is missing and installs the two packages it knows ([ADR 0011](adr/0011-the-portal-can-install-what-it-needs-on-a-node.md)), and deploys applications into containers from a vendored, commit-pinned catalogue ([ADR 0012](adr/0012-the-portal-runs-a-vetted-catalogue-on-a-node.md)). A request names an identifier; the command is always the binary's |
+| Provisioning | The portal creates and destroys guests from cloud-init templates it can also build ([ADR 0010](adr/0010-the-portal-can-create-and-destroy-guests.md)); a platform whose token was never widened simply cannot, and says so |
 | Authentication | Built-in (argon2id + JWT, optional TOTP) |
 | Platform auth | Proxmox API tokens, PVE 8.x–9.x (verified against 9.2) |
 | Metrics retention | 1 year+ (TimescaleDB) |
@@ -56,9 +58,31 @@ A self-hosted portal giving administrators, infrastructure engineers, and operat
 | 25 | [Security Checklist](25-security-checklist.md) | ASVS L2 pass with evidence, including what is not met |
 | 26 | [Google Sign-in Setup](26-google-sign-in.md) | creating the OAuth client, and the address rules Google enforces |
 | 27 | [Adding a Platform](27-adding-a-platform.md) | the Proxmox token and privileges every feature needs, end to end |
-| 28 | [Published Apps](28-published-apps.md) | **proposal** — managing Cloudflare Tunnel hostnames from the portal |
+| 28 | [Published Apps](28-published-apps.md) | managing Cloudflare Tunnel hostnames from the portal — exposing a service, not running one |
 | 29 | [SSH Terminal](29-ssh-terminal.md) | in-browser SSH with a file browser, and why the credential is never kept |
 | 30 | [Node Temperatures](30-node-sensors.md) | why the Proxmox API cannot answer this, and what the portal does instead |
+| 31 | [Container Apps](31-container-apps.md) | installing an application into an LXC from a vendored catalogue, and what pinning does not promise |
+
+## Decision records
+
+The design above described the system before it was built. Where the
+implementation went somewhere else, an ADR says why — and four of them are
+about the same slowly moving boundary, which is worth reading in order.
+
+| # | Decision |
+|---|---|
+| [0001](adr/0001-uplot-for-metric-charts.md) | µPlot for metric charts |
+| [0002](adr/0002-portal-answers-the-console-handshake.md) | The portal answers the console handshake |
+| [0003](adr/0003-self-registration-and-google-sign-in.md) | Self-registration and Google sign-in |
+| [0004](adr/0004-the-portal-configures-the-edge.md) | The portal configures the edge |
+| [0005](adr/0005-ssh-credentials-are-never-stored.md) | SSH credentials are never stored |
+| [0006](adr/0006-portal-owned-ssh-key.md) | The portal owns one SSH key |
+| [0007](adr/0007-the-portal-reads-node-sensors-over-ssh.md) | **The portal reads node sensors over SSH** — one fixed command, never a shell |
+| [0008](adr/0008-detached-ssh-sessions-are-reclaimed-early.md) | Detached SSH sessions are reclaimed early |
+| [0009](adr/0009-a-platform-is-reached-through-any-cluster-member.md) | A platform is reached through any cluster member |
+| [0010](adr/0010-the-portal-can-create-and-destroy-guests.md) | The portal can create and destroy guests |
+| [0011](adr/0011-the-portal-can-install-what-it-needs-on-a-node.md) | **The portal can install what it needs on a node** — amends 0007, which was drawn around reading |
+| [0012](adr/0012-the-portal-runs-a-vetted-catalogue-on-a-node.md) | **The portal runs a vetted catalogue on a node** — the largest step, and the one most careful about what it does not claim |
 
 ## How to read this package
 
